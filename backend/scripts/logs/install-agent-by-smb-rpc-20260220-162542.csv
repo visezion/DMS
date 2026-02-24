@@ -1,0 +1,2 @@
+"ip","ok","seconds","message"
+"172.16.155.165","False","35","Failed to authenticate ADMIN$ share using provided credentials."

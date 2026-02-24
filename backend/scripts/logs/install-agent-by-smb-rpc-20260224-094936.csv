@@ -1,0 +1,2 @@
+"ip","ok","seconds","message"
+"10.0.43.148","False","72","Required ports not reachable (445=False, 135=False)."

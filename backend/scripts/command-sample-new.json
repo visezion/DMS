@@ -1,0 +1,28 @@
+{
+    "server_time":  "2026-02-22T13:16:35+02:00",
+    "commands":  [
+                     {
+                         "envelope":  {
+                                          "schema":  "dms.command.v1",
+                                          "command_id":  "e0ee049a-f857-4551-a0d9-80227d95f8f8",
+                                          "device_id":  "11111111-1111-4111-8111-111111111111",
+                                          "sequence":  1771758995,
+                                          "nonce":  "ntYRqgTUYEapj8CO/e4NUQ==",
+                                          "issued_at":  "2026-02-22T11:16:35.0046640+00:00",
+                                          "expires_at":  "2026-02-22T11:21:35.0046640+00:00",
+                                          "type":  "install_package",
+                                          "payload":  {
+                                                          "package_id":  "7d1756c7-fe07-4c73-8c0e-b07f3de44bef",
+                                                          "package_version_id":  "eed5d26a-1cc5-4935-92b7-4be8b26a0d32",
+                                                          "winget_id":  "Notepad++.Notepad++"
+                                                      },
+                                          "payload_sha256":  "1bd6fbe0e553059cc8cd802f03354baf535ec13a4a56b22d254381e5cc5f6d9e"
+                                      },
+                         "signature":  {
+                                           "kid":  "cmd-20260222-015304-zsuivu",
+                                           "alg":  "Ed25519",
+                                           "sig":  "XH2FG9JJxHzEq+EJmBry0EDGAysUivijnS19V7TNNqoXL8y3eyPcu6Ezi7Uoxvm99HgtWwdr4W3d6/ZBj7b+CQ=="
+                                       }
+                     }
+                 ]
+}

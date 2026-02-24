@@ -1,0 +1,356 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Microsoft.Extensions.Hosting.WindowsServices</name>
+    </assembly>
+    <members>
+        <member name="T:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers">
+            <summary>
+            Helper methods for Windows Services.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService">
+            <summary>
+            Check if the current process is hosted as a Windows Service.
+            </summary>
+            <returns>
+            <see langword="true" /> if the current process is hosted as a Windows Service; otherwise, <see langword="false" />.
+            </returns>
+        </member>
+        <member name="T:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime">
+            <summary>
+            Listens for shutdown signal and tracks the status of the Windows service.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime.#ctor(Microsoft.Extensions.Hosting.IHostEnvironment,Microsoft.Extensions.Hosting.IHostApplicationLifetime,Microsoft.Extensions.Logging.ILoggerFactory,Microsoft.Extensions.Options.IOptions{Microsoft.Extensions.Hosting.HostOptions})">
+            <summary>
+            Initializes a new <see cref="T:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime"/> instance.
+            </summary>
+            <param name="environment">Information about the host.</param>
+            <param name="applicationLifetime">The <see cref="T:Microsoft.Extensions.Hosting.IHostApplicationLifetime"/> that tracks the service lifetime.</param>
+            <param name="loggerFactory">The <see cref="T:Microsoft.Extensions.Logging.ILoggerFactory"/> used to instantiate the lifetime logger.</param>
+            <param name="optionsAccessor">The <see cref="T:Microsoft.Extensions.Options.IOptions`1"/> containing options for the service.</param>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime.#ctor(Microsoft.Extensions.Hosting.IHostEnvironment,Microsoft.Extensions.Hosting.IHostApplicationLifetime,Microsoft.Extensions.Logging.ILoggerFactory,Microsoft.Extensions.Options.IOptions{Microsoft.Extensions.Hosting.HostOptions},Microsoft.Extensions.Options.IOptions{Microsoft.Extensions.Hosting.WindowsServiceLifetimeOptions})">
+            <summary>
+            Initializes a new instance of the <see cref="T:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime"/> class.
+            </summary>
+            <param name="environment">Information about the host.</param>
+            <param name="applicationLifetime">The <see cref="T:Microsoft.Extensions.Hosting.IHostApplicationLifetime"/> that tracks the service lifetime.</param>
+            <param name="loggerFactory">The <see cref="T:Microsoft.Extensions.Logging.ILoggerFactory"/> used to instantiate the lifetime logger.</param>
+            <param name="optionsAccessor">The <see cref="T:Microsoft.Extensions.Options.IOptions`1"/> containing options for the service.</param>
+            <param name="windowsServiceOptionsAccessor">The Windows service options used to find the service name.</param>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime.WaitForStartAsync(System.Threading.CancellationToken)">
+            <summary>
+            Asynchronously waits until start is complete before continuing. This method is called at the beginning of <see cref="M:Microsoft.Extensions.Hosting.IHost.StartAsync(System.Threading.CancellationToken)" />. This can be used to delay startup until signaled by an external event.
+            </summary>
+            <param name="cancellationToken">
+            A cancellation token that indicates when stop should no longer be graceful.
+            </param>
+            <returns>
+            A task that represents the asynchronous waiting for start operation.
+            </returns>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime.StopAsync(System.Threading.CancellationToken)">
+            <summary>
+            Asynchronously stops and shuts down the host. This method is called from <see cref="M:Microsoft.Extensions.Hosting.IHost.StopAsync(System.Threading.CancellationToken)" />.
+            </summary>
+            <param name="cancellationToken">
+            A cancellation token that indicates when stop should no longer be graceful.
+            </param>
+            <returns>
+            A task that represents the asynchronous stop operation.
+            </returns>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime.OnStart(System.String[])">
+            <inheritdoc />
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime.OnStop">
+            <summary>
+            Executes when a Stop command is sent to the service by the Service Control Manager (SCM).
+            Triggers <see cref="P:Microsoft.Extensions.Hosting.IHostApplicationLifetime.ApplicationStopping"/> and waits for <see cref="P:Microsoft.Extensions.Hosting.IHostApplicationLifetime.ApplicationStopped"/>.
+            Shortly after this method returns, the Service will be marked as stopped in SCM and the process may exit at any point.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime.OnShutdown">
+            <summary>
+            Executes when a Shutdown command is sent to the service by the Service Control Manager (SCM).
+            Triggers <see cref="P:Microsoft.Extensions.Hosting.IHostApplicationLifetime.ApplicationStopping"/> and waits for <see cref="P:Microsoft.Extensions.Hosting.IHostApplicationLifetime.ApplicationStopped"/>.
+            Shortly after this method returns, the Service will be marked as stopped in SCM and the process may exit at any point.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime.Dispose(System.Boolean)">
+            <summary>
+            Releases the resources used by the <see cref="T:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime"/>.
+            </summary>
+            <param name="disposing"><see langword="true" /> only when called from <see cref="M:System.IDisposable.Dispose"/>; otherwise, <see langword="false" />.</param>
+        </member>
+        <member name="T:Microsoft.Extensions.Hosting.WindowsServiceLifetimeHostBuilderExtensions">
+            <summary>
+            Extension methods for setting up WindowsServiceLifetime.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServiceLifetimeHostBuilderExtensions.UseWindowsService(Microsoft.Extensions.Hosting.IHostBuilder)">
+            <summary>
+            Sets the host lifetime to <see cref="T:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime"/> and enables logging to the event log with
+            the application name as the default source name.
+            </summary>
+            <remarks>
+            This is context aware and will only activate if it detects the process is running as a Windows Service.
+            </remarks>
+            <param name="hostBuilder">The <see cref="T:Microsoft.Extensions.Hosting.IHostBuilder"/> to operate on.</param>
+            <returns>The <paramref name="hostBuilder"/> instance for chaining.</returns>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServiceLifetimeHostBuilderExtensions.UseWindowsService(Microsoft.Extensions.Hosting.IHostBuilder,System.Action{Microsoft.Extensions.Hosting.WindowsServiceLifetimeOptions})">
+            <summary>
+            Sets the host lifetime to <see cref="T:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime"/> and enables logging to the event log with the application
+            name as the default source name.
+            </summary>
+            <remarks>
+            This is context aware and will only activate if it detects the process is running
+            as a Windows Service.
+            </remarks>
+            <param name="hostBuilder">The <see cref="T:Microsoft.Extensions.Hosting.IHostBuilder"/> to operate on.</param>
+            <param name="configure">An <see cref="T:System.Action`1"/> to configure the provided <see cref="T:Microsoft.Extensions.Hosting.WindowsServiceLifetimeOptions"/>.</param>
+            <returns>The <paramref name="hostBuilder"/> instance for chaining.</returns>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServiceLifetimeHostBuilderExtensions.AddWindowsService(Microsoft.Extensions.DependencyInjection.IServiceCollection)">
+            <summary>
+            Configures the lifetime of the <see cref="T:Microsoft.Extensions.Hosting.IHost"/> built from <paramref name="services"/> to
+            <see cref="T:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime"/> and enables logging to the event log with the application
+            name as the default source name.
+            </summary>
+            <remarks>
+            This is context aware and will only activate if it detects the process is running
+            as a Windows Service.
+            </remarks>
+            <param name="services">
+            The <see cref="T:Microsoft.Extensions.DependencyInjection.IServiceCollection"/> used to build the <see cref="T:Microsoft.Extensions.Hosting.IHost"/>.
+            For example, <see cref="P:Microsoft.Extensions.Hosting.HostApplicationBuilder.Services"/> or the <see cref="T:Microsoft.Extensions.DependencyInjection.IServiceCollection"/> passed to the
+            <see cref="M:Microsoft.Extensions.Hosting.IHostBuilder.ConfigureServices(System.Action{Microsoft.Extensions.Hosting.HostBuilderContext,Microsoft.Extensions.DependencyInjection.IServiceCollection})"/> callback.
+            </param>
+            <returns>The <paramref name="services"/> instance for chaining.</returns>
+        </member>
+        <member name="M:Microsoft.Extensions.Hosting.WindowsServiceLifetimeHostBuilderExtensions.AddWindowsService(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.Extensions.Hosting.WindowsServiceLifetimeOptions})">
+            <summary>
+            Configures the lifetime of the <see cref="T:Microsoft.Extensions.Hosting.IHost"/> built from <paramref name="services"/> to
+            <see cref="T:Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceLifetime"/> and enables logging to the event log with the application name as the default source name.
+            </summary>
+            <remarks>
+            This is context aware and will only activate if it detects the process is running
+            as a Windows Service.
+            </remarks>
+            <param name="services">
+            The <see cref="T:Microsoft.Extensions.DependencyInjection.IServiceCollection"/> used to build the <see cref="T:Microsoft.Extensions.Hosting.IHost"/>.
+            For example, <see cref="P:Microsoft.Extensions.Hosting.HostApplicationBuilder.Services"/> or the <see cref="T:Microsoft.Extensions.DependencyInjection.IServiceCollection"/> passed to the
+            <see cref="M:Microsoft.Extensions.Hosting.IHostBuilder.ConfigureServices(System.Action{Microsoft.Extensions.Hosting.HostBuilderContext,Microsoft.Extensions.DependencyInjection.IServiceCollection})"/> callback.
+            </param>
+            <param name="configure">An <see cref="T:System.Action`1"/> to configure the provided <see cref="T:Microsoft.Extensions.Hosting.WindowsServiceLifetimeOptions"/>.</param>
+            <returns>The <paramref name="services"/> instance for chaining.</returns>
+        </member>
+        <member name="T:Microsoft.Extensions.Hosting.WindowsServiceLifetimeOptions">
+            <summary>
+            Options to configure the lifetime of a windows service.
+            </summary>
+        </member>
+        <member name="P:Microsoft.Extensions.Hosting.WindowsServiceLifetimeOptions.ServiceName">
+            <summary>
+            The name used to identify the service to the system.
+            </summary>
+        </member>
+        <member name="M:System.ThrowHelper.ThrowIfNull(System.Object,System.String)">
+            <summary>Throws an <see cref="T:System.ArgumentNullException"/> if <paramref name="argument"/> is null.</summary>
+            <param name="argument">The reference type argument to validate as non-null.</param>
+            <param name="paramName">The name of the parameter with which <paramref name="argument"/> corresponds.</param>
+        </member>
+        <member name="M:System.ThrowHelper.IfNullOrWhitespace(System.String,System.String)">
+            <summary>
+            Throws either an <see cref="T:System.ArgumentNullException"/> or an <see cref="T:System.ArgumentException"/>
+            if the specified string is <see langword="null"/> or whitespace respectively.
+            </summary>
+            <param name="argument">String to be checked for <see langword="null"/> or whitespace.</param>
+            <param name="paramName">The name of the parameter being checked.</param>
+            <returns>The original value of <paramref name="argument"/>.</returns>
+        </member>
+        <member name="T:System.Runtime.InteropServices.LibraryImportAttribute">
+            <summary>
+            Attribute used to indicate a source generator should create a function for marshalling
+            arguments instead of relying on the runtime to generate an equivalent marshalling function at run-time.
+            </summary>
+            <remarks>
+            This attribute is meaningless if the source generator associated with it is not enabled.
+            The current built-in source generator only supports C# and only supplies an implementation when
+            applied to static, partial, non-generic methods.
+            </remarks>
+        </member>
+        <member name="M:System.Runtime.InteropServices.LibraryImportAttribute.#ctor(System.String)">
+            <summary>
+            Initializes a new instance of the <see cref="T:System.Runtime.InteropServices.LibraryImportAttribute"/>.
+            </summary>
+            <param name="libraryName">Name of the library containing the import.</param>
+        </member>
+        <member name="P:System.Runtime.InteropServices.LibraryImportAttribute.LibraryName">
+            <summary>
+            Gets the name of the library containing the import.
+            </summary>
+        </member>
+        <member name="P:System.Runtime.InteropServices.LibraryImportAttribute.EntryPoint">
+            <summary>
+            Gets or sets the name of the entry point to be called.
+            </summary>
+        </member>
+        <member name="P:System.Runtime.InteropServices.LibraryImportAttribute.StringMarshalling">
+            <summary>
+            Gets or sets how to marshal string arguments to the method.
+            </summary>
+            <remarks>
+            If this field is set to a value other than <see cref="F:System.Runtime.InteropServices.StringMarshalling.Custom" />,
+            <see cref="P:System.Runtime.InteropServices.LibraryImportAttribute.StringMarshallingCustomType" /> must not be specified.
+            </remarks>
+        </member>
+        <member name="P:System.Runtime.InteropServices.LibraryImportAttribute.StringMarshallingCustomType">
+            <summary>
+            Gets or sets the <see cref="T:System.Type"/> used to control how string arguments to the method are marshalled.
+            </summary>
+            <remarks>
+            If this field is specified, <see cref="P:System.Runtime.InteropServices.LibraryImportAttribute.StringMarshalling" /> must not be specified
+            or must be set to <see cref="F:System.Runtime.InteropServices.StringMarshalling.Custom" />.
+            </remarks>
+        </member>
+        <member name="P:System.Runtime.InteropServices.LibraryImportAttribute.SetLastError">
+            <summary>
+            Gets or sets whether the callee sets an error (SetLastError on Windows or errno
+            on other platforms) before returning from the attributed method.
+            </summary>
+        </member>
+        <member name="T:System.Runtime.InteropServices.StringMarshalling">
+            <summary>
+            Specifies how strings should be marshalled for generated p/invokes
+            </summary>
+        </member>
+        <member name="F:System.Runtime.InteropServices.StringMarshalling.Custom">
+            <summary>
+            Indicates the user is suppling a specific marshaller in <see cref="P:System.Runtime.InteropServices.LibraryImportAttribute.StringMarshallingCustomType"/>.
+            </summary>
+        </member>
+        <member name="F:System.Runtime.InteropServices.StringMarshalling.Utf8">
+            <summary>
+            Use the platform-provided UTF-8 marshaller.
+            </summary>
+        </member>
+        <member name="F:System.Runtime.InteropServices.StringMarshalling.Utf16">
+            <summary>
+            Use the platform-provided UTF-16 marshaller.
+            </summary>
+        </member>
+        <member name="T:System.Runtime.Versioning.OSPlatformAttribute">
+            <summary>
+            Base type for all platform-specific API attributes.
+            </summary>
+        </member>
+        <member name="T:System.Runtime.Versioning.TargetPlatformAttribute">
+            <summary>
+            Records the platform that the project targeted.
+            </summary>
+        </member>
+        <member name="T:System.Runtime.Versioning.SupportedOSPlatformAttribute">
+             <summary>
+             Records the operating system (and minimum version) that supports an API. Multiple attributes can be
+             applied to indicate support on multiple operating systems.
+             </summary>
+             <remarks>
+             Callers can apply a <see cref="T:System.Runtime.Versioning.SupportedOSPlatformAttribute" />
+             or use guards to prevent calls to APIs on unsupported operating systems.
+            
+             A given platform should only be specified once.
+             </remarks>
+        </member>
+        <member name="T:System.Runtime.Versioning.UnsupportedOSPlatformAttribute">
+            <summary>
+            Marks APIs that were removed in a given operating system version.
+            </summary>
+            <remarks>
+            Primarily used by OS bindings to indicate APIs that are only available in
+            earlier versions.
+            </remarks>
+        </member>
+        <member name="T:System.Runtime.Versioning.ObsoletedOSPlatformAttribute">
+            <summary>
+            Marks APIs that were obsoleted in a given operating system version.
+            </summary>
+            <remarks>
+            Primarily used by OS bindings to indicate APIs that should not be used anymore.
+            </remarks>
+        </member>
+        <member name="T:System.Runtime.Versioning.SupportedOSPlatformGuardAttribute">
+             <summary>
+             Annotates a custom guard field, property or method with a supported platform name and optional version.
+             Multiple attributes can be applied to indicate guard for multiple supported platforms.
+             </summary>
+             <remarks>
+             Callers can apply a <see cref="T:System.Runtime.Versioning.SupportedOSPlatformGuardAttribute" /> to a field, property or method
+             and use that field, property or method in a conditional or assert statements in order to safely call platform specific APIs.
+            
+             The type of the field or property should be boolean, the method return type should be boolean in order to be used as platform guard.
+             </remarks>
+        </member>
+        <member name="T:System.Runtime.Versioning.UnsupportedOSPlatformGuardAttribute">
+             <summary>
+             Annotates the custom guard field, property or method with an unsupported platform name and optional version.
+             Multiple attributes can be applied to indicate guard for multiple unsupported platforms.
+             </summary>
+             <remarks>
+             Callers can apply a <see cref="T:System.Runtime.Versioning.UnsupportedOSPlatformGuardAttribute" /> to a field, property or method
+             and use that  field, property or method in a conditional or assert statements as a guard to safely call APIs unsupported on those platforms.
+            
+             The type of the field or property should be boolean, the method return type should be boolean in order to be used as platform guard.
+             </remarks>
+        </member>
+        <member name="T:System.Diagnostics.CodeAnalysis.MemberNotNullAttribute">
+            <summary>Specifies that the method or property will ensure that the listed field and property members have not-null values.</summary>
+        </member>
+        <member name="M:System.Diagnostics.CodeAnalysis.MemberNotNullAttribute.#ctor(System.String)">
+            <summary>Initializes the attribute with a field or property member.</summary>
+            <param name="member">
+            The field or property member that is promised to be not-null.
+            </param>
+        </member>
+        <member name="M:System.Diagnostics.CodeAnalysis.MemberNotNullAttribute.#ctor(System.String[])">
+            <summary>Initializes the attribute with the list of field and property members.</summary>
+            <param name="members">
+            The list of field and property members that are promised to be not-null.
+            </param>
+        </member>
+        <member name="P:System.Diagnostics.CodeAnalysis.MemberNotNullAttribute.Members">
+            <summary>Gets field or property member names.</summary>
+        </member>
+        <member name="T:System.Diagnostics.CodeAnalysis.MemberNotNullWhenAttribute">
+            <summary>Specifies that the method or property will ensure that the listed field and property members have not-null values when returning with the specified return value condition.</summary>
+        </member>
+        <member name="M:System.Diagnostics.CodeAnalysis.MemberNotNullWhenAttribute.#ctor(System.Boolean,System.String)">
+            <summary>Initializes the attribute with the specified return value condition and a field or property member.</summary>
+            <param name="returnValue">
+            The return value condition. If the method returns this value, the associated parameter will not be null.
+            </param>
+            <param name="member">
+            The field or property member that is promised to be not-null.
+            </param>
+        </member>
+        <member name="M:System.Diagnostics.CodeAnalysis.MemberNotNullWhenAttribute.#ctor(System.Boolean,System.String[])">
+            <summary>Initializes the attribute with the specified return value condition and list of field and property members.</summary>
+            <param name="returnValue">
+            The return value condition. If the method returns this value, the associated parameter will not be null.
+            </param>
+            <param name="members">
+            The list of field and property members that are promised to be not-null.
+            </param>
+        </member>
+        <member name="P:System.Diagnostics.CodeAnalysis.MemberNotNullWhenAttribute.ReturnValue">
+            <summary>Gets the return value condition.</summary>
+        </member>
+        <member name="P:System.Diagnostics.CodeAnalysis.MemberNotNullWhenAttribute.Members">
+            <summary>Gets field or property member names.</summary>
+        </member>
+    </members>
+</doc>

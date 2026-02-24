@@ -1,0 +1,12 @@
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\bin\Debug\net8.0-windows\Dms.Agent.Core.deps.json
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\bin\Debug\net8.0-windows\Dms.Agent.Core.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\bin\Debug\net8.0-windows\Dms.Agent.Core.pdb
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.Core.csproj.AssemblyReference.cache
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.Core.AssemblyInfoInputs.cache
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.Core.AssemblyInfo.cs
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.Core.csproj.CoreCompileInputs.cache
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.Core.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\refint\Dms.Agent.Core.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.Core.pdb
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\ref\Dms.Agent.Core.dll

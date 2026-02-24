@@ -1,0 +1,24 @@
+{
+    "schema":  "dms.keyset.v1",
+    "generated_at":  "2026-02-22T13:14:33+02:00",
+    "keys":  [
+                 {
+                     "kid":  "cmd-20260222-015304-zsuivu",
+                     "alg":  "Ed25519",
+                     "status":  "active",
+                     "not_before":  "2026-02-22T01:53:04+02:00",
+                     "not_after":  "2027-02-22T01:53:04+02:00",
+                     "public_key_base64":  "UCbi1Eg7LF1ZEA9oOBX5jZhpL2r7nVyjJHQ4rpnKjk4=",
+                     "public_fingerprint_sha256":  "eddae12ffd4121b58c6d9fe7b7a2473113ccbf4c34006d12d9a7871b7bfe0b1e"
+                 },
+                 {
+                     "kid":  "cmd-20260219-204704-7g3tce",
+                     "alg":  "Ed25519",
+                     "status":  "retiring",
+                     "not_before":  "2026-02-19T20:47:04+02:00",
+                     "not_after":  "2027-02-19T20:47:04+02:00",
+                     "public_key_base64":  "0wMcOEhVUX3UVVAtXFwxFwYgqVHCCyjgnkrPoJ70tdo=",
+                     "public_fingerprint_sha256":  "feaa33293f767ec81d3d8c739aeadf5e50122b6b5d1151afdf1bb90138fcd7de"
+                 }
+             ]
+}
