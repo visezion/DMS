@@ -83,6 +83,14 @@
                 On device delete: remove assigned policies and uninstall packages on target before uninstalling agent
             </label>
             <div class="md:col-span-2">
+                <label class="text-xs uppercase text-slate-500">Package Download URL Mode</label>
+                <select name="package_download_url_mode" class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm">
+                    <option value="public" @selected(($ops['package_download_url_mode'] ?? 'public') === 'public')>Public (stable URL for uploaded files)</option>
+                    <option value="signed" @selected(($ops['package_download_url_mode'] ?? 'public') === 'signed')>Signed (expires by deploy window)</option>
+                </select>
+                <p class="mt-1 text-xs text-slate-500">External source URLs always use their original URL.</p>
+            </div>
+            <div class="md:col-span-2">
                 <button class="rounded bg-skyline text-white px-4 py-2 text-sm">Save Ops Settings</button>
             </div>
         </form>

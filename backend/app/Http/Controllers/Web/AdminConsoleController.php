@@ -82,6 +82,7 @@ class AdminConsoleController extends Controller
                 'allowed_script_hashes' => $this->settingArray('scripts.allowed_sha256', []),
                 'auto_allow_run_command_hashes' => $this->settingBool('scripts.auto_allow_run_command_hashes', false),
                 'delete_cleanup_before_uninstall' => $this->settingBool('devices.delete_cleanup_before_uninstall', false),
+                'package_download_url_mode' => $this->settingString('packages.download_url_mode', 'public'),
             ],
         ]);
     }
@@ -204,7 +205,7 @@ class AdminConsoleController extends Controller
                 continue;
             }
 
-            if (! in_array($job->job_type, ['install_package', 'install_msi', 'install_exe', 'install_custom', 'uninstall_package', 'uninstall_msi', 'uninstall_exe'], true)) {
+            if (! in_array($job->job_type, ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive', 'uninstall_package', 'uninstall_msi', 'uninstall_exe', 'uninstall_archive'], true)) {
                 continue;
             }
             $packageVersionId = (string) ($payload['package_version_id'] ?? '');
@@ -266,7 +267,7 @@ class AdminConsoleController extends Controller
             ];
         })
             ->filter(function ($row) {
-                $isUninstall = in_array((string) ($row->job_type ?? ''), ['uninstall_package', 'uninstall_msi', 'uninstall_exe'], true);
+                $isUninstall = in_array((string) ($row->job_type ?? ''), ['uninstall_package', 'uninstall_msi', 'uninstall_exe', 'uninstall_archive'], true);
                 $isSuccess = strtolower((string) ($row->status ?? '')) === 'success';
                 // If uninstall succeeded, package is no longer on this device.
                 return ! ($isUninstall && $isSuccess);
@@ -556,7 +557,7 @@ class AdminConsoleController extends Controller
             ->selectRaw('target_id, count(*) as total')
             ->where('target_type', 'group')
             ->whereIn('target_id', $groupIds)
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive'])
             ->groupBy('target_id')
             ->pluck('total', 'target_id');
 
@@ -620,7 +621,7 @@ class AdminConsoleController extends Controller
             ->get();
 
         $groupPackageJobs = DmsJob::query()
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive'])
             ->where('target_type', 'group')
             ->where('target_id', $group->id)
             ->orderByDesc('created_at')
@@ -1088,6 +1089,53 @@ class AdminConsoleController extends Controller
             $payload['file_name'] = $file->file_name;
             $payload['sha256'] = strtolower((string) $file->sha256);
             $payload['config_target_path'] = $targetPath;
+        } elseif ($package->package_type === 'archive_bundle') {
+            $file = PackageFile::query()->where('package_version_id', $version->id)->first();
+            if (! $file) {
+                return back()->withErrors(['group_package' => 'Archive bundle package requires an artifact or source URI with SHA256.'])->withInput();
+            }
+
+            $requestPublicBase = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
+            $publicBaseUrl = rtrim((string) ($data['public_base_url'] ?? $requestPublicBase), '/');
+            if ($this->isLocalOnlyHost($publicBaseUrl)) {
+                return back()->withErrors([
+                    'group_package' => 'Package download link cannot use localhost/127.0.0.1. Use a LAN IP or DNS host reachable from client PCs.',
+                ])->withInput();
+            }
+
+            $downloadUrl = $this->resolvePackageArtifactDownloadUrl(
+                $request,
+                $file,
+                (int) ($data['expires_hours'] ?? 24),
+                $publicBaseUrl
+            );
+            $extractTo = trim((string) (
+                $installArgs['extract_to']
+                ?? $installArgs['target_dir']
+                ?? $installArgs['install_dir']
+                ?? ''
+            ));
+            if ($extractTo === '') {
+                return back()->withErrors(['group_package' => 'Archive bundle deploy requires install_args_json {"extract_to":"C:\\\\path\\\\folder"}'])->withInput();
+            }
+            $extension = strtolower(pathinfo((string) $file->file_name, PATHINFO_EXTENSION));
+            if ($extension !== 'zip') {
+                return back()->withErrors(['group_package' => 'Archive bundle currently supports .zip artifacts only.'])->withInput();
+            }
+
+            $jobType = 'install_archive';
+            $payload['download_url'] = $downloadUrl;
+            $payload['sha256'] = strtolower((string) $file->sha256);
+            $payload['file_name'] = (string) $file->file_name;
+            $payload['extract_to'] = $extractTo;
+            $payload['clean_target'] = (bool) ($installArgs['clean_target'] ?? false);
+            $payload['strip_top_level'] = (bool) ($installArgs['strip_top_level'] ?? false);
+            if (! empty($installArgs['post_install_command'])) {
+                $payload['post_install_command'] = (string) $installArgs['post_install_command'];
+            }
+            if (array_key_exists('keep_artifact', $installArgs)) {
+                $payload['keep_artifact'] = (bool) $installArgs['keep_artifact'];
+            }
         } else {
             $file = PackageFile::query()->where('package_version_id', $version->id)->first();
             if (! $file) {
@@ -1173,7 +1221,7 @@ class AdminConsoleController extends Controller
             ->where('id', $jobId)
             ->where('target_type', 'group')
             ->where('target_id', $group->id)
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive'])
             ->first();
 
         if (! $job) {
@@ -1252,7 +1300,7 @@ class AdminConsoleController extends Controller
 
         $versionIds = $versions->pluck('id')->all();
         $deploymentJobs = DmsJob::query()
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'uninstall_package', 'uninstall_msi', 'uninstall_exe'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive', 'uninstall_package', 'uninstall_msi', 'uninstall_exe', 'uninstall_archive'])
             ->latest('created_at')
             ->limit(300)
             ->get()
@@ -1299,7 +1347,7 @@ class AdminConsoleController extends Controller
 
         $versionIds = $versions->pluck('id')->all();
         $deploymentJobs = DmsJob::query()
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'uninstall_package', 'uninstall_msi', 'uninstall_exe'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive', 'uninstall_package', 'uninstall_msi', 'uninstall_exe', 'uninstall_archive'])
             ->latest('created_at')
             ->limit(500)
             ->get()
@@ -1349,7 +1397,7 @@ class AdminConsoleController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255'],
             'publisher' => ['nullable', 'string', 'max:255'],
-            'package_type' => ['required', 'in:winget,msi,exe,custom,config_file'],
+            'package_type' => ['required', 'in:winget,msi,exe,custom,config_file,archive_bundle'],
         ]);
 
         $package = PackageModel::query()->create([
@@ -1381,6 +1429,14 @@ class AdminConsoleController extends Controller
             'backup_existing' => ['nullable', 'boolean'],
             'restart_service' => ['nullable', 'string', 'max:120'],
         ]);
+
+        $hasSourceUri = ! empty($data['source_uri']);
+        $hasSha256 = ! empty($data['sha256']);
+        if ($hasSourceUri xor $hasSha256) {
+            return back()->withErrors([
+                'package_version' => 'Source URI requires SHA256, and SHA256 requires Source URI. Provide both fields together.',
+            ])->withInput();
+        }
 
         $package = PackageModel::query()->findOrFail($packageId);
         $installArgs = null;
@@ -1677,6 +1733,53 @@ class AdminConsoleController extends Controller
             $payload['file_name'] = $file->file_name;
             $payload['sha256'] = strtolower((string) $file->sha256);
             $payload['config_target_path'] = $targetPath;
+        } elseif ($package->package_type === 'archive_bundle') {
+            $file = PackageFile::query()->where('package_version_id', $version->id)->first();
+            if (! $file) {
+                return back()->withErrors(['package_deploy' => 'Archive bundle package requires an artifact or source URI with SHA256.'])->withInput();
+            }
+
+            $requestPublicBase = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
+            $publicBaseUrl = rtrim((string) ($data['public_base_url'] ?? $requestPublicBase), '/');
+            if ($this->isLocalOnlyHost($publicBaseUrl)) {
+                return back()->withErrors([
+                    'package_deploy' => 'Package download link cannot use localhost/127.0.0.1. Use a LAN IP or DNS host reachable from client PCs.',
+                ])->withInput();
+            }
+
+            $downloadUrl = $this->resolvePackageArtifactDownloadUrl(
+                $request,
+                $file,
+                (int) ($data['expires_hours'] ?? 24),
+                $publicBaseUrl
+            );
+            $extractTo = trim((string) (
+                $installArgs['extract_to']
+                ?? $installArgs['target_dir']
+                ?? $installArgs['install_dir']
+                ?? ''
+            ));
+            if ($extractTo === '') {
+                return back()->withErrors(['package_deploy' => 'Archive bundle deploy requires install_args_json {"extract_to":"C:\\\\path\\\\folder"}'])->withInput();
+            }
+            $extension = strtolower(pathinfo((string) $file->file_name, PATHINFO_EXTENSION));
+            if ($extension !== 'zip') {
+                return back()->withErrors(['package_deploy' => 'Archive bundle currently supports .zip artifacts only.'])->withInput();
+            }
+
+            $jobType = 'install_archive';
+            $payload['download_url'] = $downloadUrl;
+            $payload['sha256'] = strtolower((string) $file->sha256);
+            $payload['file_name'] = (string) $file->file_name;
+            $payload['extract_to'] = $extractTo;
+            $payload['clean_target'] = (bool) ($installArgs['clean_target'] ?? false);
+            $payload['strip_top_level'] = (bool) ($installArgs['strip_top_level'] ?? false);
+            if (! empty($installArgs['post_install_command'])) {
+                $payload['post_install_command'] = (string) $installArgs['post_install_command'];
+            }
+            if (array_key_exists('keep_artifact', $installArgs)) {
+                $payload['keep_artifact'] = (bool) $installArgs['keep_artifact'];
+            }
         } else {
             $file = PackageFile::query()->where('package_version_id', $version->id)->first();
             if (! $file) {
@@ -2824,7 +2927,7 @@ class AdminConsoleController extends Controller
         $groupInstallJobs = DmsJob::query()
             ->where('target_type', 'group')
             ->where('target_id', $groupId)
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive'])
             ->get(['payload']);
 
         $versionIds = $groupInstallJobs
@@ -2945,7 +3048,7 @@ class AdminConsoleController extends Controller
     private function installedDeviceIdsForPackageVersion(string $packageVersionId): array
     {
         $jobs = DmsJob::query()
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'uninstall_package', 'uninstall_msi', 'uninstall_exe'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive', 'uninstall_package', 'uninstall_msi', 'uninstall_exe', 'uninstall_archive'])
             ->get(['id', 'payload']);
 
         $matchingJobs = $jobs
@@ -2977,8 +3080,8 @@ class AdminConsoleController extends Controller
 
             $jobType = (string) ($jobTypeById[(string) ($run->job_id ?? '')] ?? '');
             $status = strtolower((string) ($run->status ?? ''));
-            $isInstall = in_array($jobType, ['install_package', 'install_msi', 'install_exe', 'install_custom'], true);
-            $isUninstall = in_array($jobType, ['uninstall_package', 'uninstall_msi', 'uninstall_exe'], true);
+            $isInstall = in_array($jobType, ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive'], true);
+            $isUninstall = in_array($jobType, ['uninstall_package', 'uninstall_msi', 'uninstall_exe', 'uninstall_archive'], true);
 
             if ($isUninstall && $status === 'success') {
                 $installedByDevice[$deviceId] = false;
@@ -3000,7 +3103,7 @@ class AdminConsoleController extends Controller
     private function installedPackageVersionIdsForDevice(string $deviceId): array
     {
         $jobs = DmsJob::query()
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'uninstall_package', 'uninstall_msi', 'uninstall_exe'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive', 'uninstall_package', 'uninstall_msi', 'uninstall_exe', 'uninstall_archive'])
             ->get(['id', 'job_type', 'payload']);
 
         if ($jobs->isEmpty()) {
@@ -3036,8 +3139,8 @@ class AdminConsoleController extends Controller
 
             $jobType = (string) ($meta['job_type'] ?? '');
             $status = strtolower((string) ($run->status ?? ''));
-            $isInstall = in_array($jobType, ['install_package', 'install_msi', 'install_exe', 'install_custom'], true);
-            $isUninstall = in_array($jobType, ['uninstall_package', 'uninstall_msi', 'uninstall_exe'], true);
+            $isInstall = in_array($jobType, ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive'], true);
+            $isUninstall = in_array($jobType, ['uninstall_package', 'uninstall_msi', 'uninstall_exe', 'uninstall_archive'], true);
 
             if ($isUninstall && $status === 'success') {
                 $installedByVersion[$versionId] = false;
@@ -3083,6 +3186,35 @@ class AdminConsoleController extends Controller
             $jobType = 'uninstall_msi';
             $payload['product_code'] = $productCode;
             $payload['msi_args'] = (string) ($uninstallArgs['msi_args'] ?? '/qn /norestart');
+        } elseif ($package->package_type === 'archive_bundle') {
+            $removePath = trim((string) (
+                $uninstallArgs['remove_path']
+                ?? $uninstallArgs['remove_dir']
+                ?? $uninstallArgs['target_path']
+                ?? $installArgs['extract_to']
+                ?? $installArgs['target_dir']
+                ?? $installArgs['install_dir']
+                ?? ''
+            ));
+            $command = trim((string) (
+                $uninstallArgs['command']
+                ?? $uninstallArgs['uninstall_command']
+                ?? $uninstallArgs['cmd']
+                ?? $uninstallArgs['script']
+                ?? $installArgs['uninstall_command']
+                ?? $installArgs['command_uninstall']
+                ?? ''
+            ));
+            if ($removePath === '' && $command === '') {
+                return ['queued' => false, 'error' => 'Archive uninstall requires remove_path and/or uninstall command.'];
+            }
+            $jobType = 'uninstall_archive';
+            if ($removePath !== '') {
+                $payload['remove_path'] = $removePath;
+            }
+            if ($command !== '') {
+                $payload['command'] = $command;
+            }
         } else {
             $command = trim((string) (
                 $uninstallArgs['command']
@@ -3257,7 +3389,7 @@ POWERSHELL;
     public function createJob(Request $request, AuditLogger $auditLogger): RedirectResponse
     {
         $data = $request->validate([
-            'job_type' => ['required', 'in:install_package,uninstall_package,install_msi,install_exe,install_custom,uninstall_msi,uninstall_exe,apply_policy,run_command,update_agent,uninstall_agent,reconcile_software_inventory'],
+            'job_type' => ['required', 'in:install_package,uninstall_package,install_msi,install_exe,install_custom,install_archive,uninstall_msi,uninstall_exe,uninstall_archive,apply_policy,run_command,update_agent,uninstall_agent,reconcile_software_inventory'],
             'target_type' => ['required', 'in:device,group'],
             'target_id' => ['required', 'uuid'],
             'priority' => ['nullable', 'integer', 'min:1', 'max:1000'],
@@ -3532,6 +3664,7 @@ POWERSHELL;
             'allowed_script_hashes' => ['nullable', 'string', 'max:5000'],
             'auto_allow_run_command_hashes' => ['nullable', 'boolean'],
             'delete_cleanup_before_uninstall' => ['nullable', 'boolean'],
+            'package_download_url_mode' => ['nullable', 'in:public,signed'],
         ]);
 
         $settings = [
@@ -3545,6 +3678,7 @@ POWERSHELL;
                 ->all(),
             'scripts.auto_allow_run_command_hashes' => (bool) ($data['auto_allow_run_command_hashes'] ?? false),
             'devices.delete_cleanup_before_uninstall' => (bool) ($data['delete_cleanup_before_uninstall'] ?? false),
+            'packages.download_url_mode' => (string) ($data['package_download_url_mode'] ?? 'public'),
         ];
 
         foreach ($settings as $key => $value) {
@@ -4372,6 +4506,49 @@ PS1;
         return rtrim($publicBaseUrl, '/').$relativeSignedPath;
     }
 
+    private function resolvePackageArtifactDownloadUrl(
+        Request $request,
+        PackageFile $file,
+        int $expiresHours,
+        ?string $publicBaseUrl = null
+    ): string {
+        $sourceUri = trim((string) ($file->source_uri ?? ''));
+        if ($sourceUri !== '' && preg_match('/^https?:\/\//i', $sourceUri) === 1) {
+            return $sourceUri;
+        }
+
+        $requestPublicBase = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
+        $base = rtrim((string) ($publicBaseUrl ?? $requestPublicBase), '/');
+
+        $storagePath = $this->resolvePackageArtifactStoragePath($file);
+        if (is_string($storagePath) && $storagePath !== '') {
+            $mode = strtolower($this->settingString('packages.download_url_mode', 'public'));
+            if ($mode === 'signed') {
+                $expiresAt = now()->addHours(max(1, $expiresHours));
+                $signedPath = URL::temporarySignedRoute(
+                    'package.file.download',
+                    $expiresAt,
+                    ['packageFileId' => $file->id],
+                    absolute: false
+                );
+                return $this->buildAbsoluteUrl($base, $signedPath);
+            }
+
+            $publicPath = route('package.file.download.public', ['packageFileId' => $file->id], false);
+            return $this->buildAbsoluteUrl($base, $publicPath);
+        }
+
+        $expiresAt = now()->addHours(max(1, $expiresHours));
+        $signedPath = URL::temporarySignedRoute(
+            'package.file.download',
+            $expiresAt,
+            ['packageFileId' => $file->id],
+            absolute: false
+        );
+
+        return $this->buildAbsoluteUrl($base, $signedPath);
+    }
+
     private function cleanupAgentRepoArtifacts(string $fileName): int
     {
         // Expected auto-build file format: dms-agent-{version}-{runtime}-{buildId}.zip
@@ -4568,7 +4745,7 @@ PS1;
         $groupPackageJobs = DmsJob::query()
             ->where('target_type', 'group')
             ->where('target_id', $groupId)
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive'])
             ->orderByDesc('created_at')
             ->get();
 
@@ -4627,7 +4804,7 @@ PS1;
         }
 
         $candidateJobs = DmsJob::query()
-            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'uninstall_package', 'uninstall_msi', 'uninstall_exe'])
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive', 'uninstall_package', 'uninstall_msi', 'uninstall_exe', 'uninstall_archive'])
             ->where(function ($query) use ($packageVersionIds) {
                 foreach ($packageVersionIds as $id) {
                     $query->orWhere('payload', 'like', '%'.$id.'%');
@@ -5124,6 +5301,22 @@ PS1;
         ]);
     }
 
+    public function packageSha256FromUri(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'source_uri' => ['required', 'url', 'max:2000'],
+        ]);
+
+        try {
+            $resolved = $this->computeRemoteArtifactSha256((string) $data['source_uri']);
+            return response()->json($resolved);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'error' => 'Unable to fetch SHA256 from Source URI: '.$e->getMessage(),
+            ], 422);
+        }
+    }
+
     public function gettingStarted(): View
     {
         return view('admin.getting-started');
@@ -5158,6 +5351,49 @@ PS1;
 
         $value = $setting->value['value'] ?? $default;
         return is_array($value) ? $value : $default;
+    }
+
+    private function settingString(string $key, string $default): string
+    {
+        $setting = ControlPlaneSetting::query()->find($key);
+        if (! $setting || ! is_array($setting->value)) {
+            return $default;
+        }
+
+        $value = $setting->value['value'] ?? $default;
+        return is_string($value) && trim($value) !== '' ? trim($value) : $default;
+    }
+
+    private function computeRemoteArtifactSha256(string $url): array
+    {
+        $response = Http::withOptions([
+            'stream' => true,
+            'allow_redirects' => ['max' => 5, 'strict' => false, 'referer' => true],
+        ])->timeout(180)->get($url);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('HTTP '.$response->status());
+        }
+
+        $stream = $response->toPsrResponse()->getBody();
+        $ctx = hash_init('sha256');
+        $bytes = 0;
+
+        while (! $stream->eof()) {
+            $chunk = $stream->read(1024 * 1024);
+            if ($chunk === '') {
+                break;
+            }
+            $bytes += strlen($chunk);
+            hash_update($ctx, $chunk);
+        }
+
+        return [
+            'sha256' => hash_final($ctx),
+            'size_bytes' => $bytes,
+            'content_type' => (string) ($response->header('Content-Type') ?? ''),
+            'source_uri' => $url,
+        ];
     }
 
     private function brandingDefaults(): array
@@ -6130,4 +6366,5 @@ PS1;
         return $score;
     }
 }
-                                                                                                                                                                                             
+
+

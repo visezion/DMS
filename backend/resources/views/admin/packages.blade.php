@@ -25,6 +25,7 @@
                             <option value="exe">exe</option>
                             <option value="custom">custom</option>
                             <option value="config_file">config_file</option>
+                            <option value="archive_bundle">archive_bundle</option>
                         </select>
                     </div>
                     <button class="rounded-lg bg-skyline text-white px-4 py-2 text-sm w-full">Create Package</button>
@@ -53,6 +54,7 @@
                                 'exe' => 'bg-indigo-600',
                                 'winget' => 'bg-emerald-600',
                                 'config_file' => 'bg-amber-600',
+                                'archive_bundle' => 'bg-violet-600',
                                 default => 'bg-slate-600',
                             };
                             $brandIconMap = [

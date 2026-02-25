@@ -177,11 +177,16 @@ public sealed class MsiInstallHandler : IJobHandler
         }
 
         string sha256 = string.Empty;
+        bool downloadedArtifact = false;
+        bool keepArtifact = envelope.Payload.TryGetValue("keep_artifact", out var keepObj)
+            && bool.TryParse(keepObj?.ToString(), out var keepParsed)
+            && keepParsed;
         if (string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(downloadUrl))
         {
             var downloaded = await ProcessRunner.DownloadArtifactAsync(downloadUrl, fileName, expectedSha256, cancellationToken);
             path = downloaded.Path;
             sha256 = downloaded.Sha256;
+            downloadedArtifact = true;
         }
 
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
@@ -198,7 +203,48 @@ public sealed class MsiInstallHandler : IJobHandler
             var rollback = await JobHandlerSupport.TryRunRollbackAsync(envelope.Payload, cancellationToken);
             return (status, result.ExitCode, new { result.StdOut, result.StdErr, logPath, path, sha256, skipped = false, detection_ok = detected, rollback_attempted = rollback.Attempted, rollback_exit_code = rollback.ExitCode, rollback_stdout = rollback.StdOut, rollback_stderr = rollback.StdErr });
         }
-        return (status, result.ExitCode, new { result.StdOut, result.StdErr, logPath, path, sha256, skipped = false, detection_ok = detected });
+
+        bool artifactRemoved = false;
+        if (downloadedArtifact && !keepArtifact)
+        {
+            artifactRemoved = TryRemoveDownloadedArtifact(path);
+        }
+
+        return (status, result.ExitCode, new { result.StdOut, result.StdErr, logPath, path, sha256, skipped = false, detection_ok = detected, downloaded_artifact_removed = artifactRemoved });
+    }
+
+    private static bool TryRemoveDownloadedArtifact(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return false;
+            }
+
+            string? dir = Path.GetDirectoryName(path);
+            File.Delete(path);
+            if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+            {
+                try
+                {
+                    if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                    {
+                        Directory.Delete(dir, false);
+                    }
+                }
+                catch
+                {
+                    // Ignore non-critical directory cleanup issues.
+                }
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 
@@ -220,11 +266,16 @@ public sealed class ExeInstallHandler : IJobHandler
         }
 
         string sha256 = string.Empty;
+        bool downloadedArtifact = false;
+        bool keepArtifact = envelope.Payload.TryGetValue("keep_artifact", out var keepObj)
+            && bool.TryParse(keepObj?.ToString(), out var keepParsed)
+            && keepParsed;
         if (string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(downloadUrl))
         {
             var downloaded = await ProcessRunner.DownloadArtifactAsync(downloadUrl, fileName, expectedSha256, cancellationToken);
             path = downloaded.Path;
             sha256 = downloaded.Sha256;
+            downloadedArtifact = true;
         }
 
         if (string.IsNullOrWhiteSpace(path))
@@ -261,7 +312,48 @@ public sealed class ExeInstallHandler : IJobHandler
             var rollback = await JobHandlerSupport.TryRunRollbackAsync(envelope.Payload, cancellationToken);
             return (status, result.ExitCode, new { result.StdOut, result.StdErr, path, sha256, skipped = false, detection_ok = detected, rollback_attempted = rollback.Attempted, rollback_exit_code = rollback.ExitCode, rollback_stdout = rollback.StdOut, rollback_stderr = rollback.StdErr });
         }
-        return (status, result.ExitCode, new { result.StdOut, result.StdErr, path, sha256, skipped = false, detection_ok = detected });
+
+        bool artifactRemoved = false;
+        if (downloadedArtifact && !keepArtifact)
+        {
+            artifactRemoved = TryRemoveDownloadedArtifact(path);
+        }
+
+        return (status, result.ExitCode, new { result.StdOut, result.StdErr, path, sha256, skipped = false, detection_ok = detected, downloaded_artifact_removed = artifactRemoved });
+    }
+
+    private static bool TryRemoveDownloadedArtifact(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return false;
+            }
+
+            string? dir = Path.GetDirectoryName(path);
+            File.Delete(path);
+            if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+            {
+                try
+                {
+                    if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                    {
+                        Directory.Delete(dir, false);
+                    }
+                }
+                catch
+                {
+                    // Ignore non-critical directory cleanup issues.
+                }
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 
@@ -273,6 +365,301 @@ public sealed class CustomInstallHandler : IJobHandler
     {
         // Backward-compatible alias for custom installers using the EXE flow.
         return new ExeInstallHandler().ExecuteAsync(envelope, cancellationToken);
+    }
+}
+
+public sealed class ArchiveInstallHandler : IJobHandler
+{
+    public string JobType => "install_archive";
+
+    public async Task<(string Status, int ExitCode, object? Result)> ExecuteAsync(CommandEnvelopeDto envelope, CancellationToken cancellationToken)
+    {
+        string downloadUrl = envelope.Payload.TryGetValue("download_url", out var downloadObj) ? downloadObj?.ToString() ?? string.Empty : string.Empty;
+        string expectedSha256 = envelope.Payload.TryGetValue("sha256", out var shaObj) ? shaObj?.ToString() ?? string.Empty : string.Empty;
+        string fileName = envelope.Payload.TryGetValue("file_name", out var fileObj) ? fileObj?.ToString() ?? "package.zip" : "package.zip";
+        string extractTo = envelope.Payload.TryGetValue("extract_to", out var extractObj) ? extractObj?.ToString() ?? string.Empty : string.Empty;
+        string postInstallCommand = envelope.Payload.TryGetValue("post_install_command", out var postObj) ? postObj?.ToString() ?? string.Empty : string.Empty;
+        bool stripTopLevel = envelope.Payload.TryGetValue("strip_top_level", out var stripObj)
+            && bool.TryParse(stripObj?.ToString(), out var stripParsed)
+            && stripParsed;
+        bool cleanTarget = envelope.Payload.TryGetValue("clean_target", out var cleanObj)
+            && bool.TryParse(cleanObj?.ToString(), out var cleanParsed)
+            && cleanParsed;
+        bool keepArtifact = envelope.Payload.TryGetValue("keep_artifact", out var keepObj)
+            && bool.TryParse(keepObj?.ToString(), out var keepParsed)
+            && keepParsed;
+        bool hasDetection = PolicyApplyHandler.HasDetection(envelope.Payload);
+        if (hasDetection && PolicyApplyHandler.EvaluateDetection(envelope.Payload))
+        {
+            return ("success", 0, new { skipped = true, already_installed = true, reason = "detection_precheck_matched" });
+        }
+
+        if (string.IsNullOrWhiteSpace(downloadUrl))
+        {
+            return ("failed", 1, new { error = "download_url missing" });
+        }
+        if (string.IsNullOrWhiteSpace(extractTo))
+        {
+            return ("failed", 1, new { error = "extract_to missing" });
+        }
+
+        string archivePath = string.Empty;
+        string sha256 = string.Empty;
+        bool downloadedArtifact = false;
+        try
+        {
+            var downloaded = await ProcessRunner.DownloadArtifactAsync(downloadUrl, fileName, expectedSha256, cancellationToken);
+            archivePath = downloaded.Path;
+            sha256 = downloaded.Sha256;
+            downloadedArtifact = true;
+
+            string extension = Path.GetExtension(archivePath).Trim().ToLowerInvariant();
+            if (extension != ".zip")
+            {
+                return ("failed", 1, new { error = "unsupported archive format; only .zip is supported", archivePath });
+            }
+
+            string targetDirectory = extractTo;
+            if (cleanTarget && Directory.Exists(targetDirectory))
+            {
+                Directory.Delete(targetDirectory, true);
+            }
+            Directory.CreateDirectory(targetDirectory);
+
+            string tempExtractDirectory = Path.Combine(Path.GetTempPath(), "dms-archive-extract-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempExtractDirectory);
+            ZipFile.ExtractToDirectory(archivePath, tempExtractDirectory, true);
+
+            string sourceDirectory = tempExtractDirectory;
+            if (stripTopLevel)
+            {
+                var dirs = Directory.GetDirectories(tempExtractDirectory);
+                var files = Directory.GetFiles(tempExtractDirectory);
+                if (dirs.Length == 1 && files.Length == 0)
+                {
+                    sourceDirectory = dirs[0];
+                }
+            }
+
+            CopyDirectoryContents(sourceDirectory, targetDirectory);
+            TryDeleteDirectory(tempExtractDirectory);
+
+            int postExitCode = 0;
+            string postStdOut = string.Empty;
+            string postStdErr = string.Empty;
+            if (!string.IsNullOrWhiteSpace(postInstallCommand))
+            {
+                var post = await ProcessRunner.RunShellCommandAsync(postInstallCommand, cancellationToken);
+                postExitCode = post.ExitCode;
+                postStdOut = post.StdOut;
+                postStdErr = post.StdErr;
+                if (postExitCode != 0 && postExitCode != 3010)
+                {
+                    return ("failed", postExitCode, new
+                    {
+                        error = "post_install_command failed",
+                        post_install_exit_code = postExitCode,
+                        post_install_stdout = postStdOut,
+                        post_install_stderr = postStdErr,
+                        extract_to = targetDirectory,
+                        archive_path = archivePath,
+                        sha256,
+                    });
+                }
+            }
+
+            bool detected = !hasDetection || PolicyApplyHandler.EvaluateDetection(envelope.Payload);
+            if (!detected)
+            {
+                return ("failed", 2, new
+                {
+                    error = "detection check failed after archive install",
+                    extract_to = targetDirectory,
+                    archive_path = archivePath,
+                    sha256,
+                });
+            }
+
+            bool artifactRemoved = false;
+            if (downloadedArtifact && !keepArtifact)
+            {
+                artifactRemoved = TryRemoveDownloadedArtifact(archivePath);
+            }
+
+            return ("success", 0, new
+            {
+                extract_to = targetDirectory,
+                archive_path = archivePath,
+                sha256,
+                strip_top_level = stripTopLevel,
+                clean_target = cleanTarget,
+                downloaded_artifact_removed = artifactRemoved,
+                post_install_exit_code = postExitCode,
+                post_install_stdout = postStdOut,
+                post_install_stderr = postStdErr,
+                skipped = false,
+                detection_ok = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            return ("failed", 1, new
+            {
+                error = ex.Message,
+                archive_path = archivePath,
+                sha256,
+            });
+        }
+    }
+
+    private static void CopyDirectoryContents(string sourceDirectory, string destinationDirectory)
+    {
+        foreach (string dirPath in Directory.GetDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(sourceDirectory, dirPath);
+            string targetDir = Path.Combine(destinationDirectory, relative);
+            Directory.CreateDirectory(targetDir);
+        }
+
+        foreach (string filePath in Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(sourceDirectory, filePath);
+            string targetFile = Path.Combine(destinationDirectory, relative);
+            string? parent = Path.GetDirectoryName(targetFile);
+            if (!string.IsNullOrWhiteSpace(parent))
+            {
+                Directory.CreateDirectory(parent);
+            }
+            File.Copy(filePath, targetFile, true);
+        }
+    }
+
+    private static bool TryRemoveDownloadedArtifact(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return false;
+            }
+
+            string? dir = Path.GetDirectoryName(path);
+            File.Delete(path);
+            if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+            {
+                try
+                {
+                    if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                    {
+                        Directory.Delete(dir, false);
+                    }
+                }
+                catch
+                {
+                    // Ignore non-critical directory cleanup issues.
+                }
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            {
+                Directory.Delete(path, true);
+            }
+        }
+        catch
+        {
+            // Ignore non-critical cleanup errors.
+        }
+    }
+}
+
+public sealed class ArchiveUninstallHandler : IJobHandler
+{
+    public string JobType => "uninstall_archive";
+
+    public async Task<(string Status, int ExitCode, object? Result)> ExecuteAsync(CommandEnvelopeDto envelope, CancellationToken cancellationToken)
+    {
+        string removePath = envelope.Payload.TryGetValue("remove_path", out var removeObj) ? removeObj?.ToString() ?? string.Empty : string.Empty;
+        string uninstallCommand = envelope.Payload.TryGetValue("command", out var commandObj) ? commandObj?.ToString() ?? string.Empty : string.Empty;
+
+        if (string.IsNullOrWhiteSpace(removePath) && string.IsNullOrWhiteSpace(uninstallCommand))
+        {
+            return ("failed", 1, new { error = "remove_path or command required" });
+        }
+
+        bool removed = false;
+        string removeError = string.Empty;
+        if (!string.IsNullOrWhiteSpace(removePath))
+        {
+            try
+            {
+                if (Directory.Exists(removePath))
+                {
+                    Directory.Delete(removePath, true);
+                    removed = true;
+                }
+                else if (File.Exists(removePath))
+                {
+                    File.Delete(removePath);
+                    removed = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                removeError = ex.Message;
+            }
+        }
+
+        int commandExitCode = 0;
+        string commandStdOut = string.Empty;
+        string commandStdErr = string.Empty;
+        if (!string.IsNullOrWhiteSpace(uninstallCommand))
+        {
+            var commandResult = await ProcessRunner.RunShellCommandAsync(uninstallCommand, cancellationToken);
+            commandExitCode = commandResult.ExitCode;
+            commandStdOut = commandResult.StdOut;
+            commandStdErr = commandResult.StdErr;
+            if (commandExitCode != 0 && commandExitCode != 3010)
+            {
+                return ("failed", commandExitCode, new
+                {
+                    error = "uninstall command failed",
+                    command = uninstallCommand,
+                    remove_path = removePath,
+                    remove_error = removeError,
+                    removed,
+                    command_stdout = commandStdOut,
+                    command_stderr = commandStdErr,
+                });
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(removePath) && !removed && string.IsNullOrWhiteSpace(removeError))
+        {
+            removeError = "path not found";
+        }
+
+        bool success = string.IsNullOrWhiteSpace(removeError) || string.Equals(removeError, "path not found", StringComparison.OrdinalIgnoreCase);
+        return (success ? "success" : "failed", success ? 0 : 1, new
+        {
+            command = uninstallCommand,
+            remove_path = removePath,
+            removed,
+            remove_error = removeError,
+            command_stdout = commandStdOut,
+            command_stderr = commandStdErr,
+        });
     }
 }
 

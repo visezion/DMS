@@ -34,6 +34,11 @@
                         Config file package: upload a config artifact and set target path. Deploy will copy file remotely and optionally restart a service.
                     </div>
                 @endif
+                @if($package->package_type === 'archive_bundle')
+                    <div class="rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs text-violet-800">
+                        Archive bundle package: upload a ZIP archive and set install_args_json with at least {"extract_to":"C:\\path\\folder"}. Optional keys: clean_target, strip_top_level, post_install_command, keep_artifact.
+                    </div>
+                @endif
                 <div class="grid gap-2 md:grid-cols-2">
                     <div>
                         <label class="mb-1 block text-xs font-medium text-slate-600">Version</label>
@@ -45,12 +50,16 @@
                     </div>
                 </div>
                 <div>
-                    <label class="mb-1 block text-xs font-medium text-slate-600">Source URI (Optional)</label>
-                    <input name="source_uri" placeholder="https://..." class="rounded-lg border border-slate-300 px-3 py-2.5 w-full"/>
+                    <label class="mb-1 block text-xs font-medium text-slate-600">Source URI (Optional, requires SHA256)</label>
+                    <div class="flex gap-2">
+                        <input id="source-uri-input" name="source_uri" placeholder="https://..." class="rounded-lg border border-slate-300 px-3 py-2.5 w-full"/>
+                        <button id="fetch-sha256-btn" type="button" class="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Fetch SHA256</button>
+                    </div>
+                    <p id="fetch-sha256-status" class="mt-1 text-xs text-slate-500"></p>
                 </div>
                 <div>
-                    <label class="mb-1 block text-xs font-medium text-slate-600">SHA256 (Optional)</label>
-                    <input name="sha256" placeholder="SHA256 checksum" class="rounded-lg border border-slate-300 px-3 py-2.5 w-full"/>
+                    <label class="mb-1 block text-xs font-medium text-slate-600">SHA256 (Optional, required with Source URI)</label>
+                    <input id="sha256-input" name="sha256" placeholder="SHA256 checksum" class="rounded-lg border border-slate-300 px-3 py-2.5 w-full"/>
                 </div>
                 <div>
                     <label class="mb-1 block text-xs font-medium text-slate-600">Artifact File</label>
@@ -58,11 +67,11 @@
                 </div>
                 <div>
                     <label class="mb-1 block text-xs font-medium text-slate-600">Install Args JSON</label>
-                    <input name="install_args_json" placeholder='e.g. {"silent_args":"/S"}' class="rounded-lg border border-slate-300 px-3 py-2.5 w-full"/>
+                    <input name="install_args_json" placeholder='{{ $package->package_type === "archive_bundle" ? "e.g. {\"extract_to\":\"C:\\\\Apps\\\\MyApp\",\"clean_target\":false,\"strip_top_level\":true,\"post_install_command\":\"powershell -File C:\\\\Apps\\\\MyApp\\\\post.ps1\"}" : "e.g. {\"silent_args\":\"/S\"}" }}' class="rounded-lg border border-slate-300 px-3 py-2.5 w-full"/>
                 </div>
                 <div>
                     <label class="mb-1 block text-xs font-medium text-slate-600">Uninstall Args JSON</label>
-                    <input name="uninstall_args_json" placeholder='e.g. {"product_code":"{GUID}"} or {"command":"\"C:\\Program Files\\App\\uninstall.exe\" /S"}' class="rounded-lg border border-slate-300 px-3 py-2.5 w-full"/>
+                    <input name="uninstall_args_json" placeholder='{{ $package->package_type === "archive_bundle" ? "e.g. {\"remove_path\":\"C:\\\\Apps\\\\MyApp\"} or {\"command\":\"cmd /c rmdir /s /q C:\\\\Apps\\\\MyApp\"}" : "e.g. {\"product_code\":\"{GUID}\"} or {\"command\":\"\\\"C:\\\\Program Files\\\\App\\\\uninstall.exe\\\" /S\"}" }}' class="rounded-lg border border-slate-300 px-3 py-2.5 w-full"/>
                 </div>
                 @if($package->package_type === 'config_file')
                     <div>
@@ -225,11 +234,56 @@
             const uploadForm = document.getElementById('package-version-upload-form');
             const uploadModal = document.getElementById('upload-progress-modal');
             const uploadSubmit = document.getElementById('package-version-upload-submit');
+            const sourceUriInput = document.getElementById('source-uri-input');
+            const shaInput = document.getElementById('sha256-input');
+            const fetchShaBtn = document.getElementById('fetch-sha256-btn');
+            const fetchShaStatus = document.getElementById('fetch-sha256-status');
             if (uploadForm && uploadModal && uploadSubmit) {
                 uploadForm.addEventListener('submit', function () {
                     uploadModal.classList.remove('hidden');
                     uploadSubmit.disabled = true;
                     uploadSubmit.classList.add('opacity-70', 'cursor-not-allowed');
+                });
+            }
+            if (fetchShaBtn && sourceUriInput && shaInput && fetchShaStatus) {
+                fetchShaBtn.addEventListener('click', async function () {
+                    const sourceUri = (sourceUriInput.value || '').trim();
+                    if (!sourceUri) {
+                        fetchShaStatus.textContent = 'Enter Source URI first.';
+                        fetchShaStatus.className = 'mt-1 text-xs text-red-600';
+                        return;
+                    }
+
+                    fetchShaBtn.disabled = true;
+                    fetchShaStatus.textContent = 'Fetching and hashing...';
+                    fetchShaStatus.className = 'mt-1 text-xs text-slate-500';
+
+                    try {
+                        const res = await fetch(@json(route('admin.packages.hash-from-uri')), {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': @json(csrf_token()),
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify({ source_uri: sourceUri })
+                        });
+
+                        const data = await res.json();
+                        if (!res.ok) {
+                            throw new Error(data.error || 'Failed to fetch SHA256.');
+                        }
+
+                        shaInput.value = data.sha256 || '';
+                        const mb = data.size_bytes ? (Number(data.size_bytes) / (1024 * 1024)).toFixed(2) : '0.00';
+                        fetchShaStatus.textContent = `SHA256 loaded. Size: ${mb} MB`;
+                        fetchShaStatus.className = 'mt-1 text-xs text-emerald-700';
+                    } catch (error) {
+                        fetchShaStatus.textContent = error instanceof Error ? error.message : 'Failed to fetch SHA256.';
+                        fetchShaStatus.className = 'mt-1 text-xs text-red-600';
+                    } finally {
+                        fetchShaBtn.disabled = false;
+                    }
                 });
             }
 

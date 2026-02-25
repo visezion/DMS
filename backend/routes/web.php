@@ -43,6 +43,7 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
 
     Route::get('/packages', [AdminConsoleController::class, 'packages'])->name('packages');
     Route::get('/packages/icon/windows-store', [AdminConsoleController::class, 'packageWindowsStoreIcon'])->name('packages.icon.windows-store');
+    Route::post('/packages/hash-from-uri', [AdminConsoleController::class, 'packageSha256FromUri'])->name('packages.hash-from-uri');
     Route::get('/packages/{packageId}', [AdminConsoleController::class, 'packageDetail'])->name('packages.show');
     Route::post('/packages', [AdminConsoleController::class, 'createPackage'])->name('packages.create');
     Route::post('/packages/{packageId}/versions', [AdminConsoleController::class, 'createPackageVersion'])->name('packages.versions.create');
@@ -115,3 +116,5 @@ Route::get('/agent/releases/{releaseId}/install-script', [AdminConsoleController
 Route::get('/packages/files/{packageFileId}/download', [AdminConsoleController::class, 'downloadPackageFile'])
     ->middleware('signed:relative')
     ->name('package.file.download');
+Route::get('/packages/files/{packageFileId}/download-public', [AdminConsoleController::class, 'downloadPackageFilePublic'])
+    ->name('package.file.download.public');
