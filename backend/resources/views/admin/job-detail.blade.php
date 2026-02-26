@@ -62,7 +62,13 @@
                 <h3 class="text-xl font-semibold">{{ $job->job_type }}</h3>
                 <p class="mt-1 text-xs font-mono text-slate-500">{{ $job->id }}</p>
             </div>
-            <a href="{{ route('admin.jobs') }}" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">Back to Jobs</a>
+            <div class="flex items-center gap-2">
+                <form method="POST" action="{{ route('admin.jobs.rerun', $job->id) }}" onsubmit="return confirm('Re-run this job with the same payload and target?');">
+                    @csrf
+                    <button class="rounded-lg bg-skyline px-3 py-2 text-xs text-white">Re-run Job</button>
+                </form>
+                <a href="{{ route('admin.jobs') }}" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">Back to Jobs</a>
+            </div>
         </div>
 
         <div class="grid gap-2 sm:grid-cols-4">
@@ -128,6 +134,12 @@
                                     | Attempt: {{ $run->attempt_count ?? 0 }}
                                 </p>
                                 <p class="text-xs text-slate-500">Updated: {{ $run->updated_at }}</p>
+                                @if(strtolower((string) ($run->status ?? '')) === 'failed')
+                                    <form method="POST" action="{{ route('admin.job-runs.rerun', $run->id) }}" class="mt-1" onsubmit="return confirm('Re-run this failed run for this device?');">
+                                        @csrf
+                                        <button class="rounded bg-skyline px-2 py-1 text-[11px] text-white">Re-run This Run</button>
+                                    </form>
+                                @endif
                             </div>
                         </div>
                     </summary>

@@ -18,7 +18,15 @@ class CommandEnvelopeSigner
             ->orderByDesc('not_before')
             ->first();
 
-        return $active ?? $this->rotate();
+        if ($active && $this->isUsableSigningKey($active)) {
+            return $active;
+        }
+
+        if ($active) {
+            $active->update(['status' => 'retired']);
+        }
+
+        return $this->rotate();
     }
 
     public function rotate(?string $kid = null): KeyMaterial
@@ -70,16 +78,17 @@ class CommandEnvelopeSigner
                 ->orderByDesc('not_before')
                 ->first()
             : null;
-        $key = $key ?? $this->ensureActiveKey();
-        $secretPath = Arr::get($key->metadata, 'private_key_path');
-        if (! $secretPath || ! is_file($secretPath)) {
-            throw new \RuntimeException('Signing private key missing for key '.$key->kid);
+        $secretKey = $key ? $this->readSecretKey($key) : null;
+        if (! $secretKey) {
+            $key = $this->ensureActiveKey();
+            $secretKey = $this->readSecretKey($key);
+        }
+        if (! $secretKey) {
+            throw new \RuntimeException('Signing private key missing/invalid for key '.$key->kid);
         }
 
-        $secretKey = base64_decode((string) file_get_contents($secretPath), true);
-        if (! $secretKey) {
-            throw new \RuntimeException('Invalid signing private key encoding for key '.$key->kid);
-        }
+        $publicKey = sodium_crypto_sign_publickey_from_secretkey($secretKey);
+        $this->syncPublicKeyMetadata($key, $publicKey);
 
         $canonical = $this->canonicalJson($envelope);
         $mode = strtolower((string) ($modeOverride ?? env('DMS_SIGNATURE_MODE', 'digest')));
@@ -88,12 +97,75 @@ class CommandEnvelopeSigner
             default => hash('sha256', $canonical, true),
         };
         $signature = sodium_crypto_sign_detached($message, $secretKey);
+        if (! sodium_crypto_sign_verify_detached($signature, $message, $publicKey)) {
+            throw new \RuntimeException('Generated signature self-check failed for key '.$key->kid);
+        }
 
         return [
             'kid' => $key->kid,
             'alg' => 'Ed25519',
             'sig' => base64_encode($signature),
         ];
+    }
+
+    private function readSecretKey(KeyMaterial $key): ?string
+    {
+        $secretPath = Arr::get($key->metadata, 'private_key_path');
+        if (! is_string($secretPath) || trim($secretPath) === '' || ! is_file($secretPath)) {
+            return null;
+        }
+
+        $decoded = base64_decode((string) file_get_contents($secretPath), true);
+        if (! is_string($decoded) || $decoded === '') {
+            return null;
+        }
+
+        return $decoded;
+    }
+
+    private function isUsableSigningKey(KeyMaterial $key): bool
+    {
+        $secret = $this->readSecretKey($key);
+        if (! $secret) {
+            return false;
+        }
+
+        $derivedPublic = sodium_crypto_sign_publickey_from_secretkey($secret);
+        $this->syncPublicKeyMetadata($key, $derivedPublic);
+
+        return true;
+    }
+
+    private function hasUsablePublicKey(KeyMaterial $key): bool
+    {
+        $metadata = is_array($key->metadata) ? $key->metadata : [];
+        $publicBase64 = (string) Arr::get($metadata, 'public_key_base64', $key->public_key_pem);
+        if ($publicBase64 === '') {
+            return false;
+        }
+
+        $decoded = base64_decode($publicBase64, true);
+
+        return is_string($decoded) && $decoded !== '';
+    }
+
+    private function syncPublicKeyMetadata(KeyMaterial $key, string $publicKey): void
+    {
+        $derivedBase64 = base64_encode($publicKey);
+        $derivedFingerprint = hash('sha256', $publicKey);
+        $metadata = is_array($key->metadata) ? $key->metadata : [];
+        $storedBase64 = (string) Arr::get($metadata, 'public_key_base64', '');
+
+        if ($storedBase64 === $derivedBase64 && (string) $key->public_fingerprint_sha256 === $derivedFingerprint) {
+            return;
+        }
+
+        $metadata['public_key_base64'] = $derivedBase64;
+        $key->forceFill([
+            'metadata' => $metadata,
+            'public_key_pem' => $derivedBase64,
+            'public_fingerprint_sha256' => $derivedFingerprint,
+        ])->save();
     }
 
     public function keyset(): array
@@ -105,6 +177,7 @@ class CommandEnvelopeSigner
             ->where('not_after', '>', now()->subDay())
             ->orderByDesc('not_before')
             ->get()
+            ->filter(fn (KeyMaterial $key) => $this->hasUsablePublicKey($key))
             ->map(fn (KeyMaterial $key) => [
                 'kid' => $key->kid,
                 'alg' => $key->alg,

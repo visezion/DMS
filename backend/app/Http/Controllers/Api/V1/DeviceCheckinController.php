@@ -579,15 +579,24 @@ class DeviceCheckinController extends Controller
 
     private function resolveSignatureModeForRun(Device $device, JobRun $run): ?string
     {
-        $agentVersion = strtolower(trim((string) ($device->agent_version ?? '')));
-        $looksLegacy = $agentVersion !== '' && version_compare($agentVersion, '1.0.9', '<');
-        if (! $looksLegacy) {
-            return null;
-        }
-
         $modes = $this->signatureCompatModes();
         if ($modes->isEmpty()) {
-            return null;
+            $modes = collect(['digest']);
+        }
+
+        $agentVersion = strtolower(trim((string) ($device->agent_version ?? '')));
+        $looksLegacy = $agentVersion !== '' && version_compare($agentVersion, '1.0.9', '<');
+        if ($looksLegacy) {
+            // Legacy agents can fail digest-mode verification depending on build/runtime.
+            // Force canonical-first compatibility order for these versions.
+            $modes = $modes
+                ->filter(fn ($m) => in_array($m, ['canonical', 'digest'], true))
+                ->values();
+            if ($modes->isEmpty()) {
+                $modes = collect(['canonical', 'digest']);
+            } else {
+                $modes = $modes->sortBy(fn ($m) => $m === 'canonical' ? 0 : 1)->values();
+            }
         }
 
         $attempt = max(0, (int) ($run->attempt_count ?? 0));
@@ -603,9 +612,17 @@ class DeviceCheckinController extends Controller
 
     private function signatureCompatModes(): \Illuminate\Support\Collection
     {
-        return collect(explode(',', (string) env('DMS_SIGNATURE_COMPAT_MODES', 'digest,canonical')))
+        $configured = collect(explode(',', (string) env('DMS_SIGNATURE_COMPAT_MODES', 'digest,canonical')))
             ->map(fn ($m) => strtolower(trim((string) $m)))
             ->filter(fn ($m) => in_array($m, ['digest', 'canonical'], true))
+            ->values();
+
+        // Permanent safety: always keep both compatible modes available,
+        // even if env value is incomplete.
+        return $configured
+            ->merge(['digest', 'canonical'])
+            ->unique()
+            ->sortBy(fn ($m) => $m === 'canonical' ? 0 : 1)
             ->values();
     }
 
@@ -672,6 +689,7 @@ class DeviceCheckinController extends Controller
     private function resolveSignatureKeyKidForRun(CommandEnvelopeSigner $signer, int $attempt, int $modeCount): ?string
     {
         $keys = collect($signer->keyset())
+            ->filter(fn ($row) => is_array($row) && strtolower((string) ($row['status'] ?? '')) === 'active')
             ->pluck('kid')
             ->filter(fn ($kid) => is_string($kid) && trim($kid) !== '')
             ->values();

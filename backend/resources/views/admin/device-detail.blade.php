@@ -65,13 +65,30 @@
                     <p class="text-sm font-semibold text-red-800">Danger Zone: Remote Agent Uninstall</p>
                     <p class="text-xs text-red-700">Queues <span class="font-mono">uninstall_agent</span> on this device. Requires your admin password.</p>
                 </div>
-                <form method="POST" action="{{ route('admin.devices.agent.uninstall', $device->id) }}" class="flex flex-wrap items-center gap-2" onsubmit="return confirm('Uninstall DMS agent from this device? This will remove remote management access after completion.');">
+                <div class="flex flex-wrap items-center gap-2">
+                <form method="POST" action="{{ route('admin.devices.reboot', $device->id) }}" class="flex flex-wrap items-center gap-2 js-sensitive-action" data-action-label="reboot" data-action-title="Reboot Device" data-action-description="Restart this device now? Unsaved work on target device may be lost.">
                     @csrf
-                    <input type="password" name="admin_password" placeholder="Admin password" class="rounded-lg border border-red-300 bg-white px-3 py-2 text-xs" required>
+                    <input type="hidden" name="admin_password" value="">
+                    <input type="hidden" name="priority" value="95">
+                    <button class="inline-flex items-center gap-1 rounded-lg bg-blue-600 text-white px-3 py-2 text-xs font-medium hover:bg-blue-700">
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M3 12a9 9 0 1 0 3-6.7"/>
+                            <path d="M3 4v5h5"/>
+                        </svg>
+                        Reboot Device
+                    </button>
+                </form>
+                <form method="POST" action="{{ route('admin.devices.agent.uninstall', $device->id) }}" class="flex flex-wrap items-center gap-2 js-sensitive-action" data-action-label="uninstall" data-action-title="Uninstall Agent" data-action-description="Uninstall DMS agent from this device? This will remove remote management access after completion. It will also uninstall all deployed software and remove all applied policies from this device.">
+                    @csrf
+                    <input type="hidden" name="admin_password" value="">
                     <input type="hidden" name="priority" value="90">
                     <button class="rounded-lg bg-red-600 text-white px-3 py-2 text-xs font-medium hover:bg-red-700">Uninstall Agent</button>
                 </form>
+                </div>
             </div>
+            @error('device_reboot')
+                <p class="mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
+            @enderror
             @error('agent_uninstall')
                 <p class="mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
             @enderror
@@ -136,6 +153,12 @@
                         </p>
                         @if(!empty($policy->last_run_error))
                             <p>Last Error: {{ $policy->last_run_error }}</p>
+                        @endif
+                        @if($runStatus === 'failed' && !empty($policy->last_run_id))
+                            <form method="POST" action="{{ route('admin.job-runs.rerun', $policy->last_run_id) }}" class="mt-2" onsubmit="return confirm('Re-run this failed policy apply on this device?');">
+                                @csrf
+                                <button class="rounded bg-skyline text-white px-2 py-1">Re-run</button>
+                            </form>
                         @endif
                     </div>
                 @empty
@@ -205,6 +228,12 @@
                                         @csrf
                                         <input type="hidden" name="package_version_id" value="{{ $latest->package_version_id }}">
                                         <button class="rounded bg-red-600 text-white px-2 py-1">Uninstall</button>
+                                    </form>
+                                @endif
+                                @if($latestStatus === 'failed' && !empty($latest->run_id))
+                                    <form method="POST" action="{{ route('admin.job-runs.rerun', $latest->run_id) }}" class="mt-2" onsubmit="return confirm('Re-run this failed package deployment on this device?');">
+                                        @csrf
+                                        <button class="rounded bg-skyline text-white px-2 py-1">Re-run</button>
                                     </form>
                                 @endif
                             </div>
@@ -328,6 +357,29 @@
     </div>
 
     <div id="job-toast-container" class="fixed top-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+    <div id="device-action-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-[1px] px-4">
+        <div class="flex min-h-full items-center justify-center">
+            <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                <div class="border-b border-slate-200 px-5 py-4">
+                    <h3 id="device-action-modal-title" class="text-base font-semibold text-slate-900">Confirm Action</h3>
+                    <p class="mt-1 text-xs text-slate-600">This action requires admin password confirmation.</p>
+                </div>
+                <div class="space-y-3 px-5 py-4">
+                    <div id="device-action-modal-description" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"></div>
+                    <div>
+                        <label for="device-action-password" class="mb-1 block text-xs font-medium text-slate-600">Enter your admin password:</label>
+                        <input id="device-action-password" type="password" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autocomplete="current-password" />
+                    </div>
+                    <p id="device-action-modal-error" class="hidden rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">Password is required.</p>
+                </div>
+                <div class="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+                    <button id="device-action-cancel" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">Cancel</button>
+                    <button id="device-action-confirm" type="button" class="rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-white hover:bg-slate-900">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script>
         (() => {
@@ -683,6 +735,87 @@
             applyDeviceStatus(@json($device->status));
             poll();
             setInterval(poll, 5000);
+        })();
+    </script>
+    <script>
+        (function () {
+            const modal = document.getElementById('device-action-modal');
+            const titleNode = document.getElementById('device-action-modal-title');
+            const descNode = document.getElementById('device-action-modal-description');
+            const passwordInput = document.getElementById('device-action-password');
+            const errorNode = document.getElementById('device-action-modal-error');
+            const cancelBtn = document.getElementById('device-action-cancel');
+            const confirmBtn = document.getElementById('device-action-confirm');
+            let activeForm = null;
+
+            function closeModal() {
+                modal?.classList.add('hidden');
+                activeForm = null;
+                if (passwordInput) passwordInput.value = '';
+                errorNode?.classList.add('hidden');
+            }
+
+            function openModal(form) {
+                activeForm = form;
+                const actionLabel = String(form?.dataset?.actionLabel || '').toLowerCase();
+                const actionTitle = String(form?.dataset?.actionTitle || 'Confirm Action');
+                const actionDescription = String(form?.dataset?.actionDescription || 'Proceed with this action?');
+                if (titleNode) titleNode.textContent = actionTitle;
+                if (descNode) descNode.textContent = actionDescription;
+                if (descNode) {
+                    descNode.className = actionLabel === 'uninstall'
+                        ? 'rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700'
+                        : 'rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700';
+                }
+                if (confirmBtn) {
+                    confirmBtn.textContent = actionLabel === 'uninstall' ? 'Confirm Uninstall' : 'Confirm Reboot';
+                    confirmBtn.className = actionLabel === 'uninstall'
+                        ? 'rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700'
+                        : 'rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700';
+                }
+                modal?.classList.remove('hidden');
+                if (passwordInput) {
+                    passwordInput.value = '';
+                    passwordInput.focus();
+                }
+                errorNode?.classList.add('hidden');
+            }
+
+            document.querySelectorAll('form.js-sensitive-action').forEach((form) => {
+                form.addEventListener('submit', function (event) {
+                    if (form.dataset.confirmed === '1') {
+                        return true;
+                    }
+                    event.preventDefault();
+                    openModal(form);
+                    return false;
+                });
+            });
+
+            cancelBtn?.addEventListener('click', closeModal);
+            modal?.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) closeModal();
+            });
+
+            confirmBtn?.addEventListener('click', function () {
+                if (!activeForm) return;
+                const password = String(passwordInput?.value || '').trim();
+                if (password === '') {
+                    errorNode?.classList.remove('hidden');
+                    return;
+                }
+                const pwdField = activeForm.querySelector('input[name="admin_password"]');
+                if (!pwdField) {
+                    closeModal();
+                    return;
+                }
+                pwdField.value = password;
+                activeForm.dataset.confirmed = '1';
+                const formToSubmit = activeForm;
+                closeModal();
+                formToSubmit.submit();
+            });
         })();
     </script>
 </x-admin-layout>

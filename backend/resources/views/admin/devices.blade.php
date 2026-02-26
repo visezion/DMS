@@ -54,6 +54,9 @@
         @error('device_delete')
             <div class="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">{{ $message }}</div>
         @enderror
+        @error('device_force_delete')
+            <div class="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">{{ $message }}</div>
+        @enderror
         <div class="mb-3 grid gap-2 lg:grid-cols-[auto,1fr,auto] lg:items-center">
             <h3 class="font-semibold">Device List</h3>
             <div class="flex items-center gap-2">
@@ -116,11 +119,16 @@
                             @csrf
                             <button class="rounded-md bg-amber-600 px-2.5 py-1 text-[11px] font-medium text-white">Re-enroll</button>
                         </form>
-                        <form method="POST" action="{{ route('admin.devices.delete', $device->id) }}" class="device-delete-form" onsubmit="return handleDeviceDeleteSubmit(event);">
+                        <form method="POST" action="{{ route('admin.devices.delete', $device->id) }}" class="device-delete-form" data-delete-mode="delete" onsubmit="return handleDeviceDeleteSubmit(event);">
                             @csrf
                             @method('DELETE')
                             <input type="hidden" name="admin_password" value="">
                             <button class="rounded-md bg-rose-600 px-2.5 py-1 text-[11px] font-medium text-white">Delete</button>
+                        </form>
+                        <form method="POST" action="{{ route('admin.devices.force-delete', $device->id) }}" class="device-delete-form" data-delete-mode="force" onsubmit="return handleDeviceDeleteSubmit(event);">
+                            @csrf
+                            <input type="hidden" name="admin_password" value="">
+                            <button class="rounded-md bg-red-800 px-2.5 py-1 text-[11px] font-medium text-white">Force Delete</button>
                         </form>
                     </div>
 
@@ -154,11 +162,11 @@
         <div class="flex min-h-full items-center justify-center">
             <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
                 <div class="border-b border-slate-200 px-5 py-4">
-                    <h3 class="text-base font-semibold text-slate-900">Delete Device</h3>
-                    <p class="mt-1 text-xs text-slate-600">This action is protected and requires admin password confirmation.</p>
+                    <h3 id="delete-device-modal-title" class="text-base font-semibold text-slate-900">Delete Device</h3>
+                    <p id="delete-device-modal-subtitle" class="mt-1 text-xs text-slate-600">This action is protected and requires admin password confirmation.</p>
                 </div>
                 <div class="space-y-3 px-5 py-4">
-                    <div class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                    <div id="delete-device-modal-warning" class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
                         Delete this device? Agent uninstall will be queued first, then the record is auto-removed after success.
                     </div>
                     <div>
@@ -182,6 +190,9 @@
             const errorNode = document.getElementById('delete-device-modal-error');
             const cancelBtn = document.getElementById('delete-device-cancel');
             const confirmBtn = document.getElementById('delete-device-confirm');
+            const modalTitle = document.getElementById('delete-device-modal-title');
+            const modalSubtitle = document.getElementById('delete-device-modal-subtitle');
+            const modalWarning = document.getElementById('delete-device-modal-warning');
             let activeForm = null;
 
             function closeModal() {
@@ -194,8 +205,32 @@
 
             function openModal(form) {
                 activeForm = form;
+                const mode = (form?.dataset?.deleteMode || 'delete').toLowerCase();
                 if (!modal) return;
                 modal.classList.remove('hidden');
+                if (modalTitle) {
+                    modalTitle.textContent = mode === 'force' ? 'Force Delete Device' : 'Delete Device';
+                }
+                if (modalSubtitle) {
+                    modalSubtitle.textContent = mode === 'force'
+                        ? 'Force delete removes this device and related records from server data immediately.'
+                        : 'This action is protected and requires admin password confirmation.';
+                }
+                if (modalWarning) {
+                    if (mode === 'force') {
+                        modalWarning.className = 'rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800';
+                        modalWarning.textContent = 'Force delete this device now? This bypasses uninstall queue and purges server-side device data immediately.';
+                    } else {
+                        modalWarning.className = 'rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800';
+                        modalWarning.textContent = 'Delete this device? Agent uninstall will be queued first, then the record is auto-removed after success.';
+                    }
+                }
+                if (confirmBtn) {
+                    confirmBtn.textContent = mode === 'force' ? 'Confirm Force Delete' : 'Confirm Delete';
+                    confirmBtn.className = mode === 'force'
+                        ? 'rounded-lg bg-red-700 px-3 py-2 text-xs font-medium text-white hover:bg-red-800'
+                        : 'rounded-lg bg-rose-600 px-3 py-2 text-xs font-medium text-white hover:bg-rose-700';
+                }
                 if (passwordInput) {
                     passwordInput.value = '';
                     passwordInput.focus();

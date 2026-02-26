@@ -90,7 +90,15 @@
                         </td>
                         <td class="py-2">{{ $job->priority }}</td>
                         <td class="py-2">{{ $job->created_at }}</td>
-                        <td class="py-2"><a href="{{ route('admin.jobs.show', $job->id) }}" class="rounded bg-slate-100 text-slate-700 px-2 py-1 text-xs">Details</a></td>
+                        <td class="py-2">
+                            <div class="flex items-center gap-1">
+                                <a href="{{ route('admin.jobs.show', $job->id) }}" class="rounded bg-slate-100 text-slate-700 px-2 py-1 text-xs">Details</a>
+                                <form method="POST" action="{{ route('admin.jobs.rerun', $job->id) }}" onsubmit="return confirm('Re-run this job with the same payload and target?');">
+                                    @csrf
+                                    <button class="rounded bg-skyline text-white px-2 py-1 text-xs">Re-run</button>
+                                </form>
+                            </div>
+                        </td>
                     </tr>
                 @endforeach
                 </tbody>

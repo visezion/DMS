@@ -10,12 +10,11 @@
         "projectUniqueName": "C:\\xampp\\htdocs\\DMS\\agent\\src\\Dms.Agent.Core\\Dms.Agent.Core.csproj",
         "projectName": "Dms.Agent.Core",
         "projectPath": "C:\\xampp\\htdocs\\DMS\\agent\\src\\Dms.Agent.Core\\Dms.Agent.Core.csproj",
-        "packagesPath": "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages",
+        "packagesPath": "C:\\xampp\\htdocs\\DMS\\agent\\.dotnet-home\\.nuget\\packages",
         "outputPath": "C:\\xampp\\htdocs\\DMS\\agent\\src\\Dms.Agent.Core\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\xampp\\htdocs\\DMS\\agent\\NuGet.Config",
-          "C:\\Users\\CIU\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\xampp\\htdocs\\DMS\\agent\\.dotnet-home\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0-windows"
@@ -67,11 +66,27 @@
               "version": "[8.0.24, 8.0.24]"
             },
             {
+              "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+              "version": "[8.0.24, 8.0.24]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Host.win-x64",
+              "version": "[8.0.24, 8.0.24]"
+            },
+            {
               "name": "Microsoft.NETCore.App.Ref",
               "version": "[8.0.24, 8.0.24]"
             },
             {
+              "name": "Microsoft.NETCore.App.Runtime.win-x64",
+              "version": "[8.0.24, 8.0.24]"
+            },
+            {
               "name": "Microsoft.WindowsDesktop.App.Ref",
+              "version": "[8.0.24, 8.0.24]"
+            },
+            {
+              "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
               "version": "[8.0.24, 8.0.24]"
             }
           ],
@@ -81,6 +96,11 @@
             }
           },
           "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.103/PortableRuntimeIdentifierGraph.json"
+        }
+      },
+      "runtimes": {
+        "win-x64": {
+          "#import": []
         }
       }
     }

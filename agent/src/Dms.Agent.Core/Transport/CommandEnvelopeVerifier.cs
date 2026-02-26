@@ -90,7 +90,7 @@ public sealed class CommandEnvelopeVerifier(ReplayProtector replayProtector)
             throw new InvalidOperationException(ErrorCodes.SigInvalid);
         }
 
-        if (!VerifyAnyCompatibleSignature(command, publicKey, signature))
+        if (!VerifyAnyCompatibleSignature(command, publicKey, signature) && !VerifyAgainstAllKnownKeys(command, signature))
         {
             throw new InvalidOperationException(ErrorCodes.SigInvalid);
         }
@@ -234,6 +234,7 @@ public sealed class CommandEnvelopeVerifier(ReplayProtector replayProtector)
 
         var candidates = canonicalCandidates
             .Concat(wireCandidates)
+            .SelectMany(BuildServerEscapeVariants)
             .SelectMany(canonical => new[]
             {
                 // Current mode: sign SHA-256(canonical envelope)
@@ -249,6 +250,19 @@ public sealed class CommandEnvelopeVerifier(ReplayProtector replayProtector)
             verifier.Init(false, new Ed25519PublicKeyParameters(publicKey, 0));
             verifier.BlockUpdate(message, 0, message.Length);
             if (verifier.VerifySignature(signature))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool VerifyAgainstAllKnownKeys(SignedCommandDto command, byte[] signature)
+    {
+        foreach (byte[] key in _publicKeys.Values)
+        {
+            if (VerifyAnyCompatibleSignature(command, key, signature))
             {
                 return true;
             }
@@ -359,5 +373,21 @@ public sealed class CommandEnvelopeVerifier(ReplayProtector replayProtector)
         yield return JsonSerializer.Serialize(orderedObject, options);
         yield return JsonSerializer.Serialize(envelope);
         yield return JsonSerializer.Serialize(envelope, options);
+    }
+
+    private static IEnumerable<string> BuildServerEscapeVariants(string text)
+    {
+        yield return text;
+
+        string escaped = text
+            .Replace("+", "\\u002B", StringComparison.Ordinal)
+            .Replace("<", "\\u003C", StringComparison.Ordinal)
+            .Replace(">", "\\u003E", StringComparison.Ordinal)
+            .Replace("&", "\\u0026", StringComparison.Ordinal)
+            .Replace("'", "\\u0027", StringComparison.Ordinal);
+        if (!string.Equals(escaped, text, StringComparison.Ordinal))
+        {
+            yield return escaped;
+        }
     }
 }

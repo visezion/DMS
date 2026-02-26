@@ -10,6 +10,10 @@ Route::redirect('/login', '/admin/login')->name('login');
 Route::middleware('guest')->group(function () {
     Route::get('/admin/login', [AdminAuthController::class, 'loginForm'])->name('admin.login');
     Route::post('/admin/login', [AdminAuthController::class, 'login'])->name('admin.login.submit');
+    Route::get('/admin/login/captcha-refresh', [AdminAuthController::class, 'refreshCaptcha'])->name('admin.login.captcha.refresh');
+    Route::get('/admin/login/mfa', [AdminAuthController::class, 'mfaForm'])->name('admin.login.mfa.form');
+    Route::post('/admin/login/mfa', [AdminAuthController::class, 'verifyMfa'])->name('admin.login.mfa.verify');
+    Route::post('/admin/login/mfa/cancel', [AdminAuthController::class, 'cancelMfa'])->name('admin.login.mfa.cancel');
 });
 
 Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
@@ -23,9 +27,11 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::get('/devices/{deviceId}/live', [AdminConsoleController::class, 'deviceDetailLive'])->name('devices.live');
     Route::patch('/devices/{deviceId}', [AdminConsoleController::class, 'updateDevice'])->name('devices.update');
     Route::delete('/devices/{deviceId}', [AdminConsoleController::class, 'deleteDevice'])->name('devices.delete');
+    Route::post('/devices/{deviceId}/force-delete', [AdminConsoleController::class, 'forceDeleteDevice'])->name('devices.force-delete');
     Route::delete('/devices/{deviceId}/policy-assignments/{assignmentId}', [AdminConsoleController::class, 'removeDevicePolicyAssignment'])->name('devices.policies.remove');
     Route::post('/devices/{deviceId}/packages/uninstall', [AdminConsoleController::class, 'uninstallDevicePackage'])->name('devices.packages.uninstall');
     Route::post('/devices/{deviceId}/agent/uninstall', [AdminConsoleController::class, 'uninstallDeviceAgent'])->name('devices.agent.uninstall');
+    Route::post('/devices/{deviceId}/reboot', [AdminConsoleController::class, 'rebootDevice'])->name('devices.reboot');
     Route::post('/devices/{deviceId}/reenroll', [AdminConsoleController::class, 'reenrollDevice'])->name('devices.reenroll');
     Route::post('/devices/enrollment-token', [AdminConsoleController::class, 'createEnrollmentToken'])->name('devices.enrollment-token');
 
@@ -73,6 +79,8 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::get('/jobs', [AdminConsoleController::class, 'jobs'])->name('jobs');
     Route::get('/jobs/{jobId}', [AdminConsoleController::class, 'jobDetail'])->name('jobs.show');
     Route::post('/jobs', [AdminConsoleController::class, 'createJob'])->name('jobs.create');
+    Route::post('/jobs/{jobId}/rerun', [AdminConsoleController::class, 'rerunJob'])->name('jobs.rerun');
+    Route::post('/job-runs/{runId}/rerun', [AdminConsoleController::class, 'rerunJobRun'])->name('job-runs.rerun');
     Route::post('/jobs/store-clear', [AdminConsoleController::class, 'storeAndClearJobs'])->name('jobs.store-clear');
     Route::post('/ops/settings', [AdminConsoleController::class, 'updateOps'])->name('ops.update');
     Route::post('/ops/rotate-signing-key', [AdminConsoleController::class, 'rotateSigningKey'])->name('ops.rotate-key');
@@ -92,12 +100,24 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
 
     Route::get('/getting-started', [AdminConsoleController::class, 'gettingStarted'])->name('getting-started');
     Route::get('/docs', [AdminConsoleController::class, 'docs'])->name('docs');
+    Route::get('/notes', [AdminConsoleController::class, 'notes'])->name('notes');
+    Route::post('/notes', [AdminConsoleController::class, 'createNote'])->name('notes.create');
+    Route::patch('/notes/{noteId}', [AdminConsoleController::class, 'updateNote'])->name('notes.update');
+    Route::delete('/notes/{noteId}', [AdminConsoleController::class, 'deleteNote'])->name('notes.delete');
     Route::get('/profile', [AdminConsoleController::class, 'profile'])->name('profile');
     Route::post('/profile', [AdminConsoleController::class, 'updateProfile'])->name('profile.update');
+    Route::post('/profile/mfa/setup', [AdminConsoleController::class, 'setupProfileMfa'])->name('profile.mfa.setup');
+    Route::post('/profile/mfa/enable', [AdminConsoleController::class, 'enableProfileMfa'])->name('profile.mfa.enable');
+    Route::post('/profile/mfa/disable', [AdminConsoleController::class, 'disableProfileMfa'])->name('profile.mfa.disable');
     Route::get('/settings', [AdminConsoleController::class, 'settings'])->name('settings');
+    Route::get('/security-hardening', [AdminConsoleController::class, 'securityCommandCenter'])->name('security-hardening');
+    Route::get('/security-command-center', [AdminConsoleController::class, 'securityCommandCenter'])->name('security-command-center');
     Route::get('/settings/branding', [AdminConsoleController::class, 'branding'])->name('settings.branding');
     Route::post('/settings/branding', [AdminConsoleController::class, 'updateBranding'])->name('settings.branding.update');
     Route::post('/settings/signature-bypass', [AdminConsoleController::class, 'updateSignatureBypass'])->name('settings.signature-bypass');
+    Route::post('/settings/auth-policy', [AdminConsoleController::class, 'updateAuthPolicy'])->name('settings.auth-policy');
+    Route::post('/settings/https-app-url', [AdminConsoleController::class, 'updateHttpsAppUrl'])->name('settings.https-app-url');
+    Route::post('/settings/environment-posture', [AdminConsoleController::class, 'updateEnvironmentPosture'])->name('settings.environment-posture');
     Route::get('/access', [AdminConsoleController::class, 'access'])->name('access');
     Route::post('/access/users', [AdminConsoleController::class, 'createStaffUser'])->name('access.users.create');
     Route::post('/access/roles', [AdminConsoleController::class, 'createRole'])->name('access.roles.create');

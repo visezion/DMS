@@ -20,11 +20,14 @@ class User extends Authenticatable
         'email',
         'password',
         'is_active',
+        'mfa_enabled',
+        'mfa_secret',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+        'mfa_secret',
     ];
 
     protected function casts(): array
@@ -33,6 +36,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'mfa_enabled' => 'boolean',
         ];
     }
 

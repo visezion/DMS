@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\AgentRelease;
+use App\Models\AdminNote;
 use App\Models\AuditLog;
 use App\Models\ComplianceResult;
 use App\Models\ControlPlaneSetting;
@@ -26,6 +27,7 @@ use App\Models\User;
 use App\Services\AgentBuildService;
 use App\Services\AuditLogger;
 use App\Services\CommandEnvelopeSigner;
+use App\Services\TotpService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,6 +36,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
@@ -232,6 +235,7 @@ class AdminConsoleController extends Controller
                     'policy_version_status' => $assignment->policy_version_status,
                     'last_run_status' => $run?->status ?? 'assigned',
                     'last_run_error' => $run?->last_error ?? null,
+                    'last_run_id' => $run?->id,
                     'last_run_at' => $run?->updated_at,
                 ];
             });
@@ -263,6 +267,7 @@ class AdminConsoleController extends Controller
                 'status' => $item->run->status,
                 'already_installed' => $alreadyInstalled,
                 'last_error' => $item->run->last_error,
+                'run_id' => $item->run->id,
                 'updated_at' => $item->run->updated_at,
             ];
         })
@@ -516,6 +521,33 @@ class AdminConsoleController extends Controller
         }
 
         return back()->with('status', $status);
+    }
+
+    public function forceDeleteDevice(Request $request, string $deviceId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate([
+            'admin_password' => ['required', 'string', 'max:255'],
+        ]);
+
+        $user = $request->user();
+        if (! $user || ! Hash::check((string) $data['admin_password'], (string) $user->password)) {
+            return back()->withErrors([
+                'device_force_delete' => 'Admin password is incorrect.',
+            ]);
+        }
+
+        $device = Device::query()->findOrFail($deviceId);
+        $before = $device->toArray();
+
+        $deletedCounts = $this->purgeDeviceRecordForAdmin($device->id);
+
+        $auditLogger->log('device.force_delete.web', 'device', $deviceId, $before, [
+            'deleted' => true,
+            'mode' => 'force',
+            'counts' => $deletedCounts,
+        ], $user->id);
+
+        return back()->with('status', 'Device force-deleted from server data. Related device records were purged immediately.');
     }
 
     public function createEnrollmentToken(Request $request, AuditLogger $auditLogger): RedirectResponse
@@ -1582,6 +1614,66 @@ class AdminConsoleController extends Controller
         ], $user->id);
 
         return back()->with('status', 'Agent uninstall job queued for device.');
+    }
+
+    public function rebootDevice(Request $request, string $deviceId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate([
+            'admin_password' => ['required', 'string', 'max:255'],
+            'priority' => ['nullable', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        $user = $request->user();
+        if (! $user || ! Hash::check((string) $data['admin_password'], (string) $user->password)) {
+            return back()->withErrors([
+                'device_reboot' => 'Admin password is incorrect.',
+            ]);
+        }
+
+        $device = Device::query()->findOrFail($deviceId);
+        $script = 'shutdown.exe /r /t 0';
+        $payload = [
+            'script' => $script,
+            'script_sha256' => strtolower(hash('sha256', $script)),
+        ];
+
+        if ($this->settingBool('scripts.auto_allow_run_command_hashes', false)) {
+            $allow = array_map('strtolower', $this->settingArray('scripts.allowed_sha256', []));
+            if (! in_array($payload['script_sha256'], $allow, true)) {
+                $updatedAllow = array_values(array_unique(array_merge($allow, [$payload['script_sha256']])));
+                ControlPlaneSetting::query()->updateOrCreate(
+                    ['key' => 'scripts.allowed_sha256'],
+                    ['value' => ['value' => $updatedAllow], 'updated_by' => $user->id]
+                );
+            }
+        }
+
+        $job = DmsJob::query()->create([
+            'id' => (string) Str::uuid(),
+            'job_type' => 'run_command',
+            'status' => 'queued',
+            'priority' => (int) ($data['priority'] ?? 95),
+            'payload' => $payload,
+            'target_type' => 'device',
+            'target_id' => $device->id,
+            'created_by' => $user->id,
+        ]);
+
+        JobRun::query()->create([
+            'id' => (string) Str::uuid(),
+            'job_id' => $job->id,
+            'device_id' => $device->id,
+            'status' => 'pending',
+            'next_retry_at' => null,
+        ]);
+
+        $auditLogger->log('device.reboot.web', 'job', $job->id, null, [
+            'device_id' => $device->id,
+            'job_type' => 'run_command',
+            'script_sha256' => $payload['script_sha256'],
+        ], $user->id);
+
+        return back()->with('status', 'Reboot job queued for device.');
     }
 
     public function deletePackageVersion(Request $request, string $packageId, string $versionId, AuditLogger $auditLogger): RedirectResponse
@@ -3022,6 +3114,46 @@ class AdminConsoleController extends Controller
         ];
     }
 
+    private function purgeDeviceRecordForAdmin(string $deviceId): array
+    {
+        $device = Device::query()->find($deviceId);
+        if (! $device) {
+            return [
+                'memberships' => 0,
+                'identities' => 0,
+                'policy_assignments' => 0,
+                'compliance_results' => 0,
+                'job_events' => 0,
+                'job_runs' => 0,
+                'enrollment_tokens' => 0,
+                'devices' => 0,
+            ];
+        }
+
+        return \DB::transaction(function () use ($device) {
+            $runIds = JobRun::query()
+                ->where('device_id', $device->id)
+                ->pluck('id')
+                ->values();
+
+            $deletedEvents = 0;
+            if ($runIds->isNotEmpty()) {
+                $deletedEvents = (int) JobEvent::query()->whereIn('job_run_id', $runIds)->delete();
+            }
+
+            return [
+                'memberships' => (int) \DB::table('device_group_memberships')->where('device_id', $device->id)->delete(),
+                'identities' => (int) \DB::table('device_identities')->where('device_id', $device->id)->delete(),
+                'policy_assignments' => (int) \DB::table('policy_assignments')->where('target_type', 'device')->where('target_id', $device->id)->delete(),
+                'compliance_results' => (int) ComplianceResult::query()->where('device_id', $device->id)->delete(),
+                'job_events' => $deletedEvents,
+                'job_runs' => (int) JobRun::query()->where('device_id', $device->id)->delete(),
+                'enrollment_tokens' => (int) EnrollmentToken::query()->where('used_by_device_id', $device->id)->update(['used_by_device_id' => null]),
+                'devices' => (int) Device::query()->where('id', $device->id)->delete(),
+            ];
+        });
+    }
+
     private function queueUninstallForInstalledDevices(array $versions, ?int $createdBy): int
     {
         $count = 0;
@@ -3348,6 +3480,52 @@ POWERSHELL;
         return true;
     }
 
+    private function cloneJobWithRuns(
+        DmsJob $source,
+        string $targetType,
+        string $targetId,
+        ?string $singleDeviceId,
+        int $priority,
+        ?int $createdBy
+    ): DmsJob {
+        $job = DmsJob::query()->create([
+            'id' => (string) Str::uuid(),
+            'job_type' => (string) $source->job_type,
+            'status' => 'queued',
+            'priority' => $priority,
+            'payload' => is_array($source->payload) ? $source->payload : [],
+            'target_type' => $targetType,
+            'target_id' => $targetId,
+            'created_by' => $createdBy,
+        ]);
+
+        if ($targetType === 'device') {
+            $deviceId = $singleDeviceId ?: $targetId;
+            JobRun::query()->create([
+                'id' => (string) Str::uuid(),
+                'job_id' => $job->id,
+                'device_id' => $deviceId,
+                'status' => 'pending',
+                'next_retry_at' => null,
+            ]);
+
+            return $job;
+        }
+
+        $deviceIds = \DB::table('device_group_memberships')->where('device_group_id', $targetId)->pluck('device_id');
+        foreach ($deviceIds as $deviceId) {
+            JobRun::query()->create([
+                'id' => (string) Str::uuid(),
+                'job_id' => $job->id,
+                'device_id' => (string) $deviceId,
+                'status' => 'pending',
+                'next_retry_at' => null,
+            ]);
+        }
+
+        return $job;
+    }
+
     public function jobs(): View
     {
         $jobs = DmsJob::query()->latest('created_at')->paginate(20);
@@ -3459,6 +3637,51 @@ POWERSHELL;
         $auditLogger->log('job.create.web', 'job', $job->id, null, $job->toArray(), $request->user()?->id);
 
         return back()->with('status', 'Job queued.');
+    }
+
+    public function rerunJob(Request $request, string $jobId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $source = DmsJob::query()->findOrFail($jobId);
+        $cloned = $this->cloneJobWithRuns(
+            $source,
+            (string) $source->target_type,
+            (string) $source->target_id,
+            null,
+            (int) $source->priority,
+            $request->user()?->id
+        );
+
+        $auditLogger->log('job.rerun.web', 'job', $cloned->id, null, [
+            'source_job_id' => $source->id,
+            'target_type' => $cloned->target_type,
+            'target_id' => $cloned->target_id,
+        ], $request->user()?->id);
+
+        return back()->with('status', 'Job re-run queued.');
+    }
+
+    public function rerunJobRun(Request $request, string $runId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $run = JobRun::query()->findOrFail($runId);
+        $source = DmsJob::query()->findOrFail((string) $run->job_id);
+        $device = Device::query()->findOrFail((string) $run->device_id);
+
+        $cloned = $this->cloneJobWithRuns(
+            $source,
+            'device',
+            $device->id,
+            $device->id,
+            (int) $source->priority,
+            $request->user()?->id
+        );
+
+        $auditLogger->log('job.run.rerun.web', 'job', $cloned->id, null, [
+            'source_job_id' => $source->id,
+            'source_run_id' => $run->id,
+            'device_id' => $device->id,
+        ], $request->user()?->id);
+
+        return back()->with('status', 'Run re-queued for this device.');
     }
 
     public function jobDetail(string $jobId): View
@@ -4901,6 +5124,218 @@ PS1;
                 'security.signature_bypass_enabled',
                 filter_var((string) env('DMS_SIGNATURE_BYPASS', 'false'), FILTER_VALIDATE_BOOL)
             ),
+            'authPolicy' => [
+                'max_login_attempts' => max(1, $this->settingInt('auth.max_login_attempts', 5)),
+                'lockout_minutes' => max(1, $this->settingInt('auth.lockout_minutes', 15)),
+            ],
+            'httpsPolicy' => [
+                'app_url' => (string) config('app.url', ''),
+                'session_secure_cookie' => (bool) config('session.secure', false),
+            ],
+            'environmentPolicy' => [
+                'app_env' => (string) config('app.env', 'local'),
+                'app_debug' => (bool) config('app.debug', false),
+                'session_secure_cookie' => (bool) config('session.secure', false),
+            ],
+        ]);
+    }
+
+    public function securityCommandCenter(): View
+    {
+        $this->ensureSuperAdminAccess();
+
+        $signatureBypassEnabled = $this->settingBool(
+            'security.signature_bypass_enabled',
+            filter_var((string) env('DMS_SIGNATURE_BYPASS', 'false'), FILTER_VALIDATE_BOOL)
+        );
+
+        $productionLockMode = $this->settingBool('security.production_lock_mode', false);
+        $authRequireMfa = $this->settingBool('auth.require_mfa', false);
+        $authMaxAttempts = max(1, $this->settingInt('auth.max_login_attempts', 5));
+        $authLockoutMinutes = max(1, $this->settingInt('auth.lockout_minutes', 15));
+        $autoAllow = $this->settingBool('scripts.auto_allow_run_command_hashes', false);
+        $allowedHashes = $this->settingArray('scripts.allowed_sha256', []);
+        $maxRetries = $this->settingInt('jobs.max_retries', 3);
+        $baseBackoff = $this->settingInt('jobs.base_backoff_seconds', 30);
+        $deleteCleanup = $this->settingBool('devices.delete_cleanup_before_uninstall', false);
+        $downloadUrlMode = $this->settingString('packages.download_url_mode', 'public');
+        $killSwitch = $this->settingBool('jobs.kill_switch', false);
+
+        $appUrl = (string) config('app.url', '');
+        $appDebug = (bool) config('app.debug', false);
+        $sessionSecure = (bool) config('session.secure', false);
+        $appEnv = strtolower((string) config('app.env', 'local'));
+        $httpsConfigured = str_starts_with(strtolower($appUrl), 'https://');
+
+        $staleActiveRuns = JobRun::query()
+            ->whereIn('status', ['pending', 'acked', 'running'])
+            ->where('updated_at', '<', now()->subMinutes(30))
+            ->count();
+        $recentFailedRuns = JobRun::query()
+            ->whereIn('status', ['failed', 'non_compliant'])
+            ->where('updated_at', '>=', now()->subHours(24))
+            ->count();
+
+        $controls = [
+            [
+                'title' => 'Enable Production Lock Mode',
+                'status' => $productionLockMode ? 'good' : 'warning',
+                'priority' => 'high',
+                'description' => $productionLockMode
+                    ? 'Production lock mode is enabled.'
+                    : 'Enable production lock mode to enforce strict command safety in production.',
+                'action_label' => 'Open Settings',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Disable signature bypass',
+                'status' => $signatureBypassEnabled ? 'warning' : 'good',
+                'priority' => 'critical',
+                'description' => $signatureBypassEnabled ? 'Signature verification bypass is ON.' : 'Signature verification bypass is OFF.',
+                'action_label' => 'Open Settings',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Enforce admin MFA',
+                'status' => $authRequireMfa ? 'good' : 'warning',
+                'priority' => 'critical',
+                'description' => $authRequireMfa ? 'All admin logins require MFA challenge.' : 'Require MFA for all admin logins.',
+                'action_label' => 'Open Settings',
+                'action_route' => route('admin.access'),
+            ],
+            [
+                'title' => 'Harden login lockout policy',
+                'status' => ($authMaxAttempts <= 8 && $authLockoutMinutes >= 10) ? 'good' : 'warning',
+                'priority' => 'high',
+                'description' => "Current auth policy: max_login_attempts={$authMaxAttempts}, lockout_minutes={$authLockoutMinutes}.",
+                'action_label' => 'Open Settings',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Use strict run_command hashing',
+                'status' => (! $autoAllow && count($allowedHashes) > 0) ? 'good' : 'warning',
+                'priority' => 'critical',
+                'description' => (! $autoAllow && count($allowedHashes) > 0)
+                    ? 'Auto-allow is disabled and allowlist has entries.'
+                    : 'Set auto_allow_run_command_hashes=false and keep a valid SHA256 allowlist.',
+                'action_label' => 'Open Settings',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Keep retry/backoff in safe range',
+                'status' => ($maxRetries >= 1 && $maxRetries <= 5 && $baseBackoff >= 15 && $baseBackoff <= 300) ? 'good' : 'warning',
+                'priority' => 'medium',
+                'description' => "Current: max_retries={$maxRetries}, base_backoff_seconds={$baseBackoff}. Recommended: retries 1-5 and backoff 15-300 seconds.",
+                'action_label' => 'Open Settings',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Clean managed payload before device delete',
+                'status' => $deleteCleanup ? 'good' : 'warning',
+                'priority' => 'high',
+                'description' => $deleteCleanup ? 'Enabled: policy/package cleanup before uninstall/delete flow.' : 'Enable cleanup before uninstall/delete flow.',
+                'action_label' => 'Open Settings',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Prefer signed package URLs',
+                'status' => $downloadUrlMode === 'signed' ? 'good' : 'warning',
+                'priority' => 'medium',
+                'description' => $downloadUrlMode === 'signed' ? 'Package download mode is signed.' : "Package download mode is {$downloadUrlMode}.",
+                'action_label' => 'Open Settings',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Enforce HTTPS app URL',
+                'status' => $httpsConfigured ? 'good' : 'warning',
+                'priority' => 'high',
+                'description' => $httpsConfigured ? 'APP_URL is configured with HTTPS.' : 'APP_URL is not HTTPS. Use TLS for admin/API/package links.',
+                'action_label' => 'Review .env',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Disable debug mode',
+                'status' => $appDebug ? 'warning' : 'good',
+                'priority' => 'high',
+                'description' => $appDebug ? 'APP_DEBUG=true exposes diagnostics in errors.' : 'APP_DEBUG is disabled.',
+                'action_label' => 'Review .env',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Use secure session cookies',
+                'status' => $sessionSecure ? 'good' : 'warning',
+                'priority' => 'high',
+                'description' => $sessionSecure ? 'session.secure=true.' : 'Set SESSION_SECURE_COOKIE=true for HTTPS.',
+                'action_label' => 'Review .env',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Monitor stale active job runs',
+                'status' => $staleActiveRuns === 0 ? 'good' : 'warning',
+                'priority' => 'medium',
+                'description' => $staleActiveRuns === 0 ? 'No stale pending/acked/running job runs (>30 min).' : "Stale active runs detected: {$staleActiveRuns}.",
+                'action_label' => 'Open Jobs',
+                'action_route' => route('admin.jobs'),
+            ],
+            [
+                'title' => 'Watch failure pressure (24h)',
+                'status' => $recentFailedRuns <= 10 ? 'good' : 'warning',
+                'priority' => 'medium',
+                'description' => "Recent failed/non_compliant job runs (24h): {$recentFailedRuns}.",
+                'action_label' => 'Open Jobs',
+                'action_route' => route('admin.jobs'),
+            ],
+            [
+                'title' => 'Kill switch readiness',
+                'status' => 'info',
+                'priority' => 'low',
+                'description' => $killSwitch ? 'Kill switch currently ON (dispatch paused).' : 'Kill switch currently OFF (normal). Keep for emergency containment.',
+                'action_label' => 'Open Settings',
+                'action_route' => route('admin.settings'),
+            ],
+            [
+                'title' => 'Environment posture',
+                'status' => $appEnv === 'production' ? 'good' : 'warning',
+                'priority' => 'high',
+                'description' => $appEnv === 'production' ? 'APP_ENV is production.' : "APP_ENV is {$appEnv}. Use production profile for hardened deployment.",
+                'action_label' => 'Review .env',
+                'action_route' => route('admin.settings'),
+            ],
+        ];
+
+        $good = collect($controls)->where('status', 'good')->count();
+        $warning = collect($controls)->where('status', 'warning')->count();
+        $info = collect($controls)->where('status', 'info')->count();
+        $priorityWeights = ['critical' => 25, 'high' => 15, 'medium' => 9, 'low' => 5];
+        $totalRiskWeight = (float) collect($controls)->sum(function (array $control) use ($priorityWeights) {
+            if (($control['status'] ?? 'info') === 'info') {
+                return 0;
+            }
+            return $priorityWeights[(string) ($control['priority'] ?? 'medium')] ?? 9;
+        });
+        $currentRiskWeight = (float) collect($controls)->sum(function (array $control) use ($priorityWeights) {
+            if (($control['status'] ?? '') !== 'warning') {
+                return 0;
+            }
+            return $priorityWeights[(string) ($control['priority'] ?? 'medium')] ?? 9;
+        });
+        $warningPressure = $totalRiskWeight > 0
+            ? (float) round(($currentRiskWeight / $totalRiskWeight) * 100, 1)
+            : 0.0;
+        $score = $totalRiskWeight > 0
+            ? max(0, min(100, (int) round(100 - (($currentRiskWeight / $totalRiskWeight) * 100))))
+            : 100;
+
+        return view('admin.security-command-center', [
+            'controls' => $controls,
+            'summary' => [
+                'good' => $good,
+                'warning' => $warning,
+                'info' => $info,
+                'score' => $score,
+                'checked_at' => now()->format('Y-m-d H:i:s'),
+                'warning_pressure' => $warningPressure,
+            ],
         ]);
     }
 
@@ -4908,6 +5343,17 @@ PS1;
     {
         $user = $request->user();
         $pref = $this->settingArray('users.profile.'.$user->id, []);
+        $mfaSecretPlain = null;
+        $mfaProvisioningUri = null;
+        if (is_string($user->mfa_secret) && trim($user->mfa_secret) !== '') {
+            try {
+                $mfaSecretPlain = Crypt::decryptString($user->mfa_secret);
+                $mfaProvisioningUri = app(TotpService::class)->provisioningUri((string) $user->email, $mfaSecretPlain, 'DMS');
+            } catch (\Throwable) {
+                $mfaSecretPlain = null;
+                $mfaProvisioningUri = null;
+            }
+        }
 
         return view('admin.profile', [
             'user' => $user,
@@ -4917,6 +5363,8 @@ PS1;
                 'bio' => '',
                 'avatar_url' => null,
             ], is_array($pref) ? $pref : []),
+            'mfaSecretPlain' => $mfaSecretPlain,
+            'mfaProvisioningUri' => $mfaProvisioningUri,
         ]);
     }
 
@@ -4988,6 +5436,80 @@ PS1;
         ], $user->id);
 
         return back()->with('status', 'Profile updated successfully.');
+    }
+
+    public function setupProfileMfa(Request $request, AuditLogger $auditLogger, TotpService $totpService): RedirectResponse
+    {
+        $user = $request->user();
+        $secret = $totpService->generateSecret();
+        $before = ['mfa_enabled' => (bool) $user->mfa_enabled];
+
+        $user->mfa_secret = Crypt::encryptString($secret);
+        $user->mfa_enabled = false;
+        $user->save();
+
+        $auditLogger->log('profile.mfa.setup.web', 'user', (string) $user->id, $before, [
+            'mfa_enabled' => false,
+            'secret_rotated' => true,
+        ], $user->id);
+
+        return back()->with('status', 'MFA setup secret generated. Scan it in your authenticator app, then confirm with a code.');
+    }
+
+    public function enableProfileMfa(Request $request, AuditLogger $auditLogger, TotpService $totpService): RedirectResponse
+    {
+        $data = $request->validate([
+            'code' => ['required', 'string', 'min:6', 'max:8'],
+        ]);
+
+        $user = $request->user();
+        if (! is_string($user->mfa_secret) || trim($user->mfa_secret) === '') {
+            return back()->withErrors(['profile_mfa' => 'MFA secret not set. Generate setup secret first.']);
+        }
+
+        try {
+            $secret = Crypt::decryptString($user->mfa_secret);
+        } catch (\Throwable) {
+            return back()->withErrors(['profile_mfa' => 'Stored MFA secret is invalid. Generate setup secret again.']);
+        }
+
+        if (! $totpService->verifyCode($secret, (string) $data['code'])) {
+            return back()->withErrors(['profile_mfa' => 'Invalid MFA code.']);
+        }
+
+        $before = ['mfa_enabled' => (bool) $user->mfa_enabled];
+        $user->mfa_enabled = true;
+        $user->save();
+
+        $auditLogger->log('profile.mfa.enable.web', 'user', (string) $user->id, $before, [
+            'mfa_enabled' => true,
+        ], $user->id);
+
+        return back()->with('status', 'MFA is now enabled for your account.');
+    }
+
+    public function disableProfileMfa(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate([
+            'password' => ['required', 'string', 'max:255'],
+        ]);
+
+        $user = $request->user();
+        if (! Hash::check((string) $data['password'], (string) $user->password)) {
+            return back()->withErrors(['profile_mfa' => 'Password is incorrect.']);
+        }
+
+        $before = ['mfa_enabled' => (bool) $user->mfa_enabled];
+        $user->mfa_enabled = false;
+        $user->mfa_secret = null;
+        $user->save();
+
+        $auditLogger->log('profile.mfa.disable.web', 'user', (string) $user->id, $before, [
+            'mfa_enabled' => false,
+            'secret_removed' => true,
+        ], $user->id);
+
+        return back()->with('status', 'MFA has been disabled for your account.');
     }
 
     public function branding(): View
@@ -5123,6 +5645,138 @@ PS1;
             'status',
             'Signature bypass '.($enabled ? 'enabled' : 'disabled').'. '.($enabled ? 'Use only for development/testing.' : 'Production-safe mode restored.')
         );
+    }
+
+    public function updateAuthPolicy(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->ensureSuperAdminAccess();
+
+        $data = $request->validate([
+            'max_login_attempts' => ['required', 'integer', 'min:1', 'max:20'],
+            'lockout_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+        ]);
+
+        $settings = [
+            'auth.max_login_attempts' => (int) $data['max_login_attempts'],
+            'auth.lockout_minutes' => (int) $data['lockout_minutes'],
+        ];
+
+        foreach ($settings as $key => $value) {
+            ControlPlaneSetting::query()->updateOrCreate(
+                ['key' => $key],
+                ['value' => ['value' => $value], 'updated_by' => $request->user()?->id]
+            );
+        }
+
+        $auditLogger->log(
+            'settings.auth_policy.update.web',
+            'control_plane_settings',
+            'auth_policy',
+            null,
+            $settings,
+            $request->user()?->id
+        );
+
+        return back()->with('status', 'Login lockout policy updated.');
+    }
+
+    public function updateHttpsAppUrl(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->ensureSuperAdminAccess();
+
+        $data = $request->validate([
+            'app_url' => ['required', 'url', 'max:255'],
+            'enforce_secure_cookie' => ['nullable', 'boolean'],
+        ]);
+
+        $appUrl = trim((string) $data['app_url']);
+        if (! str_starts_with(strtolower($appUrl), 'https://')) {
+            return back()->withErrors([
+                'https_app_url' => 'APP_URL must start with https:// to enforce HTTPS.',
+            ])->withInput();
+        }
+
+        $secureCookie = (bool) ($data['enforce_secure_cookie'] ?? false);
+        $envPath = base_path('.env');
+        $appUrlUpdated = $this->upsertEnvValue($envPath, 'APP_URL', $appUrl);
+        $cookieUpdated = $this->upsertEnvBoolean($envPath, 'SESSION_SECURE_COOKIE', $secureCookie);
+
+        ControlPlaneSetting::query()->updateOrCreate(
+            ['key' => 'security.enforce_https_app_url'],
+            ['value' => ['value' => true], 'updated_by' => $request->user()?->id]
+        );
+
+        if ($appUrlUpdated || $cookieUpdated) {
+            Artisan::call('config:clear');
+        }
+
+        $auditLogger->log(
+            'settings.https_app_url.update.web',
+            'control_plane_settings',
+            'security.enforce_https_app_url',
+            null,
+            [
+                'app_url' => $appUrl,
+                'session_secure_cookie' => $secureCookie,
+                'env_app_url_updated' => $appUrlUpdated,
+                'env_session_secure_cookie_updated' => $cookieUpdated,
+            ],
+            $request->user()?->id
+        );
+
+        return back()->with('status', 'HTTPS app URL policy updated.');
+    }
+
+    public function updateEnvironmentPosture(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->ensureSuperAdminAccess();
+
+        $data = $request->validate([
+            'app_env' => ['required', 'string', 'max:32', 'regex:/^[a-zA-Z0-9_-]+$/'],
+            'disable_debug_mode' => ['nullable', 'boolean'],
+            'secure_session_cookies' => ['nullable', 'boolean'],
+        ]);
+
+        $appEnv = strtolower(trim((string) $data['app_env']));
+        $disableDebugMode = (bool) ($data['disable_debug_mode'] ?? false);
+        $secureSessionCookies = (bool) ($data['secure_session_cookies'] ?? false);
+        $appDebugEnabled = ! $disableDebugMode;
+
+        $envPath = base_path('.env');
+        $appEnvUpdated = $this->upsertEnvValue($envPath, 'APP_ENV', $appEnv);
+        $debugUpdated = $this->upsertEnvBoolean($envPath, 'APP_DEBUG', $appDebugEnabled);
+        $secureCookieUpdated = $this->upsertEnvBoolean($envPath, 'SESSION_SECURE_COOKIE', $secureSessionCookies);
+
+        ControlPlaneSetting::query()->updateOrCreate(
+            ['key' => 'security.environment_posture'],
+            ['value' => ['value' => [
+                'app_env' => $appEnv,
+                'disable_debug_mode' => $disableDebugMode,
+                'secure_session_cookies' => $secureSessionCookies,
+            ]], 'updated_by' => $request->user()?->id]
+        );
+
+        if ($appEnvUpdated || $debugUpdated || $secureCookieUpdated) {
+            Artisan::call('config:clear');
+        }
+
+        $auditLogger->log(
+            'settings.environment_posture.update.web',
+            'control_plane_settings',
+            'security.environment_posture',
+            null,
+            [
+                'app_env' => $appEnv,
+                'disable_debug_mode' => $disableDebugMode,
+                'secure_session_cookies' => $secureSessionCookies,
+                'env_app_env_updated' => $appEnvUpdated,
+                'env_app_debug_updated' => $debugUpdated,
+                'env_session_secure_cookie_updated' => $secureCookieUpdated,
+            ],
+            $request->user()?->id
+        );
+
+        return back()->with('status', 'Environment posture updated.');
     }
 
     public function createRole(Request $request, AuditLogger $auditLogger): RedirectResponse
@@ -5269,6 +5923,77 @@ PS1;
             'architectureDoc' => $this->readDocFile(base_path('docs/architecture/architecture.md')),
             'docsPolicy' => $this->readDocFile(base_path('docs/DOCS_MAINTENANCE_POLICY.md')),
         ]);
+    }
+
+    public function notes(Request $request): View
+    {
+        $search = trim((string) $request->query('q', ''));
+        $notesQuery = AdminNote::query()->with('author:id,name')->orderByDesc('is_pinned')->latest('updated_at');
+        if ($search !== '') {
+            $notesQuery->where(function ($q) use ($search) {
+                $like = '%'.$search.'%';
+                $q->where('title', 'like', $like)->orWhere('body', 'like', $like);
+            });
+        }
+
+        return view('admin.notes', [
+            'notes' => $notesQuery->paginate(20)->withQueryString(),
+            'searchQuery' => $search,
+        ]);
+    }
+
+    public function createNote(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:180'],
+            'body' => ['required', 'string', 'max:20000'],
+            'is_pinned' => ['nullable', 'boolean'],
+        ]);
+
+        $note = AdminNote::query()->create([
+            'id' => (string) Str::uuid(),
+            'tenant_id' => null,
+            'user_id' => $request->user()?->id,
+            'title' => trim((string) $data['title']),
+            'body' => trim((string) $data['body']),
+            'is_pinned' => (bool) ($data['is_pinned'] ?? false),
+        ]);
+
+        $auditLogger->log('admin_note.create.web', 'admin_note', $note->id, null, $note->toArray(), $request->user()?->id);
+
+        return back()->with('status', 'Note created.');
+    }
+
+    public function updateNote(Request $request, string $noteId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:180'],
+            'body' => ['required', 'string', 'max:20000'],
+            'is_pinned' => ['nullable', 'boolean'],
+        ]);
+
+        $note = AdminNote::query()->findOrFail($noteId);
+        $before = $note->toArray();
+        $note->update([
+            'title' => trim((string) $data['title']),
+            'body' => trim((string) $data['body']),
+            'is_pinned' => (bool) ($data['is_pinned'] ?? false),
+        ]);
+
+        $auditLogger->log('admin_note.update.web', 'admin_note', $note->id, $before, $note->fresh()?->toArray(), $request->user()?->id);
+
+        return back()->with('status', 'Note updated.');
+    }
+
+    public function deleteNote(Request $request, string $noteId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $note = AdminNote::query()->findOrFail($noteId);
+        $before = $note->toArray();
+        $note->delete();
+
+        $auditLogger->log('admin_note.delete.web', 'admin_note', $noteId, $before, null, $request->user()?->id);
+
+        return back()->with('status', 'Note deleted.');
     }
 
     public function packageWindowsStoreIcon(Request $request): JsonResponse
@@ -5956,6 +6681,29 @@ PS1;
         return file_put_contents($envPath, $updated) !== false;
     }
 
+    private function upsertEnvValue(string $envPath, string $key, string $value): bool
+    {
+        if (! is_file($envPath)) {
+            return false;
+        }
+
+        $contents = (string) file_get_contents($envPath);
+        $line = $key.'='.$value;
+        $pattern = '/^'.preg_quote($key, '/').'\s*=.*$/m';
+
+        if (preg_match($pattern, $contents)) {
+            $updated = preg_replace($pattern, $line, $contents);
+        } else {
+            $updated = rtrim($contents).PHP_EOL.$line.PHP_EOL;
+        }
+
+        if (! is_string($updated) || $updated === $contents) {
+            return false;
+        }
+
+        return file_put_contents($envPath, $updated) !== false;
+    }
+
     private function replaceCustomCatalogCategory(string $from, string $to, ?int $updatedBy): int
     {
         $custom = collect($this->settingArray('policies.catalog_custom', []))
@@ -6366,5 +7114,3 @@ PS1;
         return $score;
     }
 }
-
-

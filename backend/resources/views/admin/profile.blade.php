@@ -71,4 +71,112 @@
             </form>
         </div>
     </div>
+
+    <div class="mt-4 rounded-2xl bg-white border border-slate-200 p-4">
+        <div class="flex items-center justify-between gap-2">
+            <div>
+                <h3 class="font-semibold">Multi-Factor Authentication (TOTP)</h3>
+                <p class="text-xs text-slate-500 mt-1">Protect your admin account with an authenticator app.</p>
+            </div>
+            <span class="rounded-full px-3 py-1 text-xs font-medium {{ ($user->mfa_enabled ?? false) ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">
+                {{ ($user->mfa_enabled ?? false) ? 'Enabled' : 'Disabled' }}
+            </span>
+        </div>
+
+        @error('profile_mfa')
+            <div class="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">{{ $message }}</div>
+        @enderror
+
+        <div class="mt-4 grid gap-4 lg:grid-cols-2">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-xs font-medium text-slate-700">1. Setup Secret</p>
+                <form method="POST" action="{{ route('admin.profile.mfa.setup') }}" class="mt-2">
+                    @csrf
+                    <button class="rounded bg-skyline text-white px-3 py-2 text-xs">Generate / Rotate Secret</button>
+                </form>
+                @if(!empty($mfaSecretPlain))
+                    <div class="mt-3 space-y-2">
+                        <p class="text-[11px] text-slate-600">Setup Secret</p>
+                        <code class="block rounded border border-slate-200 bg-white px-2 py-2 text-xs break-all">{{ $mfaSecretPlain }}</code>
+                        @if(!empty($mfaProvisioningUri))
+                            <button
+                                type="button"
+                                id="mfa-qr-open-btn"
+                                class="rounded bg-ink text-white px-3 py-2 text-xs"
+                            >
+                                Show QR Code
+                            </button>
+                            <p class="text-[11px] text-slate-600">otpauth URI</p>
+                            <code class="block rounded border border-slate-200 bg-white px-2 py-2 text-[11px] break-all">{{ $mfaProvisioningUri }}</code>
+                        @endif
+                    </div>
+                @endif
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-xs font-medium text-slate-700">2. Enable / Disable</p>
+                <form method="POST" action="{{ route('admin.profile.mfa.enable') }}" class="mt-2 space-y-2">
+                    @csrf
+                    <input name="code" placeholder="Enter 6-digit code" class="w-full rounded border border-slate-300 px-3 py-2 text-sm" required>
+                    <button class="rounded bg-emerald-600 text-white px-3 py-2 text-xs">Enable MFA</button>
+                </form>
+
+                <form method="POST" action="{{ route('admin.profile.mfa.disable') }}" class="mt-3 space-y-2" onsubmit="return confirm('Disable MFA for your account?');">
+                    @csrf
+                    <input type="password" name="password" placeholder="Current password" class="w-full rounded border border-slate-300 px-3 py-2 text-sm" required>
+                    <button class="rounded bg-rose-600 text-white px-3 py-2 text-xs">Disable MFA</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    @if(!empty($mfaProvisioningUri))
+        @php
+            $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data='.rawurlencode((string) $mfaProvisioningUri);
+        @endphp
+        <div id="mfa-qr-modal" class="fixed inset-0 z-[80] hidden items-center justify-center bg-slate-900/60 px-4">
+            <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+                <div class="flex items-center justify-between">
+                    <h4 class="text-sm font-semibold text-slate-900">Scan MFA QR Code</h4>
+                    <button type="button" id="mfa-qr-close-btn" class="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800">X</button>
+                </div>
+                <p class="mt-1 text-xs text-slate-500">Scan with Microsoft Authenticator, Google Authenticator, or similar app.</p>
+                <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-center">
+                    <img src="{{ $qrUrl }}" alt="MFA QR code" class="h-64 w-64 rounded bg-white border border-slate-200 p-1" />
+                </div>
+                <div class="mt-3 flex justify-end">
+                    <button type="button" id="mfa-qr-done-btn" class="rounded bg-skyline text-white px-3 py-2 text-xs">Done</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            (() => {
+                const openBtn = document.getElementById('mfa-qr-open-btn');
+                const closeBtn = document.getElementById('mfa-qr-close-btn');
+                const doneBtn = document.getElementById('mfa-qr-done-btn');
+                const modal = document.getElementById('mfa-qr-modal');
+                if (!openBtn || !closeBtn || !doneBtn || !modal) return;
+
+                const openModal = () => {
+                    modal.classList.remove('hidden');
+                    modal.classList.add('flex');
+                };
+                const closeModal = () => {
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                };
+
+                openBtn.addEventListener('click', openModal);
+                closeBtn.addEventListener('click', closeModal);
+                doneBtn.addEventListener('click', closeModal);
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) closeModal();
+                });
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') closeModal();
+                });
+            })();
+        </script>
+    @endif
 </x-admin-layout>

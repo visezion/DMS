@@ -26,6 +26,98 @@
             $topbarUserAvatar = trim((string) $profileSettingValue['avatar_url']) ?: null;
         }
     }
+
+    $securitySettingKeys = [
+        'security.production_lock_mode',
+        'security.signature_bypass_enabled',
+        'auth.require_mfa',
+        'auth.max_login_attempts',
+        'auth.lockout_minutes',
+        'scripts.auto_allow_run_command_hashes',
+        'scripts.allowed_sha256',
+        'jobs.max_retries',
+        'jobs.base_backoff_seconds',
+        'devices.delete_cleanup_before_uninstall',
+        'packages.download_url_mode',
+    ];
+    $securitySettings = \App\Models\ControlPlaneSetting::query()
+        ->whereIn('key', $securitySettingKeys)
+        ->get(['key', 'value'])
+        ->mapWithKeys(function ($row) {
+            $val = is_array($row->value ?? null) ? ($row->value['value'] ?? null) : null;
+            return [$row->key => $val];
+        });
+    $securityGet = function (string $key, mixed $default = null) use ($securitySettings) {
+        return $securitySettings->has($key) ? $securitySettings->get($key) : $default;
+    };
+
+    $securityProductionLockMode = (bool) $securityGet('security.production_lock_mode', false);
+    $securitySignatureBypassEnabled = (bool) $securityGet('security.signature_bypass_enabled', filter_var((string) env('DMS_SIGNATURE_BYPASS', 'false'), FILTER_VALIDATE_BOOL));
+    $securityAuthRequireMfa = (bool) $securityGet('auth.require_mfa', false);
+    $securityAuthMaxAttempts = max(1, (int) $securityGet('auth.max_login_attempts', 5));
+    $securityAuthLockoutMinutes = max(1, (int) $securityGet('auth.lockout_minutes', 15));
+    $securityAutoAllow = (bool) $securityGet('scripts.auto_allow_run_command_hashes', false);
+    $securityAllowedHashes = $securityGet('scripts.allowed_sha256', []);
+    if (!is_array($securityAllowedHashes)) {
+        $securityAllowedHashes = [];
+    }
+    $securityMaxRetries = (int) $securityGet('jobs.max_retries', 3);
+    $securityBaseBackoff = (int) $securityGet('jobs.base_backoff_seconds', 30);
+    $securityDeleteCleanup = (bool) $securityGet('devices.delete_cleanup_before_uninstall', false);
+    $securityDownloadUrlMode = (string) $securityGet('packages.download_url_mode', 'public');
+
+    $securityAppUrl = (string) config('app.url', '');
+    $securityAppDebug = (bool) config('app.debug', false);
+    $securitySessionSecure = (bool) config('session.secure', false);
+    $securityAppEnv = strtolower((string) config('app.env', 'local'));
+    $securityHttpsConfigured = str_starts_with(strtolower($securityAppUrl), 'https://');
+    $securityStaleActiveRuns = \App\Models\JobRun::query()
+        ->whereIn('status', ['pending', 'acked', 'running'])
+        ->where('updated_at', '<', now()->subMinutes(30))
+        ->count();
+    $securityRecentFailedRuns = \App\Models\JobRun::query()
+        ->whereIn('status', ['failed', 'non_compliant'])
+        ->where('updated_at', '>=', now()->subHours(24))
+        ->count();
+
+    $securityControls = [
+        ['status' => $securityProductionLockMode ? 'good' : 'warning', 'priority' => 'high'],
+        ['status' => $securitySignatureBypassEnabled ? 'warning' : 'good', 'priority' => 'critical'],
+        ['status' => $securityAuthRequireMfa ? 'good' : 'warning', 'priority' => 'critical'],
+        ['status' => ($securityAuthMaxAttempts <= 8 && $securityAuthLockoutMinutes >= 10) ? 'good' : 'warning', 'priority' => 'high'],
+        ['status' => (! $securityAutoAllow && count($securityAllowedHashes) > 0) ? 'good' : 'warning', 'priority' => 'critical'],
+        ['status' => ($securityMaxRetries >= 1 && $securityMaxRetries <= 5 && $securityBaseBackoff >= 15 && $securityBaseBackoff <= 300) ? 'good' : 'warning', 'priority' => 'medium'],
+        ['status' => $securityDeleteCleanup ? 'good' : 'warning', 'priority' => 'high'],
+        ['status' => $securityDownloadUrlMode === 'signed' ? 'good' : 'warning', 'priority' => 'medium'],
+        ['status' => $securityHttpsConfigured ? 'good' : 'warning', 'priority' => 'high'],
+        ['status' => $securityAppDebug ? 'warning' : 'good', 'priority' => 'high'],
+        ['status' => $securitySessionSecure ? 'good' : 'warning', 'priority' => 'high'],
+        ['status' => $securityStaleActiveRuns === 0 ? 'good' : 'warning', 'priority' => 'medium'],
+        ['status' => $securityRecentFailedRuns <= 10 ? 'good' : 'warning', 'priority' => 'medium'],
+        ['status' => 'info', 'priority' => 'low'],
+        ['status' => $securityAppEnv === 'production' ? 'good' : 'warning', 'priority' => 'high'],
+    ];
+    $securityPriorityWeights = ['critical' => 25, 'high' => 15, 'medium' => 9, 'low' => 5];
+    $securityTotalRiskWeight = (float) collect($securityControls)->sum(function (array $control) use ($securityPriorityWeights) {
+        if (($control['status'] ?? 'info') === 'info') {
+            return 0;
+        }
+        return $securityPriorityWeights[(string) ($control['priority'] ?? 'medium')] ?? 9;
+    });
+    $securityCurrentRiskWeight = (float) collect($securityControls)->sum(function (array $control) use ($securityPriorityWeights) {
+        if (($control['status'] ?? '') !== 'warning') {
+            return 0;
+        }
+        return $securityPriorityWeights[(string) ($control['priority'] ?? 'medium')] ?? 9;
+    });
+    $topbarSecurityScore = $securityTotalRiskWeight > 0
+        ? max(0, min(100, (int) round(100 - (($securityCurrentRiskWeight / $securityTotalRiskWeight) * 100))))
+        : 100;
+    $topbarSecurityTone = $topbarSecurityScore >= 85
+        ? ['text' => 'text-emerald-700', 'bg' => 'bg-emerald-50 border-emerald-200', 'bar' => 'bg-emerald-500']
+        : ($topbarSecurityScore >= 65
+            ? ['text' => 'text-amber-700', 'bg' => 'bg-amber-50 border-amber-200', 'bar' => 'bg-amber-500']
+            : ['text' => 'text-rose-700', 'bg' => 'bg-rose-50 border-rose-200', 'bar' => 'bg-rose-500']);
 @endphp
 <head>
     <meta charset="UTF-8" />
@@ -203,17 +295,43 @@
                 </summary>
                 <div class="mt-2 pl-2 space-y-1">
                     <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.settings') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings') }}">General</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.security-hardening') }}" data-iconized="1"><span aria-hidden="true" class="text-current"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 5 6v6c0 5 3 7.7 7 9 4-1.3 7-4 7-9V6l-7-3Z"></path><path d="m9.5 12 1.8 1.8L14.8 10"></path></svg></span><span>Security Hardening</span></a>
                     <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.settings.branding*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings.branding') }}">Branding</a>
                 </div>
             </details>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.access*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.access') }}">Access Control</a>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.docs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.docs') }}">Docs</a>
+            <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.notes*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.notes') }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4" aria-hidden="true">
+                    <path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/>
+                    <path d="M14 3v5h5"/>
+                    <path d="M9 13h6M9 17h6"/>
+                </svg>
+                <span>Admin Notes</span>
+            </a>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.audit*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.audit') }}">Audit Logs</a>
         </nav>
     </aside>
 
     <main class="flex-1">
-        <header class="px-5 lg:px-8 py-2 border-b border-slate-200 bg-white/95 backdrop-blur flex items-center justify-end sticky top-0 z-20 shadow-[0_1px_0_rgba(15,23,42,.06)]">
+        <header class="px-5 lg:px-8 py-2 border-b border-slate-200 bg-white/95 backdrop-blur flex items-center justify-between sticky top-0 z-20 shadow-[0_1px_0_rgba(15,23,42,.06)]">
+            <a href="{{ route('admin.security-hardening') }}" class="hidden md:flex items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm" title="Open Security Hardening">
+                <span class="h-8 w-8 rounded-lg border {{ $topbarSecurityTone['bg'] }} flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4 {{ $topbarSecurityTone['text'] }}">
+                        <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-3Z"/>
+                        <path d="m9 12 2 2 4-4"/>
+                    </svg>
+                </span>
+                <div class="leading-tight min-w-[128px]">
+                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Security Score</p>
+                    <div class="mt-0.5 flex items-center gap-2">
+                        <p class="text-2xl font-semibold text-slate-900 leading-none">{{ $topbarSecurityScore }}%</p>
+                        <div class="h-1.5 flex-1 rounded-full bg-slate-200 overflow-hidden">
+                            <div class="h-full {{ $topbarSecurityTone['bar'] }}" style="width: {{ $topbarSecurityScore }}%"></div>
+                        </div>
+                    </div>
+                </div>
+            </a>
             <div class="flex items-center gap-2">
                 <nav class="hidden md:flex items-center gap-1.5 px-0 py-0" aria-label="Top shortcuts">
                     <a href="{{ route('admin.enroll-devices') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.enroll-devices*') ? 'text-skyline' : '' }}" title="Enroll Devices" aria-label="Enroll Devices">
@@ -248,9 +366,12 @@
                             <p class="text-sm font-medium text-slate-800 truncate">{{ $topbarUserName }}</p>
                             <p class="text-xs text-slate-500 truncate">{{ $topbarUser?->email }}</p>
                         </div>
-                        <div class="p-1">
+                    <div class="p-1">
+                            <a href="{{ route('admin.profile') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Profile</a>
                             <a href="{{ route('admin.settings') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Settings</a>
+                            <a href="{{ route('admin.security-hardening') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Security Hardening</a>
                             <a href="{{ route('admin.docs') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Documentation</a>
+                            <a href="{{ route('admin.notes') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Admin Notes</a>
                             <form method="POST" action="{{ route('admin.logout') }}">
                                 @csrf
                                 <button type="submit" class="w-full text-left rounded-lg px-3 py-2 text-sm text-rose-700 hover:bg-rose-50">Logout</button>
@@ -300,11 +421,13 @@
                     </summary>
                     <div class="mt-2 grid grid-cols-2 gap-2">
                         <a class="rounded-lg px-2 py-2 text-center {{ request()->routeIs('admin.settings') ? 'bg-skyline text-white' : 'bg-white text-slate-700' }}" href="{{ route('admin.settings') }}">General</a>
-                        <a class="rounded-lg px-2 py-2 text-center {{ request()->routeIs('admin.settings.branding*') ? 'bg-skyline text-white' : 'bg-white text-slate-700' }}" href="{{ route('admin.settings.branding') }}">Branding</a>
+                        <a class="rounded-lg px-2 py-2 text-center {{ request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'bg-white text-slate-700' }}" href="{{ route('admin.security-hardening') }}">Security</a>
+                        <a class="rounded-lg px-2 py-2 text-center col-span-2 {{ request()->routeIs('admin.settings.branding*') ? 'bg-skyline text-white' : 'bg-white text-slate-700' }}" href="{{ route('admin.settings.branding') }}">Branding</a>
                     </div>
                 </details>
                 <a class="rounded-lg px-2 py-2 text-center {{ request()->routeIs('admin.access*') ? 'bg-skyline text-white' : 'bg-white text-slate-700' }}" href="{{ route('admin.access') }}">Access</a>
                 <a class="rounded-lg px-2 py-2 text-center {{ request()->routeIs('admin.docs*') ? 'bg-skyline text-white' : 'bg-white text-slate-700' }}" href="{{ route('admin.docs') }}">Docs</a>
+                <a class="rounded-lg px-2 py-2 text-center {{ request()->routeIs('admin.notes*') ? 'bg-skyline text-white' : 'bg-white text-slate-700' }}" href="{{ route('admin.notes') }}">Notes</a>
                 <a class="rounded-lg px-2 py-2 text-center col-span-3 {{ request()->routeIs('admin.audit*') ? 'bg-skyline text-white' : 'bg-white text-slate-700' }}" href="{{ route('admin.audit') }}">Audit Logs</a>
             </div>
         </nav>

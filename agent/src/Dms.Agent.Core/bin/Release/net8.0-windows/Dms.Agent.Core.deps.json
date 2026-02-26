@@ -6,7 +6,7 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v8.0": {
-      "Dms.Agent.Core/1.0.0": {
+      "Dms.Agent.Core/3.0.0": {
         "dependencies": {
           "BouncyCastle.Cryptography": "2.5.1"
         },
@@ -25,7 +25,7 @@
     }
   },
   "libraries": {
-    "Dms.Agent.Core/1.0.0": {
+    "Dms.Agent.Core/3.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
