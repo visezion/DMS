@@ -588,14 +588,17 @@ class DeviceCheckinController extends Controller
         $looksLegacy = $agentVersion !== '' && version_compare($agentVersion, '1.0.9', '<');
         if ($looksLegacy) {
             // Legacy agents can fail digest-mode verification depending on build/runtime.
-            // Force canonical-first compatibility order for these versions.
+            // Prefer wire-compatible modes first for older builds.
             $modes = $modes
-                ->filter(fn ($m) => in_array($m, ['canonical', 'digest'], true))
+                ->filter(fn ($m) => in_array($m, ['wire_digest', 'digest', 'canonical', 'wire'], true))
                 ->values();
             if ($modes->isEmpty()) {
-                $modes = collect(['canonical', 'digest']);
+                $modes = collect(['wire_digest', 'digest', 'canonical', 'wire']);
             } else {
-                $modes = $modes->sortBy(fn ($m) => $m === 'canonical' ? 0 : 1)->values();
+                $priority = ['wire_digest', 'digest', 'canonical', 'wire'];
+                $modes = $modes
+                    ->sortBy(fn ($m) => array_search($m, $priority, true))
+                    ->values();
             }
         }
 
@@ -614,15 +617,14 @@ class DeviceCheckinController extends Controller
     {
         $configured = collect(explode(',', (string) env('DMS_SIGNATURE_COMPAT_MODES', 'digest,canonical')))
             ->map(fn ($m) => strtolower(trim((string) $m)))
-            ->filter(fn ($m) => in_array($m, ['digest', 'canonical'], true))
+            ->filter(fn ($m) => in_array($m, ['digest', 'canonical', 'wire_digest', 'wire'], true))
             ->values();
 
-        // Permanent safety: always keep both compatible modes available,
+        // Permanent safety: always keep all compatible modes available,
         // even if env value is incomplete.
         return $configured
-            ->merge(['digest', 'canonical'])
+            ->merge(['digest', 'canonical', 'wire_digest', 'wire'])
             ->unique()
-            ->sortBy(fn ($m) => $m === 'canonical' ? 0 : 1)
             ->values();
     }
 
@@ -677,13 +679,7 @@ class DeviceCheckinController extends Controller
 
     private function encodeJsonString(string $value): string
     {
-        $encoded = json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-
-        return str_replace(
-            ['+', '<', '>', '&', "'"],
-            ['\\u002B', '\\u003C', '\\u003E', '\\u0026', '\\u0027'],
-            $encoded
-        );
+        return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     }
 
     private function resolveSignatureKeyKidForRun(CommandEnvelopeSigner $signer, int $attempt, int $modeCount): ?string

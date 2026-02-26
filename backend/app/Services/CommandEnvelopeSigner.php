@@ -90,12 +90,8 @@ class CommandEnvelopeSigner
         $publicKey = sodium_crypto_sign_publickey_from_secretkey($secretKey);
         $this->syncPublicKeyMetadata($key, $publicKey);
 
-        $canonical = $this->canonicalJson($envelope);
         $mode = strtolower((string) ($modeOverride ?? env('DMS_SIGNATURE_MODE', 'digest')));
-        $message = match ($mode) {
-            'canonical' => $canonical,
-            default => hash('sha256', $canonical, true),
-        };
+        $message = $this->signingMessageForMode($envelope, $mode);
         $signature = sodium_crypto_sign_detached($message, $secretKey);
         if (! sodium_crypto_sign_verify_detached($signature, $message, $publicKey)) {
             throw new \RuntimeException('Generated signature self-check failed for key '.$key->kid);
@@ -226,14 +222,29 @@ class CommandEnvelopeSigner
 
     private function encodeJsonString(string $value): string
     {
-        // Mirror System.Text.Json default escaping used by agent canonicalization.
-        $encoded = json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    }
 
-        return str_replace(
-            ['+', '<', '>', '&', "'"],
-            ['\\u002B', '\\u003C', '\\u003E', '\\u0026', '\\u0027'],
-            $encoded
-        );
+    private function wireJson(array $envelope): string
+    {
+        return json_encode($envelope, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    }
+
+    private function signingMessageForMode(array $envelope, string $mode): string
+    {
+        $canonical = $this->canonicalJson($envelope);
+        $wire = $this->wireJson($envelope);
+
+        return match ($mode) {
+            // Legacy compatibility: sign raw wire JSON bytes.
+            'wire' => $wire,
+            // Legacy compatibility: sign SHA-256 of wire JSON bytes.
+            'wire_digest' => hash('sha256', $wire, true),
+            // Canonical mode: sign canonical JSON bytes.
+            'canonical' => $canonical,
+            // Default mode: sign SHA-256 of canonical JSON bytes.
+            default => hash('sha256', $canonical, true),
+        };
     }
 
     private function isList(array $value): bool
