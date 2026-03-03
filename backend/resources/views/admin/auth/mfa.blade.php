@@ -31,13 +31,17 @@
     <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
         <div class="flex items-center gap-3">
             @if($brandLogo !== '')
-                <img src="{{ $brandLogo }}" alt="Brand logo" class="h-10 w-10 rounded-lg border border-slate-200 bg-white object-contain p-1">
+                <img src="{{ $brandLogo }}" alt="Brand logo" class="h-10 w-auto max-w-[10rem] rounded-lg border border-slate-200 bg-white object-contain px-2 py-1">
             @else
-                <div class="h-10 w-10 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-xs font-bold">DMS</div>
+                <div class="h-10 w-10 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-700" aria-label="Brand logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-6 h-6">
+                        <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-3Z"/>
+                        <path d="m9 12 2 2 4-4"/>
+                    </svg>
+                </div>
             @endif
             <div>
                 <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Multi-Factor Authentication</p>
-                <h1 class="text-2xl font-bold">{{ $brandName }}</h1>
             </div>
         </div>
         <p class="text-slate-600 text-sm mt-3">{{ $brandTagline }}</p>

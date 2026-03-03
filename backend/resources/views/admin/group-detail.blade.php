@@ -1,8 +1,10 @@
 <x-admin-layout title="Group Detail" heading="Group Detail">
-    @php($members = $members ?? collect())
-    @php($policies = $policies ?? collect())
-    @php($packages = $packages ?? collect())
-    @php($memberIds = $members->pluck('device_id')->all())
+    @php
+        $members = $members ?? collect();
+        $policies = $policies ?? collect();
+        $packages = $packages ?? collect();
+        $memberIds = $members->pluck('device_id')->all();
+    @endphp
 
     <style>
         .group-shell {
@@ -47,6 +49,66 @@
             </div>
         </div>
     </div>
+
+    <section class="rounded-2xl border border-slate-200 bg-white p-4 mb-4 group-shell">
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+            <div>
+                <h4 class="font-semibold text-slate-900 flex items-center gap-2">
+                    <svg class="h-4 w-4 text-slate-700" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 4 6v6c0 5 3.5 7.8 8 9 4.5-1.2 8-4 8-9V6l-8-4Z"/><path d="m9.5 12 1.8 1.8L14.8 10" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+                    Kiosk Lockdown Bundle
+                </h4>
+                <p class="text-xs text-slate-500 mt-1">Applies composable lockdown controls to this group using your existing policy engine.</p>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                Target: <span class="font-semibold text-slate-800">{{ $group->name }}</span>
+            </div>
+        </div>
+
+        <form method="POST" action="{{ route('admin.groups.kiosk-lockdown', $group->id) }}" class="space-y-3">
+            @csrf
+            @error('group_policy')
+                <div class="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">{{ $message }}</div>
+            @enderror
+            <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                @foreach(($kioskPresetMatrix ?? []) as $section)
+                    @php
+                        $toggle = (string) ($section['toggle'] ?? '');
+                        $presetKeys = collect($section['preset_keys'] ?? [])->filter()->values();
+                        $allAssigned = false;
+                        if ($presetKeys->count() > 0) {
+                            $allAssigned = true;
+                            foreach ($presetKeys as $presetKey) {
+                                if (!((bool) (($assignedKioskPresetMap ?? [])[$presetKey] ?? false))) {
+                                    $allAssigned = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if ($toggle === '') {
+                            continue;
+                        }
+                    @endphp
+                    <label class="rounded-xl border px-3 py-2 {{ $allAssigned ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/70' }}">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-medium text-slate-900">{{ $section['label'] ?? $toggle }}</span>
+                            <span class="text-[11px] {{ $allAssigned ? 'text-emerald-700' : 'text-slate-500' }}">{{ $allAssigned ? 'assigned' : 'not fully assigned' }}</span>
+                        </div>
+                        <div class="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                            <input type="checkbox" name="{{ $toggle }}" value="1" checked class="rounded border-slate-300">
+                            Include in rollout
+                        </div>
+                    </label>
+                @endforeach
+            </div>
+
+            <label class="flex items-center gap-2 text-xs text-slate-700">
+                <input type="checkbox" name="queue_now" value="1" checked class="rounded border-slate-300">
+                Queue apply_policy jobs to current group members now
+            </label>
+
+            <button class="rounded-lg bg-skyline text-white px-4 py-2 text-sm">Apply Kiosk Lockdown Bundle</button>
+        </form>
+    </section>
 
     <div class="grid gap-4 xl:grid-cols-3">
         <section class="rounded-2xl border border-slate-200 bg-white p-4 group-shell">
@@ -158,7 +220,11 @@
 
             <div class="max-h-80 overflow-auto space-y-2 pr-1">
                 @forelse($packages as $pkg)
-                    @php($summary = is_array($pkg->run_summary ?? null) ? $pkg->run_summary : ['pending' => 0, 'running' => 0, 'acked' => 0, 'success' => 0, 'failed' => 0])
+                    @php
+                        $summary = is_array($pkg->run_summary ?? null)
+                            ? $pkg->run_summary
+                            : ['pending' => 0, 'running' => 0, 'acked' => 0, 'success' => 0, 'failed' => 0];
+                    @endphp
                     <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">

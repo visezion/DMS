@@ -103,6 +103,9 @@
                 <option value="windows_update">windows_update</option>
                 <option value="scheduled_task">scheduled_task</option>
                 <option value="command">command</option>
+                <option value="baseline_profile">baseline_profile</option>
+                <option value="reboot_restore_mode">reboot_restore_mode</option>
+                <option value="uwf">uwf</option>
             </select>
             <label class="text-xs text-slate-500">Assignment Target Type</label>
             <select name="target_type" class="rounded border border-slate-300 px-2 py-1">
@@ -142,8 +145,63 @@
             <p class="md:col-span-2 text-xs text-slate-600 catalog-info-hint hidden"></p>
             <label class="md:col-span-2 text-xs text-slate-500">Apply JSON</label>
             <textarea name="rule_json" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-28 rule-json-input apply-json-field" required>{{ json_encode($rulePresetJson['firewall'] ?? ['enabled' => true, 'profiles' => ['domain', 'private', 'public']], JSON_UNESCAPED_SLASHES) }}</textarea>
+            <div class="md:col-span-2 grid gap-2 md:grid-cols-2 rounded border border-slate-200 bg-slate-50 p-3 apply-uwf-field hidden">
+                <p class="md:col-span-2 text-xs font-semibold text-slate-700">UWF Options</p>
+                <label class="text-xs text-slate-500">Ensure</label>
+                <select name="apply_uwf_ensure" class="rounded border border-slate-300 px-2 py-1">
+                    <option value="present" selected>present (enable/protect)</option>
+                    <option value="absent">absent (disable/unprotect)</option>
+                </select>
+                <label class="text-xs text-slate-500">Volume</label>
+                <input name="apply_uwf_volume" value="C:" class="rounded border border-slate-300 px-2 py-1" />
+                <label class="text-xs flex items-center gap-2">
+                    <input type="checkbox" name="apply_uwf_enable_feature" value="1" checked />
+                    enable feature
+                </label>
+                <label class="text-xs flex items-center gap-2">
+                    <input type="checkbox" name="apply_uwf_enable_filter" value="1" checked />
+                    enable filter
+                </label>
+                <label class="text-xs flex items-center gap-2">
+                    <input type="checkbox" name="apply_uwf_protect_volume" value="1" checked />
+                    protect volume
+                </label>
+                <label class="text-xs flex items-center gap-2">
+                    <input type="checkbox" name="apply_uwf_reboot_now" value="1" />
+                    reboot now
+                </label>
+                <label class="text-xs flex items-center gap-2">
+                    <input type="checkbox" name="apply_uwf_reboot_if_pending" value="1" checked />
+                    reboot if pending
+                </label>
+                <div></div>
+                <label class="text-xs text-slate-500">Max Reboot Attempts</label>
+                <input name="apply_uwf_max_reboot_attempts" type="number" min="1" max="10" value="2" class="rounded border border-slate-300 px-2 py-1" />
+                <label class="text-xs text-slate-500">Reboot Cooldown (Minutes)</label>
+                <input name="apply_uwf_reboot_cooldown_minutes" type="number" min="1" max="240" value="30" class="rounded border border-slate-300 px-2 py-1" />
+                <label class="md:col-span-2 text-xs text-slate-500">Reboot Command (optional)</label>
+                <input name="apply_uwf_reboot_command" value='shutdown.exe /r /t 30 /c "Enabling UWF protection"' class="rounded border border-slate-300 px-2 py-1 md:col-span-2" />
+                <label class="md:col-span-2 text-xs text-slate-500">File Exclusions (one per line)</label>
+                <textarea name="apply_uwf_file_exclusions" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-16" placeholder="C:\ProgramData\DMS\State&#10;C:\ProgramData\DMS\Logs&#10;C:\ProgramData\DMS\Uwf">C:\ProgramData\DMS\State
+C:\ProgramData\DMS\Logs
+C:\ProgramData\DMS\Uwf</textarea>
+                <label class="md:col-span-2 text-xs text-slate-500">Registry Exclusions (one per line)</label>
+                <textarea name="apply_uwf_registry_exclusions" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-16" placeholder="HKLM\SOFTWARE\DMS">HKLM\SOFTWARE\DMS</textarea>
+                <label class="md:col-span-2 text-xs flex items-center gap-2">
+                    <input type="checkbox" name="apply_uwf_fail_on_unsupported_edition" value="1" />
+                    fail when Windows edition does not support UWF
+                </label>
+            </div>
             <label class="md:col-span-2 text-xs text-slate-500 apply-command-label hidden">Apply Command</label>
             <textarea name="apply_command" placeholder="Apply command (example: reg add HKLM\\...)" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-24 apply-command-field hidden"></textarea>
+            <label class="text-xs text-slate-500 apply-command-option-label hidden">Run As</label>
+            <select name="apply_run_as" class="rounded border border-slate-300 px-2 py-1 apply-command-option-field hidden">
+                <option value="default" selected>default (agent context)</option>
+                <option value="elevated">elevated (admin)</option>
+                <option value="system">system</option>
+            </select>
+            <label class="text-xs text-slate-500 apply-command-option-label hidden">Timeout Seconds</label>
+            <input name="apply_timeout_seconds" type="number" min="30" max="3600" value="300" class="rounded border border-slate-300 px-2 py-1 apply-command-option-field hidden" />
             <label class="md:col-span-2 text-xs text-slate-500">Remove Mode</label>
             <select name="remove_mode" class="rounded border border-slate-300 px-2 py-1 remove-mode-select md:col-span-2">
                 <option value="auto">Remove mode: Auto (generated)</option>
@@ -159,6 +217,8 @@
                 <option value="bitlocker">bitlocker</option>
                 <option value="local_group">local_group</option>
                 <option value="windows_update">windows_update</option>
+                <option value="reboot_restore_mode">reboot_restore_mode</option>
+                <option value="uwf">uwf</option>
             </select>
             <label class="md:col-span-2 text-xs text-slate-500 remove-json-label hidden">Remove JSON</label>
             <textarea name="remove_rule_json" placeholder='{"path":"HKLM\\...","name":"NoDrives","type":"DWORD","ensure":"absent"}' class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-24 remove-json-field hidden"></textarea>
@@ -182,6 +242,40 @@
                 $removeCommandDefault = $removeRuleType === 'command' ? (string) ($removeRuleConfig['command'] ?? '') : '';
                 $applyModeDefault = ($rule && ($rule->rule_type ?? '') === 'command') ? 'command' : 'json';
                 $applyCommandDefault = ($applyModeDefault === 'command' && is_array($rule->rule_config ?? null)) ? (string) (($rule->rule_config ?? [])['command'] ?? '') : '';
+                $applyRunAsDefault = ($applyModeDefault === 'command' && is_array($rule->rule_config ?? null))
+                    ? (string) (($rule->rule_config ?? [])['run_as'] ?? 'default')
+                    : 'default';
+                if (!in_array($applyRunAsDefault, ['default', 'elevated', 'system'], true)) {
+                    $applyRunAsDefault = 'default';
+                }
+                $applyTimeoutDefault = ($applyModeDefault === 'command' && is_array($rule->rule_config ?? null))
+                    ? (int) (($rule->rule_config ?? [])['timeout_seconds'] ?? 300)
+                    : 300;
+                $applyTimeoutDefault = max(30, min(3600, $applyTimeoutDefault));
+                $uwfConfigDefault = is_array($rule->rule_config ?? null) ? ($rule->rule_config ?? []) : [];
+                $applyUwfEnsureDefault = strtolower((string) ($uwfConfigDefault['ensure'] ?? 'present'));
+                if (!in_array($applyUwfEnsureDefault, ['present', 'absent'], true)) {
+                    $applyUwfEnsureDefault = 'present';
+                }
+                $applyUwfVolumeDefault = trim((string) ($uwfConfigDefault['volume'] ?? 'C:'));
+                if ($applyUwfVolumeDefault === '') {
+                    $applyUwfVolumeDefault = 'C:';
+                }
+                $applyUwfEnableFeatureDefault = array_key_exists('enable_feature', $uwfConfigDefault) ? (bool) $uwfConfigDefault['enable_feature'] : true;
+                $applyUwfEnableFilterDefault = array_key_exists('enable_filter', $uwfConfigDefault) ? (bool) $uwfConfigDefault['enable_filter'] : true;
+                $applyUwfProtectVolumeDefault = array_key_exists('protect_volume', $uwfConfigDefault) ? (bool) $uwfConfigDefault['protect_volume'] : true;
+                $applyUwfRebootNowDefault = (bool) ($uwfConfigDefault['reboot_now'] ?? false);
+                $applyUwfRebootIfPendingDefault = array_key_exists('reboot_if_pending', $uwfConfigDefault) ? (bool) $uwfConfigDefault['reboot_if_pending'] : true;
+                $applyUwfMaxRebootAttemptsDefault = max(1, min(10, (int) ($uwfConfigDefault['max_reboot_attempts'] ?? 2)));
+                $applyUwfRebootCooldownDefault = max(1, min(240, (int) ($uwfConfigDefault['reboot_cooldown_minutes'] ?? 30)));
+                $applyUwfRebootCommandDefault = (string) ($uwfConfigDefault['reboot_command'] ?? 'shutdown.exe /r /t 30 /c "Enabling UWF protection"');
+                $applyUwfFileExclusionsDefault = is_array($uwfConfigDefault['file_exclusions'] ?? null)
+                    ? array_values(array_filter(array_map(fn ($v) => trim((string) $v), $uwfConfigDefault['file_exclusions']), fn ($v) => $v !== ''))
+                    : ['C:\\ProgramData\\DMS\\State', 'C:\\ProgramData\\DMS\\Logs', 'C:\\ProgramData\\DMS\\Uwf'];
+                $applyUwfRegistryExclusionsDefault = is_array($uwfConfigDefault['registry_exclusions'] ?? null)
+                    ? array_values(array_filter(array_map(fn ($v) => trim((string) $v), $uwfConfigDefault['registry_exclusions']), fn ($v) => $v !== ''))
+                    : ['HKLM\\SOFTWARE\\DMS'];
+                $applyUwfFailUnsupportedEditionDefault = (bool) ($uwfConfigDefault['fail_on_unsupported_edition'] ?? false);
             @endphp
             <div class="rounded-xl bg-white border border-slate-200 p-3 policy-shell">
                 <details class="group" @if($loop->first) open @endif>
@@ -222,7 +316,7 @@
                     </select>
                     <label class="text-xs text-slate-500">Rule Type</label>
                     <select name="rule_type" class="rounded border border-slate-300 px-2 py-1 rule-type-select apply-json-field">
-                        @foreach(['firewall','registry','bitlocker','local_group','windows_update','scheduled_task','command'] as $type)
+                        @foreach(['firewall','registry','bitlocker','local_group','windows_update','scheduled_task','command','baseline_profile','reboot_restore_mode','uwf'] as $type)
                             <option value="{{ $type }}" @selected(($rule->rule_type ?? 'registry') === $type)>{{ $type }}</option>
                         @endforeach
                     </select>
@@ -248,8 +342,61 @@
                     <p class="md:col-span-2 text-xs text-slate-600 catalog-info-hint hidden"></p>
                     <label class="md:col-span-2 text-xs text-slate-500">Apply JSON</label>
                     <textarea name="rule_json" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-24 rule-json-input apply-json-field" required>{{ json_encode($rule->rule_config ?? ['required' => true], JSON_UNESCAPED_SLASHES) }}</textarea>
+                    <div class="md:col-span-2 grid gap-2 md:grid-cols-2 rounded border border-slate-200 bg-white p-3 apply-uwf-field hidden">
+                        <p class="md:col-span-2 text-xs font-semibold text-slate-700">UWF Options</p>
+                        <label class="text-xs text-slate-500">Ensure</label>
+                        <select name="apply_uwf_ensure" class="rounded border border-slate-300 px-2 py-1">
+                            <option value="present" @selected($applyUwfEnsureDefault === 'present')>present (enable/protect)</option>
+                            <option value="absent" @selected($applyUwfEnsureDefault === 'absent')>absent (disable/unprotect)</option>
+                        </select>
+                        <label class="text-xs text-slate-500">Volume</label>
+                        <input name="apply_uwf_volume" value="{{ $applyUwfVolumeDefault }}" class="rounded border border-slate-300 px-2 py-1" />
+                        <label class="text-xs flex items-center gap-2">
+                            <input type="checkbox" name="apply_uwf_enable_feature" value="1" @checked($applyUwfEnableFeatureDefault) />
+                            enable feature
+                        </label>
+                        <label class="text-xs flex items-center gap-2">
+                            <input type="checkbox" name="apply_uwf_enable_filter" value="1" @checked($applyUwfEnableFilterDefault) />
+                            enable filter
+                        </label>
+                        <label class="text-xs flex items-center gap-2">
+                            <input type="checkbox" name="apply_uwf_protect_volume" value="1" @checked($applyUwfProtectVolumeDefault) />
+                            protect volume
+                        </label>
+                        <label class="text-xs flex items-center gap-2">
+                            <input type="checkbox" name="apply_uwf_reboot_now" value="1" @checked($applyUwfRebootNowDefault) />
+                            reboot now
+                        </label>
+                        <label class="text-xs flex items-center gap-2">
+                            <input type="checkbox" name="apply_uwf_reboot_if_pending" value="1" @checked($applyUwfRebootIfPendingDefault) />
+                            reboot if pending
+                        </label>
+                        <div></div>
+                        <label class="text-xs text-slate-500">Max Reboot Attempts</label>
+                        <input name="apply_uwf_max_reboot_attempts" type="number" min="1" max="10" value="{{ $applyUwfMaxRebootAttemptsDefault }}" class="rounded border border-slate-300 px-2 py-1" />
+                        <label class="text-xs text-slate-500">Reboot Cooldown (Minutes)</label>
+                        <input name="apply_uwf_reboot_cooldown_minutes" type="number" min="1" max="240" value="{{ $applyUwfRebootCooldownDefault }}" class="rounded border border-slate-300 px-2 py-1" />
+                        <label class="md:col-span-2 text-xs text-slate-500">Reboot Command (optional)</label>
+                        <input name="apply_uwf_reboot_command" value="{{ $applyUwfRebootCommandDefault }}" class="rounded border border-slate-300 px-2 py-1 md:col-span-2" />
+                        <label class="md:col-span-2 text-xs text-slate-500">File Exclusions (one per line)</label>
+                        <textarea name="apply_uwf_file_exclusions" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-16">{{ implode("\n", $applyUwfFileExclusionsDefault) }}</textarea>
+                        <label class="md:col-span-2 text-xs text-slate-500">Registry Exclusions (one per line)</label>
+                        <textarea name="apply_uwf_registry_exclusions" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-16">{{ implode("\n", $applyUwfRegistryExclusionsDefault) }}</textarea>
+                        <label class="md:col-span-2 text-xs flex items-center gap-2">
+                            <input type="checkbox" name="apply_uwf_fail_on_unsupported_edition" value="1" @checked($applyUwfFailUnsupportedEditionDefault) />
+                            fail when Windows edition does not support UWF
+                        </label>
+                    </div>
                     <label class="md:col-span-2 text-xs text-slate-500 apply-command-label hidden">Apply Command</label>
                     <textarea name="apply_command" placeholder="Apply command" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-24 apply-command-field {{ $applyModeDefault === 'command' ? '' : 'hidden' }}">{{ $applyCommandDefault }}</textarea>
+                    <label class="text-xs text-slate-500 apply-command-option-label {{ $applyModeDefault === 'command' ? '' : 'hidden' }}">Run As</label>
+                    <select name="apply_run_as" class="rounded border border-slate-300 px-2 py-1 apply-command-option-field {{ $applyModeDefault === 'command' ? '' : 'hidden' }}">
+                        <option value="default" @selected($applyRunAsDefault === 'default')>default (agent context)</option>
+                        <option value="elevated" @selected($applyRunAsDefault === 'elevated')>elevated (admin)</option>
+                        <option value="system" @selected($applyRunAsDefault === 'system')>system</option>
+                    </select>
+                    <label class="text-xs text-slate-500 apply-command-option-label {{ $applyModeDefault === 'command' ? '' : 'hidden' }}">Timeout Seconds</label>
+                    <input name="apply_timeout_seconds" type="number" min="30" max="3600" value="{{ $applyTimeoutDefault }}" class="rounded border border-slate-300 px-2 py-1 apply-command-option-field {{ $applyModeDefault === 'command' ? '' : 'hidden' }}" />
                     <label class="md:col-span-2 text-xs text-slate-500">Remove Mode</label>
                     <select name="remove_mode" class="rounded border border-slate-300 px-2 py-1 remove-mode-select md:col-span-2">
                         <option value="auto" @selected($removeModeDefault === 'auto')>Remove mode: Auto (generated)</option>
@@ -258,7 +405,7 @@
                     </select>
                     <label class="text-xs text-slate-500 remove-json-type-label hidden">Remove Rule Type</label>
                     <select name="remove_rule_type" class="rounded border border-slate-300 px-2 py-1 remove-json-field {{ $removeModeDefault === 'json' ? '' : 'hidden' }}">
-                        @foreach(['registry','scheduled_task','command','firewall','bitlocker','local_group','windows_update'] as $type)
+                        @foreach(['registry','scheduled_task','command','firewall','bitlocker','local_group','windows_update','baseline_profile','reboot_restore_mode','uwf'] as $type)
                             <option value="{{ $type }}" @selected($removeRuleType === $type)>{{ $type }}</option>
                         @endforeach
                     </select>
@@ -369,7 +516,25 @@
                 const jsonInput = form.querySelector('.rule-json-input');
                 const applyModeSelect = form.querySelector('.apply-mode-select');
                 const applyJsonFields = form.querySelectorAll('.apply-json-field');
+                const applyUwfFields = form.querySelectorAll('.apply-uwf-field');
                 const applyCommandField = form.querySelector('.apply-command-field');
+                const applyCommandOptionFields = form.querySelectorAll('.apply-command-option-field');
+                const applyCommandOptionLabels = form.querySelectorAll('.apply-command-option-label');
+                const applyRunAsField = form.querySelector('select[name="apply_run_as"]');
+                const applyTimeoutField = form.querySelector('input[name="apply_timeout_seconds"]');
+                const applyUwfEnsureField = form.querySelector('select[name="apply_uwf_ensure"]');
+                const applyUwfVolumeField = form.querySelector('input[name="apply_uwf_volume"]');
+                const applyUwfEnableFeatureField = form.querySelector('input[name="apply_uwf_enable_feature"]');
+                const applyUwfEnableFilterField = form.querySelector('input[name="apply_uwf_enable_filter"]');
+                const applyUwfProtectVolumeField = form.querySelector('input[name="apply_uwf_protect_volume"]');
+                const applyUwfRebootNowField = form.querySelector('input[name="apply_uwf_reboot_now"]');
+                const applyUwfRebootIfPendingField = form.querySelector('input[name="apply_uwf_reboot_if_pending"]');
+                const applyUwfMaxAttemptsField = form.querySelector('input[name="apply_uwf_max_reboot_attempts"]');
+                const applyUwfCooldownField = form.querySelector('input[name="apply_uwf_reboot_cooldown_minutes"]');
+                const applyUwfRebootCommandField = form.querySelector('input[name="apply_uwf_reboot_command"]');
+                const applyUwfFileExclusionsField = form.querySelector('textarea[name="apply_uwf_file_exclusions"]');
+                const applyUwfRegistryExclusionsField = form.querySelector('textarea[name="apply_uwf_registry_exclusions"]');
+                const applyUwfFailUnsupportedEditionField = form.querySelector('input[name="apply_uwf_fail_on_unsupported_edition"]');
                 const removeModeSelect = form.querySelector('.remove-mode-select');
                 const removeJsonFields = form.querySelectorAll('.remove-json-field');
                 const removeCommandField = form.querySelector('.remove-command-field');
@@ -398,6 +563,87 @@
                     } catch (e) {
                         return {};
                     }
+                };
+                const defaultUwfConfig = function () {
+                    return {
+                        ensure: 'present',
+                        enable_feature: true,
+                        enable_filter: true,
+                        protect_volume: true,
+                        volume: 'C:',
+                        reboot_now: false,
+                        reboot_if_pending: true,
+                        max_reboot_attempts: 2,
+                        reboot_cooldown_minutes: 30,
+                        reboot_command: 'shutdown.exe /r /t 30 /c "Enabling UWF protection"',
+                        file_exclusions: ['C:\\ProgramData\\DMS\\State', 'C:\\ProgramData\\DMS\\Logs', 'C:\\ProgramData\\DMS\\Uwf'],
+                        registry_exclusions: ['HKLM\\SOFTWARE\\DMS'],
+                        fail_on_unsupported_edition: false,
+                    };
+                };
+                const parseListFromText = function (value) {
+                    const raw = String(value || '');
+                    return Array.from(new Set(raw
+                        .split(/\r?\n|,|;/g)
+                        .map(function (item) { return item.trim(); })
+                        .filter(function (item) { return item.length > 0; })));
+                };
+                const normalizeUwfConfig = function (rawConfig) {
+                    const cfg = Object.assign(defaultUwfConfig(), rawConfig || {});
+                    cfg.ensure = String(cfg.ensure || 'present').toLowerCase() === 'absent' ? 'absent' : 'present';
+                    cfg.volume = String(cfg.volume || 'C:').trim() || 'C:';
+                    cfg.enable_feature = Boolean(cfg.enable_feature);
+                    cfg.enable_filter = Boolean(cfg.enable_filter);
+                    cfg.protect_volume = Boolean(cfg.protect_volume);
+                    cfg.reboot_now = Boolean(cfg.reboot_now);
+                    cfg.reboot_if_pending = Boolean(cfg.reboot_if_pending);
+                    const maxAttempts = Number(cfg.max_reboot_attempts);
+                    cfg.max_reboot_attempts = Number.isFinite(maxAttempts) ? Math.max(1, Math.min(10, Math.trunc(maxAttempts))) : 2;
+                    const cooldown = Number(cfg.reboot_cooldown_minutes);
+                    cfg.reboot_cooldown_minutes = Number.isFinite(cooldown) ? Math.max(1, Math.min(240, Math.trunc(cooldown))) : 30;
+                    cfg.reboot_command = String(cfg.reboot_command || '').trim();
+                    cfg.file_exclusions = Array.isArray(cfg.file_exclusions)
+                        ? Array.from(new Set(cfg.file_exclusions.map(function (item) { return String(item || '').trim(); }).filter(function (item) { return item.length > 0; })))
+                        : [];
+                    cfg.registry_exclusions = Array.isArray(cfg.registry_exclusions)
+                        ? Array.from(new Set(cfg.registry_exclusions.map(function (item) { return String(item || '').trim(); }).filter(function (item) { return item.length > 0; })))
+                        : [];
+                    cfg.fail_on_unsupported_edition = Boolean(cfg.fail_on_unsupported_edition);
+                    return cfg;
+                };
+                const syncUwfFieldsFromJson = function () {
+                    const config = normalizeUwfConfig(tryParseJson(jsonInput.value));
+                    if (applyUwfEnsureField) applyUwfEnsureField.value = config.ensure;
+                    if (applyUwfVolumeField) applyUwfVolumeField.value = config.volume;
+                    if (applyUwfEnableFeatureField) applyUwfEnableFeatureField.checked = config.enable_feature;
+                    if (applyUwfEnableFilterField) applyUwfEnableFilterField.checked = config.enable_filter;
+                    if (applyUwfProtectVolumeField) applyUwfProtectVolumeField.checked = config.protect_volume;
+                    if (applyUwfRebootNowField) applyUwfRebootNowField.checked = config.reboot_now;
+                    if (applyUwfRebootIfPendingField) applyUwfRebootIfPendingField.checked = config.reboot_if_pending;
+                    if (applyUwfMaxAttemptsField) applyUwfMaxAttemptsField.value = String(config.max_reboot_attempts);
+                    if (applyUwfCooldownField) applyUwfCooldownField.value = String(config.reboot_cooldown_minutes);
+                    if (applyUwfRebootCommandField) applyUwfRebootCommandField.value = config.reboot_command;
+                    if (applyUwfFileExclusionsField) applyUwfFileExclusionsField.value = config.file_exclusions.join('\n');
+                    if (applyUwfRegistryExclusionsField) applyUwfRegistryExclusionsField.value = config.registry_exclusions.join('\n');
+                    if (applyUwfFailUnsupportedEditionField) applyUwfFailUnsupportedEditionField.checked = config.fail_on_unsupported_edition;
+                };
+                const syncJsonFromUwfFields = function () {
+                    const config = normalizeUwfConfig({
+                        ensure: applyUwfEnsureField ? applyUwfEnsureField.value : 'present',
+                        volume: applyUwfVolumeField ? applyUwfVolumeField.value : 'C:',
+                        enable_feature: applyUwfEnableFeatureField ? applyUwfEnableFeatureField.checked : true,
+                        enable_filter: applyUwfEnableFilterField ? applyUwfEnableFilterField.checked : true,
+                        protect_volume: applyUwfProtectVolumeField ? applyUwfProtectVolumeField.checked : true,
+                        reboot_now: applyUwfRebootNowField ? applyUwfRebootNowField.checked : false,
+                        reboot_if_pending: applyUwfRebootIfPendingField ? applyUwfRebootIfPendingField.checked : true,
+                        max_reboot_attempts: applyUwfMaxAttemptsField ? applyUwfMaxAttemptsField.value : 2,
+                        reboot_cooldown_minutes: applyUwfCooldownField ? applyUwfCooldownField.value : 30,
+                        reboot_command: applyUwfRebootCommandField ? applyUwfRebootCommandField.value : '',
+                        file_exclusions: applyUwfFileExclusionsField ? parseListFromText(applyUwfFileExclusionsField.value) : [],
+                        registry_exclusions: applyUwfRegistryExclusionsField ? parseListFromText(applyUwfRegistryExclusionsField.value) : [],
+                        fail_on_unsupported_edition: applyUwfFailUnsupportedEditionField ? applyUwfFailUnsupportedEditionField.checked : false,
+                    });
+                    jsonInput.value = JSON.stringify(config);
                 };
                 const deriveAutoRemove = function () {
                     const applyType = (typeSelect.value || '').toLowerCase();
@@ -431,6 +677,19 @@
                             };
                         }
                     }
+                    if (applyType === 'uwf') {
+                        const volume = (applyConfig.volume || 'C:').toString().trim() || 'C:';
+                        return {
+                            type: 'uwf',
+                            config: {
+                                ensure: 'absent',
+                                enable_feature: false,
+                                enable_filter: false,
+                                protect_volume: false,
+                                volume: volume,
+                            },
+                        };
+                    }
                     return { type: 'registry', config: { ensure: 'absent' } };
                 };
                 const applyAutoDefaults = function () {
@@ -447,8 +706,18 @@
                     if (applyCommandField) {
                         applyCommandField.value = '';
                     }
+                    if (applyRunAsField) {
+                        applyRunAsField.value = 'default';
+                    }
+                    if (applyTimeoutField) {
+                        applyTimeoutField.value = '300';
+                    }
                     if (removeCommandField) {
                         removeCommandField.value = '';
+                    }
+                    if ((typeSelect.value || '').toLowerCase() === 'uwf') {
+                        syncUwfFieldsFromJson();
+                        syncJsonFromUwfFields();
                     }
                 };
                 const applyCatalog = function () {
@@ -473,6 +742,15 @@
                     }
                     if (applyCommandField) {
                         applyCommandField.value = String(itemRuleJson.command || '');
+                    }
+                    if (applyRunAsField) {
+                        const runAs = String(itemRuleJson.run_as || 'default').toLowerCase();
+                        applyRunAsField.value = ['default', 'elevated', 'system'].includes(runAs) ? runAs : 'default';
+                    }
+                    if (applyTimeoutField) {
+                        const timeoutRaw = Number(itemRuleJson.timeout_seconds || 300);
+                        const timeout = Number.isFinite(timeoutRaw) ? Math.max(30, Math.min(3600, Math.trunc(timeoutRaw))) : 300;
+                        applyTimeoutField.value = String(timeout);
                     }
                     if (removeModeSelect) {
                         removeModeSelect.value = String(item.remove_mode || 'auto');
@@ -542,6 +820,7 @@
                     const isCustom = !!customToggle.checked;
 
                     const applyMode = applyModeSelect ? applyModeSelect.value : 'json';
+                    const isUwfJsonMode = applyMode === 'json' && (typeSelect.value || '').toLowerCase() === 'uwf';
 
                     applyJsonFields.forEach(function (el) {
                         if (el === typeSelect) return;
@@ -555,12 +834,30 @@
                         applyCommandField.classList.toggle('hidden', !isCustom || applyMode !== 'command');
                         applyCommandField.required = isCustom && applyMode === 'command';
                     }
+                    applyCommandOptionFields.forEach(function (el) {
+                        el.classList.toggle('hidden', !isCustom || applyMode !== 'command');
+                    });
+                    applyCommandOptionLabels.forEach(function (el) {
+                        el.classList.toggle('hidden', !isCustom || applyMode !== 'command');
+                    });
                     if (applyCommandLabel) {
                         applyCommandLabel.classList.toggle('hidden', !isCustom || applyMode !== 'command');
                     }
                     if (jsonInput) {
                         jsonInput.required = true;
                         jsonInput.readOnly = !isCustom;
+                    }
+                    applyUwfFields.forEach(function (el) {
+                        el.classList.toggle('hidden', !isUwfJsonMode);
+                        el.querySelectorAll('input,select,textarea').forEach(function (input) {
+                            input.disabled = !isUwfJsonMode;
+                        });
+                    });
+                    if (isUwfJsonMode) {
+                        syncUwfFieldsFromJson();
+                        if (!isCustom) {
+                            syncJsonFromUwfFields();
+                        }
                     }
 
                     const removeMode = removeModeSelect ? removeModeSelect.value : 'auto';
@@ -588,6 +885,30 @@
                 if (applyModeSelect) {
                     applyModeSelect.addEventListener('change', syncModes);
                 }
+                [
+                    applyUwfEnsureField,
+                    applyUwfVolumeField,
+                    applyUwfEnableFeatureField,
+                    applyUwfEnableFilterField,
+                    applyUwfProtectVolumeField,
+                    applyUwfRebootNowField,
+                    applyUwfRebootIfPendingField,
+                    applyUwfMaxAttemptsField,
+                    applyUwfCooldownField,
+                    applyUwfRebootCommandField,
+                    applyUwfFileExclusionsField,
+                    applyUwfRegistryExclusionsField,
+                    applyUwfFailUnsupportedEditionField,
+                ].forEach(function (el) {
+                    if (!el) return;
+                    el.addEventListener('change', function () {
+                        const applyMode = applyModeSelect ? applyModeSelect.value : 'json';
+                        const isUwfMode = applyMode === 'json' && (typeSelect.value || '').toLowerCase() === 'uwf';
+                        if (isUwfMode) {
+                            syncJsonFromUwfFields();
+                        }
+                    });
+                });
                 if (removeModeSelect) {
                     removeModeSelect.addEventListener('change', function () {
                         if (removeModeSelect.value !== 'auto') {

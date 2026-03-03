@@ -92,8 +92,16 @@ class AdminAuthController extends Controller
             return back()->withErrors(['email' => 'Account is disabled.'])->onlyInput('email');
         }
 
+        $requireMfa = $this->settingBool('auth.require_mfa', false);
+        $userHasMfa = (bool) $user->mfa_enabled && is_string($user->mfa_secret) && trim($user->mfa_secret) !== '';
+        if ($requireMfa && ! $userHasMfa) {
+            return back()->withErrors([
+                'email' => 'MFA is required by admin policy. Your account is not enrolled for MFA.',
+            ])->onlyInput('email');
+        }
+
         $this->clearLoginPuzzle($request);
-        if ((bool) $user->mfa_enabled && is_string($user->mfa_secret) && trim($user->mfa_secret) !== '') {
+        if ($userHasMfa) {
             $request->session()->invalidate();
             $request->session()->regenerateToken();
             $request->session()->regenerate();
@@ -206,6 +214,16 @@ class AdminAuthController extends Controller
         $raw = ControlPlaneSetting::query()->where('key', $key)->value('value');
         if (is_array($raw) && array_key_exists('value', $raw)) {
             return (int) $raw['value'];
+        }
+
+        return $default;
+    }
+
+    private function settingBool(string $key, bool $default): bool
+    {
+        $raw = ControlPlaneSetting::query()->where('key', $key)->value('value');
+        if (is_array($raw) && array_key_exists('value', $raw)) {
+            return (bool) $raw['value'];
         }
 
         return $default;

@@ -16,7 +16,7 @@
                     <option value="group">Applies to: group</option>
                 </select>
                 <select name="rule_type" class="rounded border border-slate-300 px-2 py-2">
-                    @foreach(['registry','firewall','bitlocker','local_group','windows_update','scheduled_task','command'] as $ruleType)
+                    @foreach(['registry','firewall','bitlocker','local_group','windows_update','scheduled_task','command','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
                         <option value="{{ $ruleType }}">{{ $ruleType }}</option>
                     @endforeach
                 </select>
@@ -27,7 +27,7 @@
                     <option value="command">Remove mode: command</option>
                 </select>
                 <select name="remove_rule_type" class="rounded border border-slate-300 px-2 py-2">
-                    @foreach(['registry','scheduled_task','command','firewall','bitlocker','local_group','windows_update'] as $ruleType)
+                    @foreach(['registry','scheduled_task','command','firewall','bitlocker','local_group','windows_update','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
                         <option value="{{ $ruleType }}">{{ $ruleType }}</option>
                     @endforeach
                 </select>
@@ -109,7 +109,7 @@
                                     <option value="group" {{ ($item['applies_to'] ?? '') === 'group' ? 'selected' : '' }}>Applies to group</option>
                                 </select>
                                 <select name="rule_type" class="rounded border border-slate-300 px-2 py-1.5">
-                                    @foreach(['registry','firewall','bitlocker','local_group','windows_update','scheduled_task','command'] as $ruleType)
+                                    @foreach(['registry','firewall','bitlocker','local_group','windows_update','scheduled_task','command','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
                                         <option value="{{ $ruleType }}" {{ ($item['rule_type'] ?? '') === $ruleType ? 'selected' : '' }}>{{ $ruleType }}</option>
                                     @endforeach
                                 </select>
@@ -120,7 +120,7 @@
                                     <option value="command" {{ $removeMode === 'command' ? 'selected' : '' }}>Remove mode: command</option>
                                 </select>
                                 <select name="remove_rule_type" class="rounded border border-slate-300 px-2 py-1.5">
-                                    @foreach(['registry','scheduled_task','command','firewall','bitlocker','local_group','windows_update'] as $ruleType)
+                                    @foreach(['registry','scheduled_task','command','firewall','bitlocker','local_group','windows_update','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
                                         <option value="{{ $ruleType }}" {{ $removeType === $ruleType ? 'selected' : '' }}>{{ $ruleType }}</option>
                                     @endforeach
                                 </select>

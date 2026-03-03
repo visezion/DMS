@@ -7,7 +7,13 @@ using System.Text;
 
 namespace Dms.Agent.Service;
 
-public sealed class Worker(ILogger<Worker> logger, ApiClient apiClient, JobProcessor jobProcessor, AutonomousRemediationLoop remediationLoop) : BackgroundService
+public sealed class Worker(
+    ILogger<Worker> logger,
+    ApiClient apiClient,
+    JobProcessor jobProcessor,
+    AutonomousRemediationLoop remediationLoop,
+    StartupRestoreApplier startupRestoreApplier,
+    AgentTamperProtection tamperProtection) : BackgroundService
 {
     private static readonly string ProgramDataDir = Environment.GetEnvironmentVariable("ProgramData") ?? @"C:\ProgramData";
     private static readonly string DiagnosticsDir = Path.Combine(ProgramDataDir, "DMS", "Diagnostics");
@@ -19,6 +25,28 @@ public sealed class Worker(ILogger<Worker> logger, ApiClient apiClient, JobProce
     {
         Directory.CreateDirectory(DiagnosticsDir);
         int intervalSeconds = ResolveCheckinIntervalSeconds();
+        try
+        {
+            var tamperResult = await tamperProtection.ApplyStartupHardeningAsync(stoppingToken);
+            if ((bool?) tamperResult.GetValueOrDefault("enabled") == true)
+            {
+                logger.LogInformation("Tamper protection startup hardening applied.");
+            }
+
+            var restoreResult = await startupRestoreApplier.ApplyPendingAsync(stoppingToken);
+            if ((bool?) restoreResult.GetValueOrDefault("applied") == true)
+            {
+                logger.LogInformation("Startup restore manifest applied before check-in.");
+            }
+            else if ((string?) restoreResult.GetValueOrDefault("error") is { Length: > 0 } restoreError)
+            {
+                logger.LogWarning("Startup restore manifest apply result: {Error}", restoreError);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Startup restore manifest apply failed");
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -38,7 +66,10 @@ public sealed class Worker(ILogger<Worker> logger, ApiClient apiClient, JobProce
                         }
 
                         var checkin = await apiClient.CheckinAsync(stoppingToken);
-                        await jobProcessor.ProcessAsync(checkin.Commands, stoppingToken);
+                        DateTimeOffset? verificationNowUtc = checkin.ServerTime == default
+                            ? null
+                            : checkin.ServerTime.ToUniversalTime();
+                        await jobProcessor.ProcessAsync(checkin.Commands, stoppingToken, verificationNowUtc);
 
                         completed = true;
                         WriteDiagnosticsFile(LastSuccessPath, $"utc={DateTimeOffset.UtcNow:O}{Environment.NewLine}attempt={attempt}");

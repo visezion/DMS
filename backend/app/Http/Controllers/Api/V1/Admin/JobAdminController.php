@@ -28,6 +28,16 @@ class JobAdminController extends Controller
             'priority' => ['nullable', 'integer'],
         ]);
 
+        if ((string) $payload['job_type'] === 'uninstall_agent') {
+            $payload['payload'] = $payload['payload'] + [
+                'admin_confirmed' => true,
+                'admin_confirmed_at' => now()->toIso8601String(),
+                'admin_confirmed_by_user_id' => $request->user()?->id,
+                'admin_confirmation_ttl_minutes' => 30,
+                'admin_confirmation_nonce' => (string) Str::uuid(),
+            ];
+        }
+
         $job = DmsJob::query()->create([
             'id' => (string) Str::uuid(),
             'job_type' => $payload['job_type'],

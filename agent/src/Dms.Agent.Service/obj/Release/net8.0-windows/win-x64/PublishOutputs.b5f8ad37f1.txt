@@ -1,0 +1,4 @@
+C:\xampp\htdocs\DMS\agent\dist\agent-build-1.0.1-win-x64-c18a2789\appsettings.json
+C:\xampp\htdocs\DMS\agent\dist\agent-build-1.0.1-win-x64-c18a2789\Dms.Agent.Service.pdb
+C:\xampp\htdocs\DMS\agent\dist\agent-build-1.0.1-win-x64-c18a2789\Dms.Agent.Core.pdb
+C:\xampp\htdocs\DMS\agent\dist\agent-build-1.0.1-win-x64-c18a2789\Dms.Agent.Service.exe

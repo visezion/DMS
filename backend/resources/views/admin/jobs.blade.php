@@ -15,6 +15,8 @@
                     <option value="uninstall_exe">uninstall_exe</option>
                     <option value="apply_policy">apply_policy</option>
                     <option value="run_command">run_command</option>
+                    <option value="create_snapshot">create_snapshot</option>
+                    <option value="restore_snapshot">restore_snapshot</option>
                     <option value="update_agent">update_agent</option>
                     <option value="uninstall_agent">uninstall_agent</option>
                     <option value="reconcile_software_inventory">reconcile_software_inventory</option>
@@ -40,10 +42,26 @@
                 <input name="stagger_seconds" type="number" min="0" max="3600" value="0" class="w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="Stagger seconds between group devices (0 = immediate)" />
                 <label class="mb-1 block text-xs font-medium text-slate-600">Payload JSON</label>
                 <textarea id="payload-json-input" name="payload_json" class="w-full rounded-lg border border-slate-300 px-3 py-2 min-h-36 font-mono text-xs" required>{"command":"whoami"}</textarea>
+                <div id="run-command-options" class="space-y-3">
+                    <div>
+                        <label class="mb-1 block text-xs font-medium text-slate-600">Run As (run_command)</label>
+                        <select id="run-command-runas" name="run_as" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                            <option value="default" selected>default (agent context)</option>
+                            <option value="elevated">elevated (admin)</option>
+                            <option value="system">system</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-1 block text-xs font-medium text-slate-600">Timeout Seconds (run_command)</label>
+                        <input id="run-command-timeout" name="timeout_seconds" type="number" min="30" max="3600" value="300" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                    </div>
+                </div>
                 <div class="rounded-lg border border-slate-200 bg-slate-50 p-2">
                     <p class="text-[11px] font-semibold text-slate-600 uppercase tracking-wide mb-1">Quick Templates</p>
                     <div class="flex flex-wrap gap-2">
                         <button type="button" data-template-job="run_command" class="job-template rounded border border-slate-300 bg-white px-2 py-1 text-[11px]">run_command</button>
+                        <button type="button" data-template-job="create_snapshot" class="job-template rounded border border-slate-300 bg-white px-2 py-1 text-[11px]">create_snapshot</button>
+                        <button type="button" data-template-job="restore_snapshot" class="job-template rounded border border-slate-300 bg-white px-2 py-1 text-[11px]">restore_snapshot</button>
                         <button type="button" data-template-job="update_agent" class="job-template rounded border border-slate-300 bg-white px-2 py-1 text-[11px]">update_agent</button>
                         <button type="button" data-template-job="uninstall_agent" class="job-template rounded border border-slate-300 bg-white px-2 py-1 text-[11px]">uninstall_agent</button>
                         <button type="button" data-template-job="install_custom" class="job-template rounded border border-slate-300 bg-white px-2 py-1 text-[11px]">install_custom</button>
@@ -123,20 +141,27 @@
             const payload = document.getElementById('payload-json-input');
             const help = document.getElementById('job-type-help');
             const templateButtons = Array.from(document.querySelectorAll('.job-template'));
+            const runCommandOptions = document.getElementById('run-command-options');
+            const runCommandRunAs = document.getElementById('run-command-runas');
+            const runCommandTimeout = document.getElementById('run-command-timeout');
             if (!type || !target) return;
             const options = Array.from(target.options);
             const templates = {
                 run_command: {"script":"Get-ComputerInfo | Select-Object WindowsProductName,OsVersion"},
+                create_snapshot: {"provider":"windows_restore_point","label":"Lab-Before-Exam","restore_point_type":"MODIFY_SETTINGS","include_vss":false,"vss_volumes":["C:"],"fail_on_vss_error":false},
+                restore_snapshot: {"provider":"windows_restore_point","restore_point_description":"Lab-Before-Exam","reboot_now":true,"reboot_command":"shutdown.exe /r /t 0"},
                 update_agent: {"download_url":"https://example.local/agent.zip","sha256":"<64-hex>","file_name":"dms-agent.zip","rollback_command":"sc start DmsAgent"},
-                uninstall_agent: {"service_name":"DMSAgent","install_dir":"C:\\Program Files\\DMS Agent","data_dir":"C:\\ProgramData\\DMS"},
+                uninstall_agent: {"service_name":"DMSAgent","install_dir":"C:\\Program Files\\DMS Agent","data_dir":"C:\\ProgramData\\DMS","admin_confirmed":true,"admin_confirmed_at":"2026-02-26T00:00:00Z","admin_confirmation_ttl_minutes":30,"admin_confirmation_nonce":"<uuid>"},
                 install_custom: {"download_url":"https://example.local/app.exe","sha256":"<64-hex>","file_name":"app.exe","silent_args":"/S","rollback_command":"\"C:\\Program Files\\Vendor\\App\\uninstall.exe\" /S"},
                 uninstall_exe: {"command":"\"C:\\Program Files\\Vendor\\App\\uninstall.exe\" /S"},
                 reconcile_software_inventory: {"sources":["registry_uninstall","winget_list","dpkg_list","rpm_list"]}
             };
             const helps = {
                 run_command: 'run_command executes directly with payload.script. script_sha256 is auto-derived; allowlist/approval can be optionally enforced on agent.',
+                create_snapshot: 'create_snapshot creates a Windows restore point (and optional VSS shadows) or can call provider=external_hook for VM/hypervisor snapshot APIs.',
+                restore_snapshot: 'restore_snapshot restores by sequence/description on Windows, or delegates to provider=external_hook for external snapshot systems.',
                 update_agent: 'update_agent supports rollback_command if update fails.',
-                uninstall_agent: 'Schedules self-uninstall on target: stop/delete service, then remove install and data folders.',
+                uninstall_agent: 'Schedules self-uninstall on target. Tamper protection requires admin confirmation fields; web UI auto-fills them when queuing from protected actions.',
                 install_custom: 'install_custom uses the EXE/custom installer flow on managed Windows endpoints.',
                 uninstall_exe: 'uninstall_exe executes command via OS shell on the endpoint.',
                 reconcile_software_inventory: 'Collects deep software inventory (registry/winget/brew/dpkg/rpm) and stores it into device tags.'
@@ -166,6 +191,21 @@
                 }
             }
 
+            function syncRunCommandOptions() {
+                if (!jobType || !runCommandOptions) return;
+                const isRunCommand = jobType.value === 'run_command';
+                runCommandOptions.classList.toggle('hidden', !isRunCommand);
+                if (!isRunCommand) {
+                    return;
+                }
+                if (runCommandRunAs && !runCommandRunAs.value) {
+                    runCommandRunAs.value = 'default';
+                }
+                if (runCommandTimeout && !runCommandTimeout.value) {
+                    runCommandTimeout.value = '300';
+                }
+            }
+
             type.addEventListener('change', syncTargets);
             if (jobType) {
                 jobType.addEventListener('change', function () {
@@ -173,6 +213,7 @@
                     if (helps[selected] && help) {
                         help.textContent = helps[selected];
                     }
+                    syncRunCommandOptions();
                 });
             }
             templateButtons.forEach(function (btn) {
@@ -187,6 +228,7 @@
             syncTargets();
             if (jobType) {
                 setTemplate(jobType.value);
+                syncRunCommandOptions();
             }
         })();
     </script>

@@ -214,7 +214,7 @@
                     <div class="h-40 w-40 rounded-full border border-sky-300/90 bg-white/80 backdrop-blur-sm flex items-center justify-center shadow-lg">
                         <div class="text-center">
                             <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Control Plane</div>
-                            <div class="text-5xl font-bold" style="color: var(--brand-primary);">DMS</div>
+                            <div class="text-3xl font-bold text-center leading-tight px-3" style="color: var(--brand-primary);">{{ $brandName }}</div>
                         </div>
                     </div>
                 </div>
@@ -222,20 +222,23 @@
             <div class="relative z-10 p-12 flex flex-col justify-between w-full">
                 <div class="flex items-center gap-3">
                     @if($brandLogo !== '')
-                        <img src="{{ $brandLogo }}" alt="Brand logo" class="h-12 w-12 rounded-lg border border-slate-200 bg-white object-contain p-1.5">
+                        <img src="{{ $brandLogo }}" alt="Brand logo" class="h-12 w-auto max-w-[12rem] rounded-lg border border-slate-200 bg-white object-contain px-2 py-1.5">
                     @else
-                        <div class="h-12 w-12 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-sm font-bold">DMS</div>
+                        <div class="h-12 w-12 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-700" aria-label="Brand logo">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-7 h-7">
+                                <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-3Z"/>
+                                <path d="m9 12 2 2 4-4"/>
+                            </svg>
+                        </div>
                     @endif
                     <div>
                         <p class="text-sm uppercase tracking-[0.25em] text-slate-500">Admin Access</p>
-                        <h1 class="text-3xl font-bold">{{ $brandName }}</h1>
                     </div>
                 </div>
                 <div class="max-w-lg">
-                    <p class="text-2xl font-semibold leading-tight">Secure fleet control plane for policy, software, and operations.</p>
                     <p class="mt-2 text-sm text-slate-600">{{ $brandTagline }}</p>
                 </div>
-                <div class="text-xs text-slate-500">Use your admin credentials. MFA may be required by policy.</div>
+                
             </div>
         </section>
 

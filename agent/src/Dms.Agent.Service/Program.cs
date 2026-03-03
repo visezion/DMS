@@ -10,6 +10,8 @@ builder.Services.AddWindowsService(options => options.ServiceName = "DMS Agent")
 builder.Services.AddSingleton<ApiClient>();
 builder.Services.AddSingleton<JobProcessor>();
 builder.Services.AddSingleton<AutonomousRemediationLoop>();
+builder.Services.AddSingleton<StartupRestoreApplier>();
+builder.Services.AddSingleton<AgentTamperProtection>();
 builder.Services.AddHostedService<Worker>();
 
 IHost host = builder.Build();

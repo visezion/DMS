@@ -64,6 +64,11 @@
                     @csrf
                     <p class="text-sm font-medium text-slate-900">Harden Login Lockout Policy</p>
                     <p class="mt-1 text-xs text-slate-600">Limits repeated failures and forces lockout windows per email + IP.</p>
+                    <label class="mt-3 inline-flex items-center gap-2 text-sm text-slate-700">
+                        <input type="hidden" name="require_mfa" value="0">
+                        <input type="checkbox" name="require_mfa" value="1" @checked((bool) ($authPolicy['require_mfa'] ?? false)) class="rounded border-slate-300">
+                        Enforce admin MFA (require MFA for all admin logins)
+                    </label>
                     <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
                             <label class="text-xs uppercase text-slate-500">Max Login Attempts</label>

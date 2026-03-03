@@ -10,3 +10,4 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\refint\Dms.Agent.Core.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.Core.pdb
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\ref\Dms.Agent.Core.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Core\obj\Debug\net8.0-windows\Dms.Agent.Core.sourcelink.json

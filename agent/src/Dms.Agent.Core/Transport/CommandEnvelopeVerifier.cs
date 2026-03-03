@@ -17,6 +17,8 @@ public sealed class CommandEnvelopeVerifier(ReplayProtector replayProtector)
         string.Equals(Environment.GetEnvironmentVariable("DMS_SIGNATURE_BYPASS"), "true", StringComparison.OrdinalIgnoreCase);
     private static readonly bool EnforcePayloadHash =
         string.Equals(Environment.GetEnvironmentVariable("DMS_ENFORCE_PAYLOAD_HASH"), "true", StringComparison.OrdinalIgnoreCase);
+    private static readonly int CommandExpiryGraceSeconds = ReadIntEnvironment("DMS_COMMAND_EXPIRY_GRACE_SECONDS", 900, 0, 86400);
+    private static readonly int CommandIssuedAtFutureSkewSeconds = ReadIntEnvironment("DMS_COMMAND_ISSUED_AT_FUTURE_SKEW_SECONDS", 300, 0, 3600);
 
     public void UpdateKeys(IEnumerable<KeysetKeyDto> keys)
     {
@@ -40,14 +42,20 @@ public sealed class CommandEnvelopeVerifier(ReplayProtector replayProtector)
         }
     }
 
-    public void Verify(SignedCommandDto command)
+    public void Verify(SignedCommandDto command, DateTimeOffset? verificationNowUtc = null)
     {
         if (!string.Equals(command.Envelope.Schema, "dms.command.v1", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(ErrorCodes.Schema);
         }
 
-        if (command.Envelope.ExpiresAt < DateTimeOffset.UtcNow)
+        DateTimeOffset now = verificationNowUtc?.ToUniversalTime() ?? DateTimeOffset.UtcNow;
+        if (command.Envelope.IssuedAt > now.AddSeconds(CommandIssuedAtFutureSkewSeconds))
+        {
+            throw new InvalidOperationException(ErrorCodes.Expired);
+        }
+
+        if (command.Envelope.ExpiresAt < now.AddSeconds(-CommandExpiryGraceSeconds))
         {
             throw new InvalidOperationException(ErrorCodes.Expired);
         }
@@ -124,6 +132,9 @@ public sealed class CommandEnvelopeVerifier(ReplayProtector replayProtector)
             ["issued_at_original_o"] = envelope.IssuedAt.ToString("O", CultureInfo.InvariantCulture),
             ["expires_at_utc_o"] = envelope.ExpiresAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
             ["expires_at_original_o"] = envelope.ExpiresAt.ToString("O", CultureInfo.InvariantCulture),
+            ["now_utc_o"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            ["expiry_grace_seconds"] = CommandExpiryGraceSeconds,
+            ["issued_at_future_skew_seconds"] = CommandIssuedAtFutureSkewSeconds,
             ["payload_sha256_from_envelope"] = envelope.PayloadSha256,
             ["candidate_canonical_sha256"] = canonicalSha256,
             ["candidate_digest_sha256"] = digestSha256,
@@ -389,5 +400,16 @@ public sealed class CommandEnvelopeVerifier(ReplayProtector replayProtector)
         {
             yield return escaped;
         }
+    }
+
+    private static int ReadIntEnvironment(string name, int fallback, int min, int max)
+    {
+        string? raw = Environment.GetEnvironmentVariable(name);
+        if (!string.IsNullOrWhiteSpace(raw) && int.TryParse(raw, out int parsed))
+        {
+            return Math.Clamp(parsed, min, max);
+        }
+
+        return Math.Clamp(fallback, min, max);
     }
 }

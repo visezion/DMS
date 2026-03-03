@@ -36,12 +36,14 @@ public sealed class JobProcessor
             new Handlers.SoftwareInventoryReconcileHandler(),
             new Handlers.PolicyApplyHandler(),
             new Handlers.ScriptHandler(),
+            new Handlers.SnapshotCreateHandler(),
+            new Handlers.SnapshotRestoreHandler(),
             new Handlers.AgentUpdateHandler(),
             new Handlers.AgentUninstallHandler(),
         }.ToDictionary(x => x.JobType, StringComparer.OrdinalIgnoreCase);
     }
 
-    public async Task ProcessAsync(List<SignedCommandDto> commands, CancellationToken cancellationToken)
+    public async Task ProcessAsync(List<SignedCommandDto> commands, CancellationToken cancellationToken, DateTimeOffset? verificationNowUtc = null)
     {
         _verifier.UpdateKeys(await _apiClient.GetKeysetAsync(cancellationToken));
 
@@ -49,7 +51,7 @@ public sealed class JobProcessor
         {
             try
             {
-                _verifier.Verify(command);
+                _verifier.Verify(command, verificationNowUtc);
                 await _apiClient.AckAsync(command.Envelope.CommandId, cancellationToken);
 
                 if (!_handlers.TryGetValue(command.Envelope.Type, out var handler))
@@ -63,6 +65,19 @@ public sealed class JobProcessor
             }
             catch (Exception ex)
             {
+                if (string.Equals(ex.Message, ErrorCodes.Expired, StringComparison.Ordinal))
+                {
+                    await _apiClient.ResultAsync(command.Envelope.CommandId, "failed", 1, new
+                    {
+                        error = ex.Message,
+                        now_utc = DateTimeOffset.UtcNow.ToString("O"),
+                        verification_now_utc = (verificationNowUtc?.ToUniversalTime() ?? DateTimeOffset.UtcNow).ToString("O"),
+                        issued_at_utc = command.Envelope.IssuedAt.ToUniversalTime().ToString("O"),
+                        expires_at_utc = command.Envelope.ExpiresAt.ToUniversalTime().ToString("O"),
+                    }, cancellationToken);
+                    continue;
+                }
+
                 if (SignatureDebugEnabled && string.Equals(ex.Message, ErrorCodes.PayloadHash, StringComparison.Ordinal))
                 {
                     var diagnostics = _verifier.BuildPayloadHashDiagnostics(command);

@@ -7,7 +7,7 @@
   "targets": {
     ".NETCoreApp,Version=v8.0": {},
     ".NETCoreApp,Version=v8.0/win-x64": {
-      "Dms.Agent.Service/3.0.0": {
+      "Dms.Agent.Service/1.1.0": {
         "dependencies": {
           "Dms.Agent.Core": "1.0.0",
           "Microsoft.Extensions.Hosting.WindowsServices": "8.0.1",
@@ -1146,15 +1146,15 @@
         },
         "runtime": {
           "Dms.Agent.Core.dll": {
-            "assemblyVersion": "3.0.0.0",
-            "fileVersion": "3.0.0.0"
+            "assemblyVersion": "1.1.0.0",
+            "fileVersion": "1.1.0.0"
           }
         }
       }
     }
   },
   "libraries": {
-    "Dms.Agent.Service/3.0.0": {
+    "Dms.Agent.Service/1.1.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

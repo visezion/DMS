@@ -239,6 +239,19 @@ class AdminConsoleController extends Controller
                     'last_run_at' => $run?->updated_at,
                 ];
             });
+        $freezePolicySlug = 'ops-fast-reboot-restore-mode';
+        $isDeviceFrozenRequested = $effectivePolicies->contains(fn ($policy) => (string) ($policy->policy_slug ?? '') === $freezePolicySlug);
+        $tags = is_array($device->tags) ? $device->tags : [];
+        $runtimeDiagnostics = $this->normalizeRuntimeDiagnostics(
+            is_array($tags['runtime_diagnostics'] ?? null) ? $tags['runtime_diagnostics'] : null
+        );
+        $isUwfFeatureEnabled = (($runtimeDiagnostics['uwf_feature_enabled'] ?? null) === true);
+        $isUwfFilterEnabled = (($runtimeDiagnostics['uwf_filter_enabled'] ?? null) === true);
+        $isUwfVolumeProtected = (($runtimeDiagnostics['uwf_volume_c_protected'] ?? null) === true);
+        $isDeviceFrozenActive = $isUwfFeatureEnabled && $isUwfFilterEnabled && $isUwfVolumeProtected;
+        $freezeModeState = $isDeviceFrozenActive
+            ? 'active'
+            : ($isDeviceFrozenRequested ? 'pending' : 'inactive');
 
         $packageVersions = PackageVersion::query()
             ->whereIn('id', array_keys($packageRunByVersion))
@@ -307,6 +320,9 @@ class AdminConsoleController extends Controller
                 ->get(),
             'effective_policies' => $effectivePolicies,
             'device_packages' => $devicePackages,
+            'is_device_frozen' => $isDeviceFrozenActive,
+            'is_device_frozen_requested' => $isDeviceFrozenRequested,
+            'freeze_mode_state' => $freezeModeState,
         ]);
     }
 
@@ -370,6 +386,37 @@ class AdminConsoleController extends Controller
             ->get();
 
         $tags = is_array($device->tags) ? $device->tags : [];
+        $runtimeDiagnostics = $this->normalizeRuntimeDiagnostics(
+            is_array($tags['runtime_diagnostics'] ?? null) ? $tags['runtime_diagnostics'] : null
+        );
+
+        $groupIds = \DB::table('device_group_memberships')
+            ->where('device_id', $device->id)
+            ->pluck('device_group_id')
+            ->all();
+        $freezePolicySlug = 'ops-fast-reboot-restore-mode';
+        $isDeviceFrozenRequested = \DB::table('policy_assignments as a')
+            ->join('policy_versions as pv', 'pv.id', '=', 'a.policy_version_id')
+            ->join('policies as p', 'p.id', '=', 'pv.policy_id')
+            ->where(function ($query) use ($device, $groupIds) {
+                $query->where(function ($deviceQuery) use ($device) {
+                    $deviceQuery->where('a.target_type', 'device')->where('a.target_id', $device->id);
+                });
+                if ($groupIds !== []) {
+                    $query->orWhere(function ($groupQuery) use ($groupIds) {
+                        $groupQuery->where('a.target_type', 'group')->whereIn('a.target_id', $groupIds);
+                    });
+                }
+            })
+            ->where('p.slug', $freezePolicySlug)
+            ->exists();
+        $isUwfFeatureEnabled = (($runtimeDiagnostics['uwf_feature_enabled'] ?? null) === true);
+        $isUwfFilterEnabled = (($runtimeDiagnostics['uwf_filter_enabled'] ?? null) === true);
+        $isUwfVolumeProtected = (($runtimeDiagnostics['uwf_volume_c_protected'] ?? null) === true);
+        $isDeviceFrozenActive = $isUwfFeatureEnabled && $isUwfFilterEnabled && $isUwfVolumeProtected;
+        $freezeModeState = $isDeviceFrozenActive
+            ? 'active'
+            : ($isDeviceFrozenRequested ? 'pending' : 'inactive');
 
         return response()->json([
             'device' => [
@@ -381,8 +428,9 @@ class AdminConsoleController extends Controller
                 'agent_build' => (string) ($tags['agent_build'] ?? 'unknown'),
                 'inventory' => is_array($tags['inventory'] ?? null) ? $tags['inventory'] : null,
                 'inventory_updated_at' => (string) ($tags['inventory_updated_at'] ?? ''),
-                'runtime_diagnostics' => is_array($tags['runtime_diagnostics'] ?? null) ? $tags['runtime_diagnostics'] : null,
-                'runtime_diagnostics_updated_at' => (string) ($tags['runtime_diagnostics_updated_at'] ?? ''),
+                'freeze_mode_requested' => $isDeviceFrozenRequested,
+                'freeze_mode_active' => $isDeviceFrozenActive,
+                'freeze_mode_state' => $freezeModeState,
                 'last_seen_at' => $device->last_seen_at?->toIso8601String(),
                 'last_seen_human' => $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'never',
             ],
@@ -400,6 +448,57 @@ class AdminConsoleController extends Controller
             })->values(),
             'server_time' => now()->toIso8601String(),
         ]);
+    }
+
+    private function normalizeRuntimeDiagnostics(?array $runtimeDiagnostics): array
+    {
+        if (! is_array($runtimeDiagnostics)) {
+            return [];
+        }
+
+        $normalized = $runtimeDiagnostics;
+        $boolKeys = [
+            'uwf_feature_enabled',
+            'uwf_filter_enabled',
+            'uwf_filter_next_enabled',
+            'uwf_volume_c_protected',
+            'uwf_volume_c_next_protected',
+            'signature_bypass_enabled',
+            'signature_debug_enabled',
+        ];
+        foreach ($boolKeys as $key) {
+            if (! array_key_exists($key, $normalized)) {
+                continue;
+            }
+            if (! is_bool($normalized[$key])) {
+                $normalized[$key] = null;
+            }
+        }
+
+        $lastError = strtolower(trim((string) ($normalized['uwf_last_check_error'] ?? '')));
+        $cfgExit = array_key_exists('uwf_get_config_exit_code', $normalized)
+            ? (int) $normalized['uwf_get_config_exit_code']
+            : null;
+        $volExit = array_key_exists('uwf_volume_c_exit_code', $normalized)
+            ? (int) $normalized['uwf_volume_c_exit_code']
+            : null;
+
+        $cfgTimedOut = str_contains($lastError, 'cfg: timeout')
+            || (($cfgExit !== null && $cfgExit !== 0) && str_contains($lastError, 'timeout'));
+        $volTimedOut = str_contains($lastError, 'vol: timeout')
+            || (($volExit !== null && $volExit !== 0) && str_contains($lastError, 'timeout'));
+
+        if ($cfgTimedOut) {
+            $normalized['uwf_filter_enabled'] = null;
+            $normalized['uwf_filter_next_enabled'] = null;
+        }
+
+        if ($volTimedOut) {
+            $normalized['uwf_volume_c_protected'] = null;
+            $normalized['uwf_volume_c_next_protected'] = null;
+        }
+
+        return $normalized;
     }
 
     public function updateDevice(Request $request, string $deviceId, AuditLogger $auditLogger): RedirectResponse
@@ -469,7 +568,7 @@ class AdminConsoleController extends Controller
             'install_dir' => 'C:\\Program Files\\DMS Agent',
             'data_dir' => 'C:\\ProgramData\\DMS',
             'delete_device_after_uninstall' => true,
-        ];
+        ] + $this->buildAgentUninstallAuthorizationPayload($user);
         $cleanupPoliciesQueued = 0;
         $cleanupPackagesQueued = 0;
         if ($this->settingBool('devices.delete_cleanup_before_uninstall', false)) {
@@ -725,6 +824,29 @@ class AdminConsoleController extends Controller
             ->orderByDesc('package_versions.created_at')
             ->get();
 
+        $kioskPresetMatrix = $this->kioskLockdownPresetMatrix();
+        $kioskPresetKeys = collect($kioskPresetMatrix)
+            ->flatMap(fn (array $section) => (array) ($section['preset_keys'] ?? []))
+            ->filter(fn ($key) => is_string($key) && trim($key) !== '')
+            ->unique()
+            ->values();
+        $kioskPresetSlugMap = collect($this->policyCatalog())
+            ->filter(fn ($item) => is_array($item))
+            ->whereIn('key', $kioskPresetKeys->all())
+            ->mapWithKeys(fn ($item) => [(string) $item['key'] => (string) ($item['slug'] ?? '')]);
+        $assignedKioskPresetKeys = \DB::table('policy_assignments as a')
+            ->join('policy_versions as pv', 'pv.id', '=', 'a.policy_version_id')
+            ->join('policies as p', 'p.id', '=', 'pv.policy_id')
+            ->where('a.target_type', 'group')
+            ->where('a.target_id', $group->id)
+            ->whereIn('p.slug', $kioskPresetSlugMap->values()->filter()->all())
+            ->pluck('p.slug')
+            ->unique()
+            ->values();
+        $assignedKioskPresetMap = $kioskPresetSlugMap
+            ->map(fn (string $slug) => $slug !== '' && $assignedKioskPresetKeys->contains($slug))
+            ->all();
+
         return view('admin.group-detail', [
             'group' => $group,
             'devices' => Device::query()->orderBy('hostname')->get(['id', 'hostname']),
@@ -734,6 +856,8 @@ class AdminConsoleController extends Controller
             'policyVersionOptions' => $policyVersionOptions,
             'packageVersionOptions' => $packageVersionOptions,
             'defaultPublicBase' => $defaultPublicBase,
+            'kioskPresetMatrix' => $kioskPresetMatrix,
+            'assignedKioskPresetMap' => $assignedKioskPresetMap,
         ]);
     }
 
@@ -1047,6 +1171,115 @@ class AdminConsoleController extends Controller
         }
 
         return back()->with('status', 'Policy assignment already exists.');
+    }
+
+    public function applyGroupKioskLockdown(Request $request, string $groupId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate([
+            'queue_now' => ['nullable', 'boolean'],
+            'include_app_controls' => ['nullable', 'boolean'],
+            'include_usb_lock' => ['nullable', 'boolean'],
+            'include_local_admin_restriction' => ['nullable', 'boolean'],
+            'include_shell_lock' => ['nullable', 'boolean'],
+            'include_taskmgr_lock' => ['nullable', 'boolean'],
+            'include_control_panel_lock' => ['nullable', 'boolean'],
+        ]);
+
+        $group = DeviceGroup::query()->findOrFail($groupId);
+        $queueNow = (bool) ($data['queue_now'] ?? true);
+        $matrix = $this->kioskLockdownPresetMatrix();
+
+        $selectedKeys = collect($matrix)
+            ->filter(function (array $section) use ($data) {
+                $toggle = (string) ($section['toggle'] ?? '');
+                if ($toggle === '') {
+                    return false;
+                }
+                return (bool) ($data[$toggle] ?? false);
+            })
+            ->flatMap(fn (array $section) => (array) ($section['preset_keys'] ?? []))
+            ->filter(fn ($key) => is_string($key) && trim($key) !== '')
+            ->map(fn ($key) => trim((string) $key))
+            ->unique()
+            ->values();
+
+        if ($selectedKeys->isEmpty()) {
+            return back()->withErrors(['group_policy' => 'Select at least one kiosk control section.']);
+        }
+
+        $catalogByKey = collect($this->policyCatalog())
+            ->filter(fn ($item) => is_array($item))
+            ->keyBy(fn ($item) => (string) ($item['key'] ?? ''));
+
+        $createdPolicies = 0;
+        $createdVersions = 0;
+        $createdAssignments = 0;
+        $queuedJobs = 0;
+        $appliedKeys = [];
+        $missingKeys = [];
+        $errors = [];
+
+        foreach ($selectedKeys as $presetKey) {
+            $catalogItem = $catalogByKey->get((string) $presetKey);
+            if (! is_array($catalogItem)) {
+                $missingKeys[] = (string) $presetKey;
+                continue;
+            }
+
+            $ensured = $this->ensureCatalogPresetPolicyVersion($catalogItem, $request->user()?->id);
+            $version = $ensured['version'] ?? null;
+            if (! $version instanceof PolicyVersion) {
+                $errors[] = 'Failed to prepare policy preset: '.(string) $presetKey;
+                continue;
+            }
+
+            if ((bool) ($ensured['policy_created'] ?? false)) {
+                $createdPolicies++;
+            }
+            if ((bool) ($ensured['version_created'] ?? false)) {
+                $createdVersions++;
+            }
+
+            $created = $this->createPolicyAssignment($version->id, 'group', $group->id);
+            if ($created) {
+                $createdAssignments++;
+            }
+
+            if ($queueNow) {
+                $this->queueApplyPolicyJob($version, 'group', $group->id, $request->user()?->id);
+                $queuedJobs++;
+            }
+
+            $appliedKeys[] = (string) $presetKey;
+        }
+
+        $auditLogger->log('group.kiosk_lockdown.apply.web', 'device_group', $group->id, null, [
+            'selected_keys' => $selectedKeys->all(),
+            'applied_keys' => $appliedKeys,
+            'missing_keys' => $missingKeys,
+            'errors' => $errors,
+            'created_policies' => $createdPolicies,
+            'created_versions' => $createdVersions,
+            'created_assignments' => $createdAssignments,
+            'queued_jobs' => $queuedJobs,
+            'queue_now' => $queueNow,
+        ], $request->user()?->id);
+
+        if ($errors !== []) {
+            return back()->withErrors([
+                'group_policy' => 'Kiosk lockdown partially applied. '.implode(' | ', array_unique($errors)),
+            ]);
+        }
+
+        $status = "Kiosk lockdown bundle applied. Presets: ".count($appliedKeys).", new policies: {$createdPolicies}, new versions: {$createdVersions}, new assignments: {$createdAssignments}.";
+        if ($queueNow) {
+            $status .= " Queued {$queuedJobs} apply job(s).";
+        }
+        if ($missingKeys !== []) {
+            $status .= ' Missing presets: '.implode(', ', $missingKeys).'.';
+        }
+
+        return back()->with('status', $status);
     }
 
     public function addGroupPackageAssignment(Request $request, string $groupId, AuditLogger $auditLogger): RedirectResponse
@@ -1586,7 +1819,7 @@ class AdminConsoleController extends Controller
             'service_name' => 'DMSAgent',
             'install_dir' => 'C:\\Program Files\\DMS Agent',
             'data_dir' => 'C:\\ProgramData\\DMS',
-        ];
+        ] + $this->buildAgentUninstallAuthorizationPayload($user);
 
         $job = DmsJob::query()->create([
             'id' => (string) Str::uuid(),
@@ -1674,6 +1907,140 @@ class AdminConsoleController extends Controller
         ], $user->id);
 
         return back()->with('status', 'Reboot job queued for device.');
+    }
+
+    public function freezeDevice(Request $request, string $deviceId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate([
+            'admin_password' => ['required', 'string', 'max:255'],
+            'priority' => ['nullable', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        $user = $request->user();
+        if (! $user || ! Hash::check((string) $data['admin_password'], (string) $user->password)) {
+            return back()->withErrors([
+                'device_freeze' => 'Admin password is incorrect.',
+            ]);
+        }
+
+        $device = Device::query()->findOrFail($deviceId);
+
+        $catalogItem = collect($this->policyCatalog())
+            ->first(fn ($item) => is_array($item) && (string) ($item['key'] ?? '') === 'fast_reboot_restore_mode');
+        if (! is_array($catalogItem)) {
+            return back()->withErrors([
+                'device_freeze' => 'Freeze preset is missing from policy catalog.',
+            ]);
+        }
+
+        $ensured = $this->ensureCatalogPresetPolicyVersion($catalogItem, $user->id);
+        $version = $ensured['version'] ?? null;
+        if (! $version instanceof PolicyVersion) {
+            return back()->withErrors([
+                'device_freeze' => 'Unable to prepare freeze policy version.',
+            ]);
+        }
+
+        $assignmentCreated = $this->createPolicyAssignment($version->id, 'device', $device->id);
+        $this->queueApplyPolicyJob($version, 'device', $device->id, $user->id);
+
+        $priority = (int) ($data['priority'] ?? 95);
+        $freezeCommand = $this->buildDeviceFreezeCommand();
+        $freezeJob = $this->queueDeviceApplyPolicyCommandJob($device->id, $freezeCommand, $user->id, $priority, $version->id);
+
+        $auditLogger->log('device.freeze.web', 'job', $freezeJob->id, null, [
+            'device_id' => $device->id,
+            'freeze_policy_version_id' => $version->id,
+            'freeze_policy_assignment_created' => $assignmentCreated,
+            'uwf_command_queued' => true,
+        ], $user->id);
+
+        $status = 'Device freeze queued. UWF feature/protection workflow started. It may take up to two reboots to fully activate freeze.';
+        if ($assignmentCreated) {
+            $status .= ' Freeze policy assignment was created.';
+        }
+
+        return back()->with('status', $status);
+    }
+
+    public function unfreezeDevice(Request $request, string $deviceId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate([
+            'admin_password' => ['required', 'string', 'max:255'],
+            'priority' => ['nullable', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        $user = $request->user();
+        if (! $user || ! Hash::check((string) $data['admin_password'], (string) $user->password)) {
+            return back()->withErrors([
+                'device_unfreeze' => 'Admin password is incorrect.',
+            ]);
+        }
+
+        $device = Device::query()->findOrFail($deviceId);
+        $freezeSlug = 'ops-fast-reboot-restore-mode';
+        $groupIds = \DB::table('device_group_memberships')
+            ->where('device_id', $device->id)
+            ->pluck('device_group_id')
+            ->values();
+
+        if ($groupIds->isNotEmpty()) {
+            $groupFreezeExists = \DB::table('policy_assignments as a')
+                ->join('policy_versions as pv', 'pv.id', '=', 'a.policy_version_id')
+                ->join('policies as p', 'p.id', '=', 'pv.policy_id')
+                ->where('a.target_type', 'group')
+                ->whereIn('a.target_id', $groupIds)
+                ->where('p.slug', $freezeSlug)
+                ->exists();
+            if ($groupFreezeExists) {
+                return back()->withErrors([
+                    'device_unfreeze' => 'Device inherits freeze mode from its group. Remove group freeze assignment first.',
+                ]);
+            }
+        }
+
+        $deviceFreezeAssignments = \DB::table('policy_assignments as a')
+            ->join('policy_versions as pv', 'pv.id', '=', 'a.policy_version_id')
+            ->join('policies as p', 'p.id', '=', 'pv.policy_id')
+            ->where('a.target_type', 'device')
+            ->where('a.target_id', $device->id)
+            ->where('p.slug', $freezeSlug)
+            ->select(['a.id', 'a.policy_version_id'])
+            ->get();
+
+        $removedAssignments = 0;
+        $cleanupQueued = 0;
+        foreach ($deviceFreezeAssignments as $assignment) {
+            \DB::table('policy_assignments')->where('id', $assignment->id)->delete();
+            $removedAssignments++;
+            $cleanupQueued += $this->queuePolicyRemovalProfileForDevice($device->id, (string) $assignment->policy_version_id, $user->id);
+        }
+
+        $priority = (int) ($data['priority'] ?? 95);
+        $unfreezeCommand = $this->buildDeviceUnfreezeCommand();
+        $unfreezeJob = $this->queueDeviceApplyPolicyCommandJob($device->id, $unfreezeCommand, $user->id, $priority);
+        $reconcileQueued = $this->queuePolicyReconcileForDevice($device->id, $user->id);
+
+        $auditLogger->log('device.unfreeze.web', 'job', $unfreezeJob->id, null, [
+            'device_id' => $device->id,
+            'removed_device_freeze_assignments' => $removedAssignments,
+            'queued_cleanup_jobs' => $cleanupQueued,
+            'queued_policy_reconcile_jobs' => $reconcileQueued,
+            'uwf_disable_command_queued' => true,
+        ], $user->id);
+
+        $status = 'Device unfreeze queued. UWF disable + restore manifest cleanup + reboot job scheduled.';
+        if ($removedAssignments > 0) {
+            $status .= " Removed {$removedAssignments} freeze assignment(s).";
+        }
+        if ($cleanupQueued > 0) {
+            $status .= " Queued {$cleanupQueued} freeze cleanup job(s).";
+        }
+        if ($reconcileQueued > 0) {
+            $status .= " Queued {$reconcileQueued} policy reconcile job(s).";
+        }
+
+        return back()->with('status', $status);
     }
 
     public function deletePackageVersion(Request $request, string $packageId, string $versionId, AuditLogger $auditLogger): RedirectResponse
@@ -2117,12 +2484,12 @@ class AdminConsoleController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100'],
-            'rule_type' => ['required', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command'],
+            'rule_type' => ['required', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['required', 'json'],
             'description' => ['nullable', 'string', 'max:240'],
             'applies_to' => ['nullable', 'in:device,group,both'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command'],
+            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
         ]);
@@ -2217,12 +2584,12 @@ class AdminConsoleController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100'],
-            'rule_type' => ['required', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command'],
+            'rule_type' => ['required', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['required', 'json'],
             'description' => ['nullable', 'string', 'max:240'],
             'applies_to' => ['nullable', 'in:device,group,both'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command'],
+            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
         ]);
@@ -2516,11 +2883,26 @@ class AdminConsoleController extends Controller
         $data = $request->validate([
             'version_number' => ['required', 'integer', 'min:1'],
             'apply_mode' => ['nullable', 'in:json,command'],
-            'rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command'],
+            'rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['nullable', 'json'],
             'apply_command' => ['nullable', 'string', 'max:15000'],
+            'apply_run_as' => ['nullable', 'in:default,elevated,system'],
+            'apply_timeout_seconds' => ['nullable', 'integer', 'min:30', 'max:3600'],
+            'apply_uwf_ensure' => ['nullable', 'in:present,absent'],
+            'apply_uwf_enable_feature' => ['nullable', 'boolean'],
+            'apply_uwf_enable_filter' => ['nullable', 'boolean'],
+            'apply_uwf_protect_volume' => ['nullable', 'boolean'],
+            'apply_uwf_volume' => ['nullable', 'string', 'max:16'],
+            'apply_uwf_reboot_now' => ['nullable', 'boolean'],
+            'apply_uwf_reboot_if_pending' => ['nullable', 'boolean'],
+            'apply_uwf_max_reboot_attempts' => ['nullable', 'integer', 'min:1', 'max:10'],
+            'apply_uwf_reboot_cooldown_minutes' => ['nullable', 'integer', 'min:1', 'max:240'],
+            'apply_uwf_reboot_command' => ['nullable', 'string', 'max:500'],
+            'apply_uwf_file_exclusions' => ['nullable', 'string', 'max:4000'],
+            'apply_uwf_registry_exclusions' => ['nullable', 'string', 'max:4000'],
+            'apply_uwf_fail_on_unsupported_edition' => ['nullable', 'boolean'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command'],
+            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
             'target_type' => ['nullable', 'in:device,group'],
@@ -2596,11 +2978,26 @@ class AdminConsoleController extends Controller
             'version_number' => ['required', 'integer', 'min:1'],
             'status' => ['required', 'in:draft,active,retired'],
             'apply_mode' => ['nullable', 'in:json,command'],
-            'rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command'],
+            'rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['nullable', 'json'],
             'apply_command' => ['nullable', 'string', 'max:15000'],
+            'apply_run_as' => ['nullable', 'in:default,elevated,system'],
+            'apply_timeout_seconds' => ['nullable', 'integer', 'min:30', 'max:3600'],
+            'apply_uwf_ensure' => ['nullable', 'in:present,absent'],
+            'apply_uwf_enable_feature' => ['nullable', 'boolean'],
+            'apply_uwf_enable_filter' => ['nullable', 'boolean'],
+            'apply_uwf_protect_volume' => ['nullable', 'boolean'],
+            'apply_uwf_volume' => ['nullable', 'string', 'max:16'],
+            'apply_uwf_reboot_now' => ['nullable', 'boolean'],
+            'apply_uwf_reboot_if_pending' => ['nullable', 'boolean'],
+            'apply_uwf_max_reboot_attempts' => ['nullable', 'integer', 'min:1', 'max:10'],
+            'apply_uwf_reboot_cooldown_minutes' => ['nullable', 'integer', 'min:1', 'max:240'],
+            'apply_uwf_reboot_command' => ['nullable', 'string', 'max:500'],
+            'apply_uwf_file_exclusions' => ['nullable', 'string', 'max:4000'],
+            'apply_uwf_registry_exclusions' => ['nullable', 'string', 'max:4000'],
+            'apply_uwf_fail_on_unsupported_edition' => ['nullable', 'boolean'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command'],
+            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
             'enforce' => ['nullable', 'boolean'],
@@ -2731,6 +3128,17 @@ class AdminConsoleController extends Controller
         $cleanupQueued = 0;
         if ((string) $assignment->target_type === 'device') {
             $cleanupQueued = $this->queuePolicyRemovalProfileForDevice((string) $assignment->target_id, $policyVersion->id, $request->user()?->id);
+        } elseif ((string) $assignment->target_type === 'group') {
+            $deviceIds = \DB::table('device_group_memberships')
+                ->where('device_group_id', (string) $assignment->target_id)
+                ->pluck('device_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            foreach ($deviceIds as $deviceId) {
+                $cleanupQueued += $this->queuePolicyRemovalProfileForDevice((string) $deviceId, $policyVersion->id, $request->user()?->id);
+            }
         }
         $queued = $this->queuePolicyReconcileForTarget((string) $assignment->target_type, (string) $assignment->target_id, $request->user()?->id);
 
@@ -2836,8 +3244,15 @@ class AdminConsoleController extends Controller
     private function buildPolicyRemovalRulesForDevice(string $deviceId, string $removedPolicyVersionId): array
     {
         $configuredRemoveRules = $this->policyRemovalRulesForVersion($removedPolicyVersionId);
+        $derivedRemoveRules = $this->deriveRemovalRulesFromPolicyVersion($removedPolicyVersionId);
         if ($configuredRemoveRules === []) {
-            $configuredRemoveRules = $this->deriveRemovalRulesFromPolicyVersion($removedPolicyVersionId);
+            $configuredRemoveRules = $derivedRemoveRules;
+        } elseif ($derivedRemoveRules !== []) {
+            $configuredRemoveRules = collect($configuredRemoveRules)
+                ->merge($derivedRemoveRules)
+                ->filter(fn ($rule) => is_array($rule))
+                ->values()
+                ->all();
         }
         if ($configuredRemoveRules === []) {
             return [];
@@ -2867,15 +3282,18 @@ class AdminConsoleController extends Controller
         $activeRegistrySignatures = [];
         $activeScheduledTaskSignatures = [];
         $activeCommandSignatures = [];
+        $activeLocalGroupSignatures = [];
+        $activeUwfSignatures = [];
         if ($activeVersionIds->isNotEmpty()) {
             $activeRules = PolicyRule::query()
                 ->whereIn('policy_version_id', $activeVersionIds)
-                ->whereIn('rule_type', ['registry', 'scheduled_task', 'command'])
+                ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'uwf'])
                 ->get(['rule_type', 'rule_config']);
 
             foreach ($activeRules as $rule) {
                 $config = is_array($rule->rule_config) ? $rule->rule_config : [];
-                if ((string) $rule->rule_type === 'registry') {
+                $ruleType = (string) $rule->rule_type;
+                if ($ruleType === 'registry') {
                     $signature = $this->registryRuleSignature($config);
                     if ($signature !== null) {
                         $activeRegistrySignatures[$signature] = true;
@@ -2883,14 +3301,34 @@ class AdminConsoleController extends Controller
                     continue;
                 }
 
-                $signature = $this->scheduledTaskRuleSignature($config);
-                if ($signature !== null && ! $this->isScheduledTaskMarkedAbsent($config)) {
-                    $activeScheduledTaskSignatures[$signature] = true;
+                if ($ruleType === 'scheduled_task') {
+                    $signature = $this->scheduledTaskRuleSignature($config);
+                    if ($signature !== null && ! $this->isScheduledTaskMarkedAbsent($config)) {
+                        $activeScheduledTaskSignatures[$signature] = true;
+                    }
+                    continue;
                 }
-                if ((string) $rule->rule_type === 'command') {
+
+                if ($ruleType === 'command') {
                     $signature = $this->commandRuleSignature($config);
                     if ($signature !== null) {
                         $activeCommandSignatures[$signature] = true;
+                    }
+                    continue;
+                }
+
+                if ($ruleType === 'local_group') {
+                    $signature = $this->localGroupRuleSignature($config);
+                    if ($signature !== null && ! $this->isLocalGroupMarkedAbsent($config)) {
+                        $activeLocalGroupSignatures[$signature] = true;
+                    }
+                    continue;
+                }
+
+                if ($ruleType === 'uwf') {
+                    $signature = $this->uwfRuleSignature($config);
+                    if ($signature !== null && ! $this->isUwfMarkedAbsent($config)) {
+                        $activeUwfSignatures[$signature] = true;
                     }
                 }
             }
@@ -2900,12 +3338,53 @@ class AdminConsoleController extends Controller
         $queuedRegistrySignatures = [];
         $queuedScheduledTaskSignatures = [];
         $queuedCommandSignatures = [];
+        $queuedLocalGroupSignatures = [];
+        $queuedUwfSignatures = [];
         foreach ($configuredRemoveRules as $rule) {
             if (! is_array($rule)) {
                 continue;
             }
             $type = strtolower((string) ($rule['type'] ?? ''));
             $config = is_array($rule['config'] ?? null) ? $rule['config'] : [];
+
+            if ($type === 'uwf') {
+                $signature = $this->uwfRuleSignature($config);
+                if ($signature !== null && (isset($activeUwfSignatures[$signature]) || isset($queuedUwfSignatures[$signature]))) {
+                    continue;
+                }
+                $cleanupCommandRule = $this->buildUwfRemovalCommandRule();
+                $cleanupCommandSignature = $this->commandRuleSignature((array) ($cleanupCommandRule['config'] ?? []));
+                if ($cleanupCommandSignature !== null
+                    && (isset($activeCommandSignatures[$cleanupCommandSignature]) || isset($queuedCommandSignatures[$cleanupCommandSignature]))) {
+                    continue;
+                }
+                $cleanupRules[] = $cleanupCommandRule;
+                if ($signature !== null) {
+                    $queuedUwfSignatures[$signature] = true;
+                }
+                if ($cleanupCommandSignature !== null) {
+                    $queuedCommandSignatures[$cleanupCommandSignature] = true;
+                }
+                continue;
+            }
+
+            if ($type === 'local_group') {
+                $signature = $this->localGroupRuleSignature($config);
+                if ($signature === null) {
+                    continue;
+                }
+                if (isset($activeLocalGroupSignatures[$signature]) || isset($queuedLocalGroupSignatures[$signature])) {
+                    continue;
+                }
+                $cleanupRules[] = [
+                    'type' => 'local_group',
+                    'config' => $config + ['ensure' => 'absent', 'restore_previous' => true, 'strict_restore' => true],
+                    'enforce' => true,
+                ];
+                $queuedLocalGroupSignatures[$signature] = true;
+                continue;
+            }
+
             if ($type === 'registry') {
                 $signature = $this->registryRuleSignature($config);
                 if ($signature === null) {
@@ -2965,7 +3444,7 @@ class AdminConsoleController extends Controller
     {
         $rules = PolicyRule::query()
             ->where('policy_version_id', $policyVersionId)
-            ->whereIn('rule_type', ['registry', 'scheduled_task', 'command'])
+            ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'uwf'])
             ->get(['rule_type', 'rule_config']);
 
         $removeRules = [];
@@ -3012,6 +3491,49 @@ class AdminConsoleController extends Controller
         }
 
         return hash('sha256', $command);
+    }
+
+    private function localGroupRuleSignature(array $config): ?string
+    {
+        $group = strtoupper(trim((string) ($config['group'] ?? '')));
+        if ($group === '') {
+            return null;
+        }
+
+        return $group;
+    }
+
+    private function uwfRuleSignature(array $config): ?string
+    {
+        $volume = strtoupper(trim((string) ($config['volume'] ?? 'C:')));
+        if ($volume === '') {
+            $volume = 'C:';
+        }
+
+        return $volume;
+    }
+
+    private function isUwfMarkedAbsent(array $config): bool
+    {
+        return strtolower(trim((string) ($config['ensure'] ?? 'present'))) === 'absent';
+    }
+
+    private function buildUwfRemovalCommandRule(): array
+    {
+        return [
+            'type' => 'command',
+            'config' => [
+                'command' => 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAJwAKACQAcgBlAHMAdABvAHIAZQBSAG8AbwB0ACAAPQAgACcAQwA6AFwAUAByAG8AZwByAGEAbQBEAGEAdABhAFwARABNAFMAXABSAGUAcwB0AG8AcgBlACcACgAkAGYAcgBlAGUAegBlAFIAbwBvAHQAIAA9ACAAJwBDADoAXABQAHIAbwBnAHIAYQBtAEQAYQB0AGEAXABEAE0AUwBcAEYAcgBlAGUAegBlACcACgAkAHQAYQBzAGsATgBhAG0AZQAgAD0AIAAnAEQATQBTAC0ARgByAGUAZQB6AGUALQBGAGkAbgBhAGwAaQB6AGUAJwAKACQAcgB1AG4ATwBuAGMAZQBOAGEAbQBlACAAPQAgACcARABNAFMARgByAGUAZQB6AGUARgBpAG4AYQBsAGkAegBlACcACgAkAGEAdAB0AGUAbQBwAHQAUABhAHQAaAAgAD0AIABKAG8AaQBuAC0AUABhAHQAaAAgACQAZgByAGUAZQB6AGUAUgBvAG8AdAAgACcAYQB0AHQAZQBtAHAAdAAuAHQAeAB0ACcACgAKAFIAZQBtAG8AdgBlAC0ASQB0AGUAbQAgACgASgBvAGkAbgAtAFAAYQB0AGgAIAAkAHIAZQBzAHQAbwByAGUAUgBvAG8AdAAgACcAcABlAHIAcwBpAHMAdABlAG4AdAAtAHIAZQBzAHQAbwByAGUALgBqAHMAbwBuACcAKQAgAC0ARgBvAHIAYwBlACAALQBFAHIAcgBvAHIAQQBjAHQAaQBvAG4AIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlAAoAUgBlAG0AbwB2AGUALQBJAHQAZQBtACAAKABKAG8AaQBuAC0AUABhAHQAaAAgACQAcgBlAHMAdABvAHIAZQBSAG8AbwB0ACAAJwBwAGUAbgBkAGkAbgBnAC0AcgBlAHMAdABvAHIAZQAuAGoAcwBvAG4AJwApACAALQBGAG8AcgBjAGUAIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUACgAKAHMAYwBoAHQAYQBzAGsAcwAuAGUAeABlACAALwBEAGUAbABlAHQAZQAgAC8AVABOACAAJAB0AGEAcwBrAE4AYQBtAGUAIAAvAEYAIAB8ACAATwB1AHQALQBOAHUAbABsAAoAUgBlAG0AbwB2AGUALQBJAHQAZQBtAFAAcgBvAHAAZQByAHQAeQAgAC0AUABhAHQAaAAgACcASABLAEwATQA6AFwAUwBvAGYAdAB3AGEAcgBlAFwATQBpAGMAcgBvAHMAbwBmAHQAXABXAGkAbgBkAG8AdwBzAFwAQwB1AHIAcgBlAG4AdABWAGUAcgBzAGkAbwBuAFwAUgB1AG4ATwBuAGMAZQAnACAALQBOAGEAbQBlACAAJAByAHUAbgBPAG4AYwBlAE4AYQBtAGUAIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUACgBSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAkAGEAdAB0AGUAbQBwAHQAUABhAHQAaAAgAC0ARgBvAHIAYwBlACAALQBFAHIAcgBvAHIAQQBjAHQAaQBvAG4AIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlAAoACgAkAHUAdwBmACAAPQAgAEoAbwBpAG4ALQBQAGEAdABoACAAJABlAG4AdgA6AFcASQBOAEQASQBSACAAJwBTAHkAcwB0AGUAbQAzADIAXAB1AHcAZgBtAGcAcgAuAGUAeABlACcACgBpAGYAIAAoAFQAZQBzAHQALQBQAGEAdABoACAAJAB1AHcAZgApACAAewAKACAAIAAmACAAJAB1AHcAZgAgAGYAaQBsAHQAZQByACAAZABpAHMAYQBiAGwAZQAgAHwAIABPAHUAdAAtAE4AdQBsAGwACgAgACAAJgAgACQAdQB3AGYAIAB2AG8AbAB1AG0AZQAgAHUAbgBwAHIAbwB0AGUAYwB0ACAAQwA6ACAAfAAgAE8AdQB0AC0ATgB1AGwAbAAKAH0ACgAKAGkAZgAgACgAVABlAHMAdAAtAFAAYQB0AGgAIAAkAGYAcgBlAGUAegBlAFIAbwBvAHQAKQAgAHsACgAgACAAJABzAHQAYQB0AGUAUABhAHQAaAAgAD0AIABKAG8AaQBuAC0AUABhAHQAaAAgACQAZgByAGUAZQB6AGUAUgBvAG8AdAAgACcAcwB0AGEAdABlAC4AagBzAG8AbgAnAAoAIAAgACQAbwBiAGoAIAA9ACAAQAB7AAoAIAAgACAAIABzAHQAYQB0AGUAIAA9ACAAJwB1AG4AZgByAG8AegBlAG4AJwAKACAAIAAgACAAbQBlAHMAcwBhAGcAZQAgAD0AIAAnAEYAcgBlAGUAegBlACAAbQBvAGQAZQAgAGQAaQBzAGEAYgBsAGUAZAAgAGIAeQAgAEQATQBTACAAdQBuAGYAcgBlAGUAegBlACAAYQBjAHQAaQBvAG4ALgAnAAoAIAAgACAAIAB1AHQAYwAgAD0AIAAoAEcAZQB0AC0ARABhAHQAZQApAC4AVABvAFUAbgBpAHYAZQByAHMAYQBsAFQAaQBtAGUAKAApAC4AVABvAFMAdAByAGkAbgBnACgAJwBvACcAKQAKACAAIAB9ACAAfAAgAEMAbwBuAHYAZQByAHQAVABvAC0ASgBzAG8AbgAgAC0ARABlAHAAdABoACAANAAKACAAIABTAGUAdAAtAEMAbwBuAHQAZQBuAHQAIAAtAFAAYQB0AGgAIAAkAHMAdABhAHQAZQBQAGEAdABoACAALQBWAGEAbAB1AGUAIAAkAG8AYgBqACAALQBFAG4AYwBvAGQAaQBuAGcAIABVAFQARgA4ACAALQBGAG8AcgBjAGUACgB9AAoACgBzAGgAdQB0AGQAbwB3AG4ALgBlAHgAZQAgAC8AcgAgAC8AdAAgADAACgBlAHgAaQB0ACAAMAA=',
+                'run_as' => 'system',
+                'timeout_seconds' => 900,
+            ],
+            'enforce' => true,
+        ];
+    }
+
+    private function isLocalGroupMarkedAbsent(array $config): bool
+    {
+        return strtolower(trim((string) ($config['ensure'] ?? 'present'))) === 'absent';
     }
 
     private function queueGroupPackageUninstallsForDevice(string $groupId, string $deviceId, ?int $createdBy): int
@@ -3414,11 +3936,7 @@ POWERSHELL;
             ->where('policy_version_id', $policyVersion->id)
             ->orderBy('order_index')
             ->get()
-            ->map(fn (PolicyRule $rule) => [
-                'type' => $rule->rule_type,
-                'config' => $rule->rule_config,
-                'enforce' => (bool) $rule->enforce,
-            ])
+            ->map(fn (PolicyRule $rule) => $this->normalizePolicyRuleForDispatch($rule))
             ->values()
             ->all();
 
@@ -3456,6 +3974,486 @@ POWERSHELL;
         }
     }
 
+    private function normalizePolicyRuleForDispatch(PolicyRule $rule): array
+    {
+        $type = (string) $rule->rule_type;
+        $config = is_array($rule->rule_config) ? $rule->rule_config : [];
+
+        if (strtolower($type) === 'reboot_restore_mode') {
+            $config = $this->normalizeRebootRestoreModeConfigForDispatch($config);
+        }
+
+        return [
+            'type' => $type,
+            'config' => $config,
+            'enforce' => (bool) $rule->enforce,
+        ];
+    }
+
+    private function normalizeRebootRestoreModeConfigForDispatch(array $config): array
+    {
+        if ($this->hasActionableRebootRestoreConfig($config)) {
+            return $config;
+        }
+
+        $profile = strtolower(trim((string) ($config['profile'] ?? '')));
+        if (! in_array($profile, ['lab_fast', 'deepfreeze_fast', 'school_fast'], true)) {
+            return $config;
+        }
+
+        $compatManifest = $this->buildRebootRestoreCompatManifestFromProfile($config);
+        if ($compatManifest === []) {
+            return $config;
+        }
+
+        if ((array_key_exists('cleanup_paths', $config) && ! is_array($config['cleanup_paths'])) || ! array_key_exists('cleanup_paths', $config) || $config['cleanup_paths'] === []) {
+            if (array_key_exists('cleanup_paths', $compatManifest)) {
+                $config['cleanup_paths'] = $compatManifest['cleanup_paths'];
+            }
+        }
+        if ((array_key_exists('steps', $config) && ! is_array($config['steps'])) || ! array_key_exists('steps', $config) || $config['steps'] === []) {
+            if (array_key_exists('steps', $compatManifest)) {
+                $config['steps'] = $compatManifest['steps'];
+            }
+        }
+        if ((array_key_exists('restore_steps', $config) && ! is_array($config['restore_steps'])) || ! array_key_exists('restore_steps', $config) || $config['restore_steps'] === []) {
+            if (array_key_exists('restore_steps', $compatManifest)) {
+                $config['restore_steps'] = $compatManifest['restore_steps'];
+            }
+        }
+
+        return $config;
+    }
+
+    private function hasActionableRebootRestoreConfig(array $config): bool
+    {
+        $manifest = null;
+        if (array_key_exists('manifest', $config) && is_array($config['manifest'])) {
+            $manifest = $config['manifest'];
+        }
+
+        $cleanup = [];
+        $steps = [];
+        $restoreSteps = [];
+
+        if (is_array($manifest)) {
+            $cleanup = is_array($manifest['cleanup_paths'] ?? null) ? $manifest['cleanup_paths'] : [];
+            $steps = is_array($manifest['steps'] ?? null) ? $manifest['steps'] : [];
+            $restoreSteps = is_array($manifest['restore_steps'] ?? null) ? $manifest['restore_steps'] : [];
+        } else {
+            $cleanup = is_array($config['cleanup_paths'] ?? null) ? $config['cleanup_paths'] : [];
+            $steps = is_array($config['steps'] ?? null) ? $config['steps'] : [];
+            $restoreSteps = is_array($config['restore_steps'] ?? null) ? $config['restore_steps'] : [];
+        }
+
+        return $cleanup !== [] || $steps !== [] || $restoreSteps !== [];
+    }
+
+    private function buildRebootRestoreCompatManifestFromProfile(array $config): array
+    {
+        $cleanDownloads = (bool) ($config['clean_downloads'] ?? true);
+        $cleanDesktop = (bool) ($config['clean_desktop'] ?? false);
+        $cleanDocuments = (bool) ($config['clean_documents'] ?? false);
+        $cleanUserTemp = (bool) ($config['clean_user_temp'] ?? true);
+        $cleanWindowsTemp = (bool) ($config['clean_windows_temp'] ?? true);
+        $cleanRecycleBin = (bool) ($config['clean_recycle_bin'] ?? false);
+        $cleanDmsStaging = (bool) ($config['clean_dms_staging'] ?? true);
+
+        $programData = getenv('ProgramData') ?: 'C:\\ProgramData';
+        $cleanupPaths = [];
+        if ($cleanDmsStaging) {
+            $cleanupPaths[] = rtrim($programData, '\\/').'\\DMS\\Packages\\staging';
+            $cleanupPaths[] = rtrim($programData, '\\/').'\\DMS\\ConfigPush';
+        }
+
+        $script = $this->buildRebootRestoreCompatScript(
+            $cleanDownloads,
+            $cleanDesktop,
+            $cleanDocuments,
+            $cleanUserTemp,
+            $cleanWindowsTemp,
+            $cleanRecycleBin
+        );
+
+        $manifest = [
+            'steps' => [[
+                'type' => 'shell',
+                'shell' => 'powershell',
+                'script' => $script,
+            ]],
+        ];
+        if ($cleanupPaths !== []) {
+            $manifest['cleanup_paths'] = $cleanupPaths;
+        }
+
+        return $manifest;
+    }
+
+    private function buildRebootRestoreCompatScript(
+        bool $cleanDownloads,
+        bool $cleanDesktop,
+        bool $cleanDocuments,
+        bool $cleanUserTemp,
+        bool $cleanWindowsTemp,
+        bool $cleanRecycleBin
+    ): string {
+        $lines = [
+            "\$ErrorActionPreference='SilentlyContinue'",
+            "\$excluded=@('Public','Default','Default User','All Users','Administrator')",
+            "\$usersRoot='C:\\Users'",
+            "if(Test-Path \$usersRoot){",
+            "  Get-ChildItem \$usersRoot -Directory -ErrorAction SilentlyContinue | Where-Object { \$excluded -notcontains \$_.Name } | ForEach-Object {",
+            "    \$userRoot=\$_.FullName",
+        ];
+
+        if ($cleanDownloads) {
+            $lines[] = "    \$p=Join-Path \$userRoot 'Downloads'; if(Test-Path \$p){ Remove-Item (Join-Path \$p '*') -Recurse -Force -ErrorAction SilentlyContinue }";
+        }
+        if ($cleanDesktop) {
+            $lines[] = "    \$p=Join-Path \$userRoot 'Desktop'; if(Test-Path \$p){ Remove-Item (Join-Path \$p '*') -Recurse -Force -ErrorAction SilentlyContinue }";
+        }
+        if ($cleanDocuments) {
+            $lines[] = "    \$p=Join-Path \$userRoot 'Documents'; if(Test-Path \$p){ Remove-Item (Join-Path \$p '*') -Recurse -Force -ErrorAction SilentlyContinue }";
+        }
+        if ($cleanUserTemp) {
+            $lines[] = "    \$p=Join-Path \$userRoot 'AppData\\Local\\Temp'; if(Test-Path \$p){ Remove-Item (Join-Path \$p '*') -Recurse -Force -ErrorAction SilentlyContinue }";
+        }
+
+        $lines[] = "  }";
+        $lines[] = "}";
+
+        if ($cleanWindowsTemp) {
+            $lines[] = "\$w='C:\\Windows\\Temp'; if(Test-Path \$w){ Remove-Item (Join-Path \$w '*') -Recurse -Force -ErrorAction SilentlyContinue }";
+        }
+        if ($cleanRecycleBin) {
+            $lines[] = "try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}";
+        }
+
+        return implode('; ', $lines);
+    }
+
+    private function queueDeviceApplyPolicyCommandJob(
+        string $deviceId,
+        string $command,
+        ?int $createdBy,
+        int $priority = 95,
+        ?string $policyVersionId = null
+    ): DmsJob {
+        $payload = [
+            'rules' => [[
+                'type' => 'command',
+                'config' => ['command' => $command],
+                'enforce' => true,
+            ]],
+        ];
+        if ($policyVersionId !== null && trim($policyVersionId) !== '') {
+            $payload['policy_version_id'] = $policyVersionId;
+        }
+
+        $job = DmsJob::query()->create([
+            'id' => (string) Str::uuid(),
+            'job_type' => 'apply_policy',
+            'status' => 'queued',
+            'priority' => max(1, min(1000, $priority)),
+            'payload' => $payload,
+            'target_type' => 'device',
+            'target_id' => $deviceId,
+            'created_by' => $createdBy,
+        ]);
+
+        JobRun::query()->create([
+            'id' => (string) Str::uuid(),
+            'job_id' => $job->id,
+            'device_id' => $deviceId,
+            'status' => 'pending',
+            'next_retry_at' => null,
+        ]);
+
+        return $job;
+    }
+
+    private function buildDeviceFreezeCommand(): string
+    {
+        $script = trim(<<<'POWERSHELL'
+$ErrorActionPreference = 'Stop'
+$root = 'C:\ProgramData\DMS\Freeze'
+$taskName = 'DMS-Freeze-Finalize'
+$runOnceName = 'DMSFreezeFinalize'
+$scriptPath = Join-Path $root 'freeze-finalize.ps1'
+$statePath = Join-Path $root 'state.json'
+$logPath = Join-Path $root 'freeze.log'
+
+New-Item -ItemType Directory -Path $root -Force | Out-Null
+
+function Write-Log([string]$line) {
+  $ts = (Get-Date).ToUniversalTime().ToString('o')
+  Add-Content -Path $logPath -Value ($ts + ' ' + $line) -Encoding UTF8
+}
+
+function Save-State([string]$state,[string]$message='') {
+  $obj = @{
+    state = $state
+    message = $message
+    utc = (Get-Date).ToUniversalTime().ToString('o')
+  } | ConvertTo-Json -Depth 4
+  Set-Content -Path $statePath -Value $obj -Encoding UTF8 -Force
+  Write-Log ($state + ' :: ' + $message)
+}
+
+function Register-RunOnce([string]$scriptPathToRun) {
+  $escapedScriptPath = $scriptPathToRun.Replace('"','""')
+  $run = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $escapedScriptPath + '"'
+  New-Item -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Force | Out-Null
+  New-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name $runOnceName -Value $run -PropertyType String -Force | Out-Null
+}
+
+function Ensure-ResumeHooks([string]$scriptPathToRun) {
+  $escapedScriptPath = $scriptPathToRun.Replace('"','""')
+  $run = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $escapedScriptPath + '"'
+  Write-Log ('register startup task: ' + $taskName)
+  schtasks.exe /Create /TN $taskName /TR $run /SC ONSTART /RU SYSTEM /RL HIGHEST /F | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw ('failed to create startup finalize task: ' + $taskName + ' exit=' + $LASTEXITCODE)
+  }
+  Write-Log ('register runonce: ' + $runOnceName)
+  Register-RunOnce -scriptPathToRun $scriptPathToRun
+}
+
+function Remove-ResumeHooks {
+  schtasks.exe /Delete /TN $taskName /F | Out-Null
+  Remove-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name $runOnceName -ErrorAction SilentlyContinue
+}
+
+function Invoke-Uwf([string]$uwfPath, [string[]]$args) {
+  $out = (& $uwfPath @args 2>&1 | Out-String)
+  $code = $LASTEXITCODE
+  return @{
+    exit = $code
+    output = $out
+  }
+}
+
+function Get-UwfState([string]$uwfPath) {
+  $cfg = (& $uwfPath get-config 2>&1 | Out-String)
+  $vol = (& $uwfPath volume get-config C: 2>&1 | Out-String)
+  $filterCurrent = ($cfg -match '(?im)Filter\s+state\s*:\s*(Enabled|ON)')
+  $filterNext = ($cfg -match '(?im)Next\s+session.*(Enabled|ON)')
+  $volumeCurrent = ($vol -match '(?im)Current\s+session.*(Protected|ON|Yes)')
+  $volumeNext = ($vol -match '(?im)Next\s+session.*(Protected|ON|Yes)')
+  return @{
+    ready = (($filterCurrent -or $filterNext) -and ($volumeCurrent -or $volumeNext))
+    filterCurrent = $filterCurrent
+    filterNext = $filterNext
+    volumeCurrent = $volumeCurrent
+    volumeNext = $volumeNext
+    cfg = $cfg
+    vol = $vol
+  }
+}
+
+$finalizeScript = @'
+$ErrorActionPreference = "Stop"
+$root = "C:\ProgramData\DMS\Freeze"
+$taskName = "DMS-Freeze-Finalize"
+$runOnceName = "DMSFreezeFinalize"
+$statePath = Join-Path $root "state.json"
+$logPath = Join-Path $root "freeze.log"
+$attemptPath = Join-Path $root "attempt.txt"
+$maxAttempts = 3
+
+function Write-Log([string]$line) {
+  $ts = (Get-Date).ToUniversalTime().ToString("o")
+  Add-Content -Path $logPath -Value ($ts + " " + $line) -Encoding UTF8
+}
+
+function Save-State([string]$state,[string]$message="") {
+  $obj = @{
+    state = $state
+    message = $message
+    utc = (Get-Date).ToUniversalTime().ToString("o")
+  } | ConvertTo-Json -Depth 4
+  Set-Content -Path $statePath -Value $obj -Encoding UTF8 -Force
+  Write-Log ($state + " :: " + $message)
+}
+
+function Remove-ResumeHooks {
+  schtasks.exe /Delete /TN $taskName /F | Out-Null
+  Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce" -Name $runOnceName -ErrorAction SilentlyContinue
+}
+
+function Read-Attempt {
+  if (-not (Test-Path $attemptPath)) { return 0 }
+  try {
+    $raw = (Get-Content -Path $attemptPath -Raw -ErrorAction Stop).Trim()
+    $val = 0
+    if ([int]::TryParse($raw, [ref]$val)) { return $val }
+  } catch {}
+  return 0
+}
+
+function Write-Attempt([int]$value) {
+  Set-Content -Path $attemptPath -Value ([string]$value) -Encoding UTF8 -Force
+}
+
+function Invoke-Uwf([string]$uwfPath, [string[]]$args) {
+  $out = (& $uwfPath @args 2>&1 | Out-String)
+  $code = $LASTEXITCODE
+  return @{
+    exit = $code
+    output = $out
+  }
+}
+
+function Get-UwfState([string]$uwfPath) {
+  $cfg = (& $uwfPath get-config 2>&1 | Out-String)
+  $vol = (& $uwfPath volume get-config C: 2>&1 | Out-String)
+  $filterCurrent = ($cfg -match "(?im)Filter\s+state\s*:\s*(Enabled|ON)")
+  $filterNext = ($cfg -match "(?im)Next\s+session.*(Enabled|ON)")
+  $volumeCurrent = ($vol -match "(?im)Current\s+session.*(Protected|ON|Yes)")
+  $volumeNext = ($vol -match "(?im)Next\s+session.*(Protected|ON|Yes)")
+  return @{
+    ready = (($filterCurrent -or $filterNext) -and ($volumeCurrent -or $volumeNext))
+    filterCurrent = $filterCurrent
+    filterNext = $filterNext
+    volumeCurrent = $volumeCurrent
+    volumeNext = $volumeNext
+  }
+}
+
+$uwf = Join-Path $env:WINDIR "System32\uwfmgr.exe"
+if (-not (Test-Path $uwf)) {
+  Save-State -state "failed" -message "uwfmgr.exe not found"
+  exit 1
+}
+
+if (-not (Test-Path $root)) {
+  New-Item -ItemType Directory -Path $root -Force | Out-Null
+}
+
+$attempt = (Read-Attempt) + 1
+Write-Attempt -value $attempt
+Write-Log "finalize script invoked"
+Write-Log ("finalize attempt=" + $attempt)
+
+if ($attempt -gt $maxAttempts) {
+  Remove-ResumeHooks
+  Save-State -state "failed_loop_guard" -message ("Freeze finalize exceeded reboot attempts (" + $attempt + "/" + $maxAttempts + "). Hooks removed to stop reboot loop.")
+  exit 1
+}
+
+$protect = Invoke-Uwf -uwfPath $uwf -args @("volume","protect","C:")
+$filter = Invoke-Uwf -uwfPath $uwf -args @("filter","enable")
+$state = Get-UwfState -uwfPath $uwf
+
+if ($state.ready) {
+  Remove-ResumeHooks
+  Remove-Item -Path $attemptPath -Force -ErrorAction SilentlyContinue
+  Save-State -state "frozen_enabled" -message ("UWF active. protect_exit=" + $protect.exit + "; filter_exit=" + $filter.exit + "; current_filter=" + $state.filterCurrent + "; current_volume=" + $state.volumeCurrent)
+  exit 0
+}
+
+Save-State -state "pending_reboot_for_protection" -message ("Waiting reboot to finalize protection. attempt=" + $attempt + "/" + $maxAttempts + "; protect_exit=" + $protect.exit + "; filter_exit=" + $filter.exit + "; next_filter=" + $state.filterNext + "; next_volume=" + $state.volumeNext)
+shutdown.exe /r /t 0
+exit 0
+'@
+
+Set-Content -Path $scriptPath -Value $finalizeScript -Encoding UTF8 -Force
+Ensure-ResumeHooks -scriptPathToRun $scriptPath
+
+$featureInfo = (dism.exe /online /Get-FeatureInfo /FeatureName:Client-UnifiedWriteFilter) 2>&1 | Out-String
+$featureEnabled = $featureInfo -match 'State\s*:\s*Enabled'
+
+if (-not $featureEnabled) {
+  Save-State -state 'enabling_uwf_feature' -message 'Unified Write Filter feature is disabled. Enabling and rebooting.'
+  $enableOut = (dism.exe /online /Enable-Feature /FeatureName:Client-UnifiedWriteFilter /All /NoRestart) 2>&1 | Out-String
+  $exit = $LASTEXITCODE
+  if (($exit -ne 0) -and ($exit -ne 3010)) {
+    Save-State -state 'failed' -message ('Enable UWF feature failed. exit=' + $exit)
+    throw ('Enable UWF feature failed. exit=' + $exit + ' output=' + $enableOut)
+  }
+  Save-State -state 'pending_reboot_for_feature' -message ('Feature enable queued. exit=' + $exit)
+  shutdown.exe /r /t 0
+  exit 0
+}
+
+Save-State -state 'configuring_uwf' -message 'UWF feature is enabled. Running finalize stage now.'
+$finalizeOut = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2>&1 | Out-String)
+$finalizeExit = $LASTEXITCODE
+if ($finalizeExit -ne 0) {
+  Save-State -state 'failed' -message ('Finalize stage failed. exit=' + $finalizeExit)
+  throw ('Finalize stage failed. exit=' + $finalizeExit + ' output=' + $finalizeOut)
+}
+
+exit 0
+POWERSHELL);
+
+        return $this->buildPowerShellEncodedCommand($script);
+    }
+
+    private function buildDeviceUnfreezeCommand(): string
+    {
+        $script = trim(<<<'POWERSHELL'
+$ErrorActionPreference = 'SilentlyContinue'
+$restoreRoot = 'C:\ProgramData\DMS\Restore'
+$freezeRoot = 'C:\ProgramData\DMS\Freeze'
+$taskName = 'DMS-Freeze-Finalize'
+$runOnceName = 'DMSFreezeFinalize'
+$attemptPath = Join-Path $freezeRoot 'attempt.txt'
+
+Remove-Item (Join-Path $restoreRoot 'persistent-restore.json') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $restoreRoot 'pending-restore.json') -Force -ErrorAction SilentlyContinue
+
+schtasks.exe /Delete /TN $taskName /F | Out-Null
+Remove-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name $runOnceName -ErrorAction SilentlyContinue
+Remove-Item $attemptPath -Force -ErrorAction SilentlyContinue
+
+$uwf = Join-Path $env:WINDIR 'System32\uwfmgr.exe'
+if (Test-Path $uwf) {
+  & $uwf filter disable | Out-Null
+  & $uwf volume unprotect C: | Out-Null
+}
+
+if (Test-Path $freezeRoot) {
+  $statePath = Join-Path $freezeRoot 'state.json'
+  $obj = @{
+    state = 'unfrozen'
+    message = 'Freeze mode disabled by DMS unfreeze action.'
+    utc = (Get-Date).ToUniversalTime().ToString('o')
+  } | ConvertTo-Json -Depth 4
+  Set-Content -Path $statePath -Value $obj -Encoding UTF8 -Force
+}
+
+shutdown.exe /r /t 0
+exit 0
+POWERSHELL);
+
+        return $this->buildPowerShellEncodedCommand($script);
+    }
+
+    private function buildPowerShellEncodedCommand(string $script): string
+    {
+        $utf16 = @iconv('UTF-8', 'UTF-16LE', $script);
+        if ($utf16 === false) {
+            $utf16 = $script;
+        }
+
+        return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand '.base64_encode($utf16);
+    }
+
+    private function buildAgentUninstallAuthorizationPayload(?User $user): array
+    {
+        $ttlMinutes = $this->settingInt('devices.agent_uninstall_confirmation_ttl_minutes', 30);
+        $ttlMinutes = max(1, min(240, $ttlMinutes));
+
+        return [
+            'admin_confirmed' => true,
+            'admin_confirmed_at' => now()->toIso8601String(),
+            'admin_confirmed_by_user_id' => $user?->id,
+            'admin_confirmation_ttl_minutes' => $ttlMinutes,
+            'admin_confirmation_nonce' => (string) Str::uuid(),
+        ];
+    }
+
     private function createPolicyAssignment(string $policyVersionId, string $targetType, string $targetId): bool
     {
         $existing = \DB::table('policy_assignments')
@@ -3478,6 +4476,146 @@ POWERSHELL;
         ]);
 
         return true;
+    }
+
+    private function kioskLockdownPresetMatrix(): array
+    {
+        return [
+            'app_controls' => [
+                'label' => 'App Controls (AppLocker path + Store restrictions)',
+                'toggle' => 'include_app_controls',
+                'preset_keys' => ['kiosk_applocker_service_enforced', 'lab_disable_store', 'lab_disable_consumer_features'],
+            ],
+            'usb_lock' => [
+                'label' => 'USB storage restrictions',
+                'toggle' => 'include_usb_lock',
+                'preset_keys' => ['block_usb_storage'],
+            ],
+            'local_admin' => [
+                'label' => 'Local admin rights restriction',
+                'toggle' => 'include_local_admin_restriction',
+                'preset_keys' => ['lab_local_admin_restriction'],
+            ],
+            'shell_lock' => [
+                'label' => 'Shell lock (Explorer-only shell)',
+                'toggle' => 'include_shell_lock',
+                'preset_keys' => ['kiosk_shell_explorer_only'],
+            ],
+            'taskmgr_lock' => [
+                'label' => 'Disable Task Manager',
+                'toggle' => 'include_taskmgr_lock',
+                'preset_keys' => ['lab_exam_mode_taskmgr_off'],
+            ],
+            'control_panel_lock' => [
+                'label' => 'Disable Control Panel',
+                'toggle' => 'include_control_panel_lock',
+                'preset_keys' => ['disable_control_panel'],
+            ],
+        ];
+    }
+
+    private function ensureCatalogPresetPolicyVersion(array $catalogItem, ?int $createdBy): array
+    {
+        $name = trim((string) ($catalogItem['name'] ?? ''));
+        $slug = trim((string) ($catalogItem['slug'] ?? ''));
+        $category = trim((string) ($catalogItem['category'] ?? 'general'));
+        $ruleType = trim((string) ($catalogItem['rule_type'] ?? ''));
+        $ruleConfig = is_array($catalogItem['rule_json'] ?? null) ? $catalogItem['rule_json'] : [];
+        $removeRules = is_array($catalogItem['remove_rules'] ?? null) ? $catalogItem['remove_rules'] : [];
+
+        if ($slug === '' || $ruleType === '') {
+            return ['version' => null, 'policy_created' => false, 'version_created' => false];
+        }
+
+        $validationError = $this->validateRuleConfig($ruleType, $ruleConfig);
+        if ($validationError !== null) {
+            return ['version' => null, 'policy_created' => false, 'version_created' => false];
+        }
+
+        $policyCreated = false;
+        $policy = Policy::query()->where('slug', $slug)->first();
+        if (! $policy) {
+            $policy = Policy::query()->create([
+                'id' => (string) Str::uuid(),
+                'name' => $name !== '' ? $name : Str::headline(str_replace('-', ' ', $slug)),
+                'slug' => $slug,
+                'category' => $category !== '' ? $category : 'general',
+                'status' => 'active',
+            ]);
+            $policyCreated = true;
+        }
+
+        $existingVersion = PolicyVersion::query()
+            ->where('policy_id', $policy->id)
+            ->orderByDesc('version_number')
+            ->get()
+            ->first(function (PolicyVersion $version) use ($ruleType, $ruleConfig) {
+                $rule = PolicyRule::query()
+                    ->where('policy_version_id', $version->id)
+                    ->orderBy('order_index')
+                    ->first();
+                if (! $rule) {
+                    return false;
+                }
+                if (strcasecmp((string) $rule->rule_type, $ruleType) !== 0) {
+                    return false;
+                }
+                $current = $this->normalizeConfigForComparison(is_array($rule->rule_config) ? $rule->rule_config : []);
+                $expected = $this->normalizeConfigForComparison($ruleConfig);
+                return $current === $expected;
+            });
+
+        if ($existingVersion) {
+            if ($removeRules !== []) {
+                $this->upsertPolicyRemovalProfile($existingVersion->id, $ruleType, $ruleConfig, $createdBy, $removeRules);
+            }
+            return ['version' => $existingVersion, 'policy_created' => $policyCreated, 'version_created' => false];
+        }
+
+        $nextVersionNumber = (int) (PolicyVersion::query()->where('policy_id', $policy->id)->max('version_number') ?? 0) + 1;
+        $version = PolicyVersion::query()->create([
+            'id' => (string) Str::uuid(),
+            'policy_id' => $policy->id,
+            'version_number' => $nextVersionNumber,
+            'status' => 'active',
+            'created_by' => $createdBy,
+            'published_at' => now(),
+        ]);
+
+        PolicyRule::query()->create([
+            'id' => (string) Str::uuid(),
+            'policy_version_id' => $version->id,
+            'order_index' => 0,
+            'rule_type' => $ruleType,
+            'rule_config' => $ruleConfig,
+            'enforce' => true,
+        ]);
+        $this->upsertPolicyRemovalProfile($version->id, $ruleType, $ruleConfig, $createdBy, $removeRules);
+
+        return ['version' => $version, 'policy_created' => $policyCreated, 'version_created' => true];
+    }
+
+    private function normalizeConfigForComparison(mixed $value): mixed
+    {
+        if (is_array($value)) {
+            $isList = array_is_list($value);
+            if ($isList) {
+                return array_map(fn ($item) => $this->normalizeConfigForComparison($item), $value);
+            }
+
+            $normalized = [];
+            foreach ($value as $key => $item) {
+                $normalized[(string) $key] = $this->normalizeConfigForComparison($item);
+            }
+            ksort($normalized);
+            return $normalized;
+        }
+
+        if (is_bool($value) || is_int($value) || is_float($value) || $value === null) {
+            return $value;
+        }
+
+        return (string) $value;
     }
 
     private function cloneJobWithRuns(
@@ -3567,12 +4705,14 @@ POWERSHELL;
     public function createJob(Request $request, AuditLogger $auditLogger): RedirectResponse
     {
         $data = $request->validate([
-            'job_type' => ['required', 'in:install_package,uninstall_package,install_msi,install_exe,install_custom,install_archive,uninstall_msi,uninstall_exe,uninstall_archive,apply_policy,run_command,update_agent,uninstall_agent,reconcile_software_inventory'],
+            'job_type' => ['required', 'in:install_package,uninstall_package,install_msi,install_exe,install_custom,install_archive,uninstall_msi,uninstall_exe,uninstall_archive,apply_policy,run_command,create_snapshot,restore_snapshot,update_agent,uninstall_agent,reconcile_software_inventory'],
             'target_type' => ['required', 'in:device,group'],
             'target_id' => ['required', 'uuid'],
             'priority' => ['nullable', 'integer', 'min:1', 'max:1000'],
             'payload_json' => ['required', 'json'],
             'stagger_seconds' => ['nullable', 'integer', 'min:0', 'max:3600'],
+            'run_as' => ['nullable', 'in:default,elevated,system'],
+            'timeout_seconds' => ['nullable', 'integer', 'min:30', 'max:3600'],
         ]);
 
         $payload = json_decode($data['payload_json'], true, 512, JSON_THROW_ON_ERROR);
@@ -3581,6 +4721,15 @@ POWERSHELL;
             if (trim($script) === '') {
                 return back()->withErrors(['job' => 'run_command requires payload.script.'])->withInput();
             }
+
+            $runAs = strtolower(trim((string) ($data['run_as'] ?? ($payload['run_as'] ?? 'default'))));
+            if (! in_array($runAs, ['default', 'elevated', 'system'], true)) {
+                $runAs = 'default';
+            }
+            $payload['run_as'] = $runAs;
+
+            $timeoutSeconds = isset($data['timeout_seconds']) ? (int) $data['timeout_seconds'] : (int) ($payload['timeout_seconds'] ?? 300);
+            $payload['timeout_seconds'] = max(30, min(3600, $timeoutSeconds));
 
             $computedHash = strtolower(hash('sha256', $script));
             // Always normalize payload hash server-side from exact script text.
@@ -3597,6 +4746,9 @@ POWERSHELL;
                     );
                 }
             }
+        }
+        if ($data['job_type'] === 'uninstall_agent') {
+            $payload = $payload + $this->buildAgentUninstallAuthorizationPayload($request->user());
         }
 
         $job = DmsJob::query()->create([
@@ -5125,6 +6277,7 @@ PS1;
                 filter_var((string) env('DMS_SIGNATURE_BYPASS', 'false'), FILTER_VALIDATE_BOOL)
             ),
             'authPolicy' => [
+                'require_mfa' => $this->settingBool('auth.require_mfa', false),
                 'max_login_attempts' => max(1, $this->settingInt('auth.max_login_attempts', 5)),
                 'lockout_minutes' => max(1, $this->settingInt('auth.lockout_minutes', 15)),
             ],
@@ -5652,11 +6805,13 @@ PS1;
         $this->ensureSuperAdminAccess();
 
         $data = $request->validate([
+            'require_mfa' => ['nullable', 'boolean'],
             'max_login_attempts' => ['required', 'integer', 'min:1', 'max:20'],
             'lockout_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
         ]);
 
         $settings = [
+            'auth.require_mfa' => (bool) ($data['require_mfa'] ?? false),
             'auth.max_login_attempts' => (int) $data['max_login_attempts'],
             'auth.lockout_minutes' => (int) $data['lockout_minutes'],
         ];
@@ -6244,6 +7399,33 @@ PS1;
     private function buildRemovalRulesForPolicyRule(string $ruleType, array $ruleConfig): array
     {
         $type = strtolower(trim($ruleType));
+        if ($type === 'baseline_profile') {
+            $removeRules = $ruleConfig['remove_rules'] ?? [];
+            if (! is_array($removeRules)) {
+                return [];
+            }
+
+            return collect($removeRules)
+                ->filter(fn ($rule) => is_array($rule))
+                ->map(function (array $rule) {
+                    $removeType = strtolower(trim((string) ($rule['type'] ?? '')));
+                    $removeConfig = is_array($rule['config'] ?? null) ? $rule['config'] : [];
+                    $enforce = array_key_exists('enforce', $rule) ? (bool) $rule['enforce'] : true;
+                    if ($removeType === '' || $removeConfig === []) {
+                        return null;
+                    }
+
+                    return [
+                        'type' => $removeType,
+                        'config' => $removeConfig,
+                        'enforce' => $enforce,
+                    ];
+                })
+                ->filter()
+                ->values()
+                ->all();
+        }
+
         if ($type === 'registry') {
             $path = trim((string) ($ruleConfig['path'] ?? ''));
             $name = trim((string) ($ruleConfig['name'] ?? ''));
@@ -6259,6 +7441,30 @@ PS1;
                     'type' => (string) ($ruleConfig['type'] ?? 'STRING'),
                     'ensure' => 'absent',
                 ],
+                'enforce' => true,
+            ]];
+        }
+
+        if ($type === 'local_group') {
+            $group = trim((string) ($ruleConfig['group'] ?? 'Administrators'));
+            if ($group === '') {
+                return [];
+            }
+
+            $removeConfig = [
+                'group' => $group,
+                'ensure' => 'absent',
+                'restore_previous' => true,
+                'strict_restore' => true,
+            ];
+            $stateKey = trim((string) ($ruleConfig['state_key'] ?? ''));
+            if ($stateKey !== '') {
+                $removeConfig['state_key'] = $stateKey;
+            }
+
+            return [[
+                'type' => 'local_group',
+                'config' => $removeConfig,
                 'enforce' => true,
             ]];
         }
@@ -6294,6 +7500,23 @@ PS1;
             ]];
         }
 
+        if ($type === 'reboot_restore_mode') {
+            return [[
+                'type' => 'reboot_restore_mode',
+                'config' => [
+                    'ensure' => 'absent',
+                    'enabled' => false,
+                    'persistent' => false,
+                    'remove_pending' => true,
+                ],
+                'enforce' => true,
+            ]];
+        }
+
+        if ($type === 'uwf') {
+            return [$this->buildUwfRemovalCommandRule()];
+        }
+
         return [];
     }
 
@@ -6306,12 +7529,31 @@ PS1;
                 return ['', [], 'Apply command is required when apply mode is command.'];
             }
 
-            return ['command', ['command' => $command], null];
+            $runAs = strtolower(trim((string) ($data['apply_run_as'] ?? 'default')));
+            if (! in_array($runAs, ['default', 'elevated', 'system'], true)) {
+                $runAs = 'default';
+            }
+
+            $timeoutSeconds = isset($data['apply_timeout_seconds']) ? (int) $data['apply_timeout_seconds'] : 300;
+            $timeoutSeconds = max(30, min(3600, $timeoutSeconds));
+
+            return ['command', [
+                'command' => $command,
+                'run_as' => $runAs,
+                'timeout_seconds' => $timeoutSeconds,
+            ], null];
         }
 
         $ruleType = strtolower(trim((string) ($data['rule_type'] ?? '')));
         if ($ruleType === '') {
             return ['', [], 'Rule type is required in JSON mode.'];
+        }
+
+        if ($ruleType === 'uwf') {
+            $uwfRuleConfig = $this->buildUwfRuleConfigFromRequestData($data);
+            if ($uwfRuleConfig !== null) {
+                return ['uwf', $uwfRuleConfig, null];
+            }
         }
 
         $ruleJson = (string) ($data['rule_json'] ?? '');
@@ -6330,6 +7572,85 @@ PS1;
         }
 
         return [$ruleType, $ruleConfig, null];
+    }
+
+    private function buildUwfRuleConfigFromRequestData(array $data): ?array
+    {
+        $uwfKeys = [
+            'apply_uwf_ensure',
+            'apply_uwf_enable_feature',
+            'apply_uwf_enable_filter',
+            'apply_uwf_protect_volume',
+            'apply_uwf_volume',
+            'apply_uwf_reboot_now',
+            'apply_uwf_reboot_if_pending',
+            'apply_uwf_max_reboot_attempts',
+            'apply_uwf_reboot_cooldown_minutes',
+            'apply_uwf_reboot_command',
+            'apply_uwf_file_exclusions',
+            'apply_uwf_registry_exclusions',
+            'apply_uwf_fail_on_unsupported_edition',
+        ];
+
+        $hasUwfInputs = false;
+        foreach ($uwfKeys as $key) {
+            if (array_key_exists($key, $data)) {
+                $hasUwfInputs = true;
+                break;
+            }
+        }
+        if (! $hasUwfInputs) {
+            return null;
+        }
+
+        $config = [
+            'ensure' => strtolower(trim((string) ($data['apply_uwf_ensure'] ?? 'present'))) === 'absent' ? 'absent' : 'present',
+            'enable_feature' => (bool) ($data['apply_uwf_enable_feature'] ?? true),
+            'enable_filter' => (bool) ($data['apply_uwf_enable_filter'] ?? true),
+            'protect_volume' => (bool) ($data['apply_uwf_protect_volume'] ?? true),
+            'volume' => trim((string) ($data['apply_uwf_volume'] ?? 'C:')),
+            'reboot_now' => (bool) ($data['apply_uwf_reboot_now'] ?? false),
+            'reboot_if_pending' => (bool) ($data['apply_uwf_reboot_if_pending'] ?? true),
+            'max_reboot_attempts' => isset($data['apply_uwf_max_reboot_attempts']) ? (int) $data['apply_uwf_max_reboot_attempts'] : 2,
+            'reboot_cooldown_minutes' => isset($data['apply_uwf_reboot_cooldown_minutes']) ? (int) $data['apply_uwf_reboot_cooldown_minutes'] : 30,
+        ];
+
+        if ($config['volume'] === '') {
+            $config['volume'] = 'C:';
+        }
+
+        $rebootCommand = trim((string) ($data['apply_uwf_reboot_command'] ?? ''));
+        if ($rebootCommand !== '') {
+            $config['reboot_command'] = $rebootCommand;
+        }
+
+        $fileExclusions = $this->parseMultilineListInput((string) ($data['apply_uwf_file_exclusions'] ?? ''));
+        if ($fileExclusions !== []) {
+            $config['file_exclusions'] = $fileExclusions;
+        }
+
+        $registryExclusions = $this->parseMultilineListInput((string) ($data['apply_uwf_registry_exclusions'] ?? ''));
+        if ($registryExclusions !== []) {
+            $config['registry_exclusions'] = $registryExclusions;
+        }
+
+        if ((bool) ($data['apply_uwf_fail_on_unsupported_edition'] ?? false)) {
+            $config['fail_on_unsupported_edition'] = true;
+        }
+
+        return $config;
+    }
+
+    private function parseMultilineListInput(string $raw): array
+    {
+        $parts = preg_split('/[\r\n,;]+/', $raw) ?: [];
+        $values = collect($parts)
+            ->map(fn ($item) => trim((string) $item))
+            ->filter(fn ($item) => $item !== '')
+            ->values()
+            ->all();
+
+        return array_values(array_unique($values));
     }
 
     private function resolveRemoveRulesFromRequestData(array $data, string $applyRuleType, array $applyRuleConfig): array
@@ -6454,8 +7775,327 @@ PS1;
             'windows_update' => $this->validateWindowsUpdateRuleConfig($config),
             'scheduled_task' => $this->validateScheduledTaskRuleConfig($config),
             'command' => $this->validateCommandRuleConfig($config),
+            'baseline_profile' => $this->validateBaselineProfileRuleConfig($config),
+            'reboot_restore_mode' => $this->validateRebootRestoreModeRuleConfig($config),
+            'uwf' => $this->validateUwfRuleConfig($config),
             default => 'Unsupported rule type.',
         };
+    }
+
+    private function validateBaselineProfileRuleConfig(array $config): ?string
+    {
+        $listChecks = [
+            'critical_files',
+            'registry_values',
+            'services',
+            'installed_packages',
+            'remediation_rules',
+            'remove_rules',
+        ];
+        foreach ($listChecks as $listKey) {
+            if (array_key_exists($listKey, $config) && ! is_array($config[$listKey])) {
+                return sprintf('Baseline profile "%s" must be an array.', $listKey);
+            }
+        }
+
+        if (array_key_exists('auto_remediate', $config) && ! is_bool($config['auto_remediate'])) {
+            return 'Baseline profile "auto_remediate" must be true/false.';
+        }
+
+        foreach (($config['critical_files'] ?? []) as $idx => $fileCheck) {
+            if (! is_array($fileCheck)) {
+                return sprintf('Baseline critical_files[%d] must be an object.', $idx);
+            }
+            $path = trim((string) ($fileCheck['path'] ?? ''));
+            if ($path === '') {
+                return sprintf('Baseline critical_files[%d] requires non-empty "path".', $idx);
+            }
+            if (array_key_exists('sha256', $fileCheck)) {
+                $sha = strtolower(trim((string) $fileCheck['sha256']));
+                if ($sha !== '' && ! preg_match('/^[a-f0-9]{64}$/', $sha)) {
+                    return sprintf('Baseline critical_files[%d].sha256 must be 64 hex chars.', $idx);
+                }
+            }
+            if (array_key_exists('exists', $fileCheck) && ! is_bool($fileCheck['exists'])) {
+                return sprintf('Baseline critical_files[%d].exists must be true/false.', $idx);
+            }
+        }
+
+        foreach (($config['registry_values'] ?? []) as $idx => $regCheck) {
+            if (! is_array($regCheck)) {
+                return sprintf('Baseline registry_values[%d] must be an object.', $idx);
+            }
+            $error = $this->validateRegistryRuleConfig($regCheck);
+            if ($error !== null) {
+                return sprintf('Baseline registry_values[%d] invalid: %s', $idx, $error);
+            }
+        }
+
+        foreach (($config['services'] ?? []) as $idx => $serviceCheck) {
+            if (! is_array($serviceCheck)) {
+                return sprintf('Baseline services[%d] must be an object.', $idx);
+            }
+            $name = trim((string) ($serviceCheck['name'] ?? ''));
+            if ($name === '') {
+                return sprintf('Baseline services[%d] requires non-empty "name".', $idx);
+            }
+            if (array_key_exists('status', $serviceCheck)) {
+                $status = strtolower(trim((string) $serviceCheck['status']));
+                if (! in_array($status, ['running', 'stopped', 'paused'], true)) {
+                    return sprintf('Baseline services[%d].status must be running, stopped, or paused.', $idx);
+                }
+            }
+            if (array_key_exists('start_mode', $serviceCheck)) {
+                $startMode = strtolower(trim((string) $serviceCheck['start_mode']));
+                if (! in_array($startMode, ['auto', 'automatic', 'manual', 'disabled', 'delayed-auto'], true)) {
+                    return sprintf('Baseline services[%d].start_mode must be auto/automatic/manual/disabled/delayed-auto.', $idx);
+                }
+            }
+            if (array_key_exists('ensure', $serviceCheck)) {
+                $ensure = strtolower(trim((string) $serviceCheck['ensure']));
+                if (! in_array($ensure, ['present', 'absent'], true)) {
+                    return sprintf('Baseline services[%d].ensure must be present or absent.', $idx);
+                }
+            }
+        }
+
+        foreach (($config['installed_packages'] ?? []) as $idx => $pkgCheck) {
+            if (! is_array($pkgCheck)) {
+                return sprintf('Baseline installed_packages[%d] must be an object.', $idx);
+            }
+            $name = trim((string) ($pkgCheck['name'] ?? ''));
+            if ($name === '') {
+                return sprintf('Baseline installed_packages[%d] requires non-empty "name".', $idx);
+            }
+            if (array_key_exists('ensure', $pkgCheck)) {
+                $ensure = strtolower(trim((string) $pkgCheck['ensure']));
+                if (! in_array($ensure, ['present', 'absent'], true)) {
+                    return sprintf('Baseline installed_packages[%d].ensure must be present or absent.', $idx);
+                }
+            }
+            if (array_key_exists('match', $pkgCheck)) {
+                $matchMode = strtolower(trim((string) $pkgCheck['match']));
+                if (! in_array($matchMode, ['contains', 'exact'], true)) {
+                    return sprintf('Baseline installed_packages[%d].match must be contains or exact.', $idx);
+                }
+            }
+        }
+
+        $nestedChecks = [
+            'remediation_rules' => 'remediation rule',
+            'remove_rules' => 'remove rule',
+        ];
+        foreach ($nestedChecks as $nestedKey => $label) {
+            foreach (($config[$nestedKey] ?? []) as $idx => $nestedRule) {
+                if (! is_array($nestedRule)) {
+                    return sprintf('Baseline %s[%d] must be an object.', $nestedKey, $idx);
+                }
+                $nestedType = strtolower(trim((string) ($nestedRule['type'] ?? '')));
+                if ($nestedType === '' || in_array($nestedType, ['baseline_profile', 'reboot_restore_mode'], true)) {
+                    return sprintf('Baseline %s[%d] has invalid nested rule type.', $nestedKey, $idx);
+                }
+                $nestedConfig = is_array($nestedRule['config'] ?? null) ? $nestedRule['config'] : [];
+                if ($nestedConfig === []) {
+                    return sprintf('Baseline %s[%d] requires non-empty config.', $nestedKey, $idx);
+                }
+                $nestedError = $this->validateRuleConfig($nestedType, $nestedConfig);
+                if ($nestedError !== null) {
+                    return sprintf('Baseline %s[%d] invalid: %s', $nestedKey, $idx, $nestedError);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function validateRebootRestoreModeRuleConfig(array $config): ?string
+    {
+        if (array_key_exists('profile', $config)) {
+            $profile = strtolower(trim((string) $config['profile']));
+            if (! in_array($profile, ['lab_fast', 'deepfreeze_fast', 'school_fast'], true)) {
+                return 'Reboot restore mode "profile" must be one of: lab_fast, deepfreeze_fast, school_fast.';
+            }
+        }
+        if (array_key_exists('enabled', $config) && ! is_bool($config['enabled'])) {
+            return 'Reboot restore mode "enabled" must be true/false.';
+        }
+        if (array_key_exists('persistent', $config) && ! is_bool($config['persistent'])) {
+            return 'Reboot restore mode "persistent" must be true/false.';
+        }
+        if (array_key_exists('remove_pending', $config) && ! is_bool($config['remove_pending'])) {
+            return 'Reboot restore mode "remove_pending" must be true/false.';
+        }
+        if (array_key_exists('reboot_now', $config) && ! is_bool($config['reboot_now'])) {
+            return 'Reboot restore mode "reboot_now" must be true/false.';
+        }
+        foreach (['clean_downloads', 'clean_desktop', 'clean_documents', 'clean_user_temp', 'clean_windows_temp', 'clean_recycle_bin', 'clean_dms_staging'] as $boolKey) {
+            if (array_key_exists($boolKey, $config) && ! is_bool($config[$boolKey])) {
+                return sprintf('Reboot restore mode "%s" must be true/false.', $boolKey);
+            }
+        }
+
+        $ensure = strtolower(trim((string) ($config['ensure'] ?? 'present')));
+        if (! in_array($ensure, ['present', 'absent'], true)) {
+            return 'Reboot restore mode "ensure" must be present or absent.';
+        }
+
+        if (array_key_exists('reboot_command', $config) && trim((string) $config['reboot_command']) === '') {
+            return 'Reboot restore mode "reboot_command" cannot be empty when provided.';
+        }
+
+        $manifest = null;
+        if (isset($config['manifest'])) {
+            if (! is_array($config['manifest'])) {
+                return 'Reboot restore mode "manifest" must be a JSON object.';
+            }
+            $manifest = $config['manifest'];
+        } else {
+            $manifest = [];
+            foreach (['steps', 'restore_steps', 'cleanup_paths'] as $key) {
+                if (array_key_exists($key, $config)) {
+                    $manifest[$key] = $config[$key];
+                }
+            }
+        }
+
+        foreach (['steps', 'restore_steps', 'cleanup_paths'] as $listKey) {
+            if (array_key_exists($listKey, $manifest) && ! is_array($manifest[$listKey])) {
+                return sprintf('Reboot restore mode "%s" must be an array.', $listKey);
+            }
+        }
+
+        foreach (($manifest['cleanup_paths'] ?? []) as $idx => $path) {
+            if (! is_string($path) || trim($path) === '') {
+                return sprintf('Reboot restore mode cleanup_paths[%d] must be a non-empty string.', $idx);
+            }
+        }
+
+        foreach (['steps', 'restore_steps'] as $stepsKey) {
+            foreach (($manifest[$stepsKey] ?? []) as $idx => $step) {
+                if (! is_array($step)) {
+                    return sprintf('Reboot restore mode %s[%d] must be an object.', $stepsKey, $idx);
+                }
+                $type = strtolower(trim((string) ($step['type'] ?? '')));
+                if ($type === '') {
+                    $type = array_key_exists('script', $step) ? 'shell' : 'process';
+                }
+                if (! in_array($type, ['shell', 'run_command', 'process', 'command', 'delete_path'], true)) {
+                    return sprintf('Reboot restore mode %s[%d] has unsupported type.', $stepsKey, $idx);
+                }
+                if (in_array($type, ['shell', 'run_command'], true) && trim((string) ($step['script'] ?? '')) === '') {
+                    return sprintf('Reboot restore mode %s[%d] shell step requires non-empty "script".', $stepsKey, $idx);
+                }
+                if (in_array($type, ['process', 'command'], true) && trim((string) ($step['path'] ?? '')) === '') {
+                    return sprintf('Reboot restore mode %s[%d] process step requires non-empty "path".', $stepsKey, $idx);
+                }
+                if ($type === 'delete_path' && trim((string) ($step['path'] ?? '')) === '') {
+                    return sprintf('Reboot restore mode %s[%d] delete_path step requires non-empty "path".', $stepsKey, $idx);
+                }
+            }
+        }
+
+        $enabled = ! array_key_exists('enabled', $config) || (bool) $config['enabled'];
+        $persistent = ! array_key_exists('persistent', $config) || (bool) $config['persistent'];
+        if ($ensure === 'present' && $enabled && $persistent) {
+            $hasActions = ! empty($manifest['cleanup_paths'] ?? [])
+                || ! empty($manifest['steps'] ?? [])
+                || ! empty($manifest['restore_steps'] ?? []);
+            $hasProfile = in_array(strtolower(trim((string) ($config['profile'] ?? ''))), ['lab_fast', 'deepfreeze_fast', 'school_fast'], true);
+            if (! $hasActions && ! $hasProfile) {
+                return 'Reboot restore mode requires at least one action in manifest (steps, restore_steps, or cleanup_paths).';
+            }
+        }
+
+        return null;
+    }
+
+    private function validateUwfRuleConfig(array $config): ?string
+    {
+        $ensure = strtolower(trim((string) ($config['ensure'] ?? 'present')));
+        if (! in_array($ensure, ['present', 'absent'], true)) {
+            return 'UWF "ensure" must be present or absent.';
+        }
+
+        foreach (['enable_feature', 'enable_filter', 'protect_volume', 'reboot_now', 'dry_run', 'reboot_if_pending'] as $boolKey) {
+            if (array_key_exists($boolKey, $config) && ! is_bool($config[$boolKey])) {
+                return sprintf('UWF "%s" must be true/false.', $boolKey);
+            }
+        }
+
+        if (array_key_exists('max_reboot_attempts', $config)) {
+            if (! is_int($config['max_reboot_attempts'])) {
+                return 'UWF "max_reboot_attempts" must be an integer.';
+            }
+            if ($config['max_reboot_attempts'] < 1 || $config['max_reboot_attempts'] > 10) {
+                return 'UWF "max_reboot_attempts" must be between 1 and 10.';
+            }
+        }
+
+        if (array_key_exists('reboot_cooldown_minutes', $config)) {
+            if (! is_int($config['reboot_cooldown_minutes'])) {
+                return 'UWF "reboot_cooldown_minutes" must be an integer.';
+            }
+            if ($config['reboot_cooldown_minutes'] < 1 || $config['reboot_cooldown_minutes'] > 240) {
+                return 'UWF "reboot_cooldown_minutes" must be between 1 and 240.';
+            }
+        }
+
+        if (array_key_exists('volume', $config)) {
+            $volume = trim((string) $config['volume']);
+            if ($volume === '') {
+                return 'UWF "volume" cannot be empty when provided.';
+            }
+        }
+
+        if (array_key_exists('reboot_command', $config)) {
+            $rebootCommand = trim((string) $config['reboot_command']);
+            if ($rebootCommand === '') {
+                return 'UWF "reboot_command" cannot be empty when provided.';
+            }
+            if (! $this->isValidUwfRebootCommand($rebootCommand)) {
+                return 'UWF "reboot_command" is invalid. Use a valid reboot command (example: shutdown.exe /r /t 0 or shutdown.exe /r /t 30 /c "Enabling UWF protection").';
+            }
+        }
+
+        foreach (['file_exclusions', 'registry_exclusions'] as $listKey) {
+            if (! array_key_exists($listKey, $config)) {
+                continue;
+            }
+            if (! is_array($config[$listKey])) {
+                return sprintf('UWF "%s" must be an array of non-empty strings.', $listKey);
+            }
+            foreach ($config[$listKey] as $idx => $item) {
+                if (! is_string($item) || trim($item) === '') {
+                    return sprintf('UWF "%s[%d]" must be a non-empty string.', $listKey, $idx);
+                }
+            }
+        }
+
+        if (array_key_exists('fail_on_unsupported_edition', $config) && ! is_bool($config['fail_on_unsupported_edition'])) {
+            return 'UWF "fail_on_unsupported_edition" must be true/false.';
+        }
+
+        return null;
+    }
+
+    private function isValidUwfRebootCommand(string $command): bool
+    {
+        $normalized = strtolower(trim($command));
+        if ($normalized === '') {
+            return false;
+        }
+
+        // Allow non-shutdown custom commands. We only enforce strict checks for shutdown syntax.
+        if (! str_contains($normalized, 'shutdown')) {
+            return true;
+        }
+
+        // If /c is present, Windows requires a non-empty comment string.
+        if (! preg_match('/(?:^|\s)\/c(?:\s+|$)/i', $command)) {
+            return true;
+        }
+
+        return (bool) preg_match('/(?:^|\s)\/c\s+(?:"[^"]+"|\S.*)$/i', $command);
     }
 
     private function validateCommandRuleConfig(array $config): ?string
@@ -6463,6 +8103,22 @@ PS1;
         $command = trim((string) ($config['command'] ?? ''));
         if ($command === '') {
             return 'Command rule requires non-empty "command".';
+        }
+
+        if (array_key_exists('run_as', $config)) {
+            $runAs = strtolower(trim((string) $config['run_as']));
+            if (! in_array($runAs, ['default', 'elevated', 'system'], true)) {
+                return 'Command rule "run_as" must be default, elevated, or system.';
+            }
+        }
+
+        if (array_key_exists('timeout_seconds', $config)) {
+            if (! is_int($config['timeout_seconds'])) {
+                return 'Command rule "timeout_seconds" must be an integer.';
+            }
+            if ($config['timeout_seconds'] < 30 || $config['timeout_seconds'] > 3600) {
+                return 'Command rule "timeout_seconds" must be between 30 and 3600.';
+            }
         }
 
         return null;
@@ -6763,8 +8419,39 @@ PS1;
             ['key' => 'require_bitlocker', 'label' => 'Require BitLocker', 'name' => 'Require BitLocker', 'slug' => 'security-bitlocker-required', 'category' => 'security/encryption', 'rule_type' => 'bitlocker', 'rule_json' => ['drive' => 'C:', 'required' => true], 'remove_mode' => 'command', 'remove_rules' => [['type' => 'command', 'config' => ['command' => 'powershell.exe -NoProfile -Command "Write-Output BitLocker baseline removed from DMS policy profile"'], 'enforce' => true]], 'source' => 'default'],
             ['key' => 'local_admins_baseline', 'label' => 'Local Admin Baseline', 'name' => 'Local Admin Group Baseline', 'slug' => 'security-local-admins-baseline', 'category' => 'security/local_accounts', 'rule_type' => 'local_group', 'rule_json' => ['group' => 'Administrators', 'allowed_members' => ['DOMAIN\\IT-Admins', 'Administrator']], 'remove_mode' => 'command', 'remove_rules' => [['type' => 'command', 'config' => ['command' => 'powershell.exe -NoProfile -Command "Write-Output Local admin baseline removed from DMS policy profile"'], 'enforce' => true]], 'source' => 'default'],
             ['key' => 'windows_update_business', 'label' => 'Windows Update Hours', 'name' => 'Windows Update Active Hours', 'slug' => 'update-active-hours', 'category' => 'update/windows_update', 'rule_type' => 'windows_update', 'rule_json' => ['active_hours_start' => 8, 'active_hours_end' => 17, 'force_install_window' => '22:00-02:00'], 'remove_mode' => 'json', 'remove_rules' => [['type' => 'windows_update', 'config' => ['active_hours_start' => 8, 'active_hours_end' => 17], 'enforce' => true]], 'source' => 'default'],
+            ['key' => 'baseline_lab_core', 'label' => 'Baseline: Lab Core Integrity', 'name' => 'Lab Core Integrity Baseline', 'slug' => 'baseline-lab-core-integrity', 'category' => 'operations/baseline', 'rule_type' => 'baseline_profile', 'rule_json' => ['critical_files' => [['path' => 'C:\\Windows\\System32\\notepad.exe', 'exists' => true]], 'registry_values' => [['path' => 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR', 'name' => 'Start', 'type' => 'DWORD', 'value' => 4]], 'services' => [['name' => 'wuauserv', 'status' => 'running', 'ensure' => 'present']], 'installed_packages' => [['name' => 'Microsoft Edge', 'ensure' => 'present', 'match' => 'contains']], 'auto_remediate' => false, 'remediation_rules' => [['type' => 'registry', 'config' => ['path' => 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR', 'name' => 'Start', 'type' => 'DWORD', 'value' => 4], 'enforce' => true]]], 'source' => 'default'],
+            [
+                'key' => 'fast_reboot_restore_mode',
+                'label' => 'Fast Reboot Restore Mode',
+                'name' => 'Fast Reboot Restore Mode',
+                'slug' => 'ops-fast-reboot-restore-mode',
+                'category' => 'operations/restore',
+                'rule_type' => 'reboot_restore_mode',
+                'rule_json' => [
+                    'enabled' => true,
+                    'persistent' => true,
+                    'profile' => 'lab_fast',
+                    'clean_downloads' => true,
+                    'clean_user_temp' => true,
+                    'clean_windows_temp' => true,
+                    'clean_dms_staging' => true,
+                    'clean_desktop' => false,
+                    'clean_documents' => false,
+                    'clean_recycle_bin' => false,
+                    'reboot_now' => false,
+                ],
+                'remove_mode' => 'auto',
+                'remove_rules' => [[
+                    'type' => 'reboot_restore_mode',
+                    'config' => ['ensure' => 'absent', 'enabled' => false, 'persistent' => false, 'remove_pending' => true],
+                    'enforce' => true,
+                ]],
+                'source' => 'default',
+            ],
             ['key' => 'disable_cmd', 'label' => 'Disable CMD', 'name' => 'Disable Command Prompt', 'slug' => 'security-disable-cmd', 'category' => 'security/endpoint_hardening', 'rule_type' => 'registry', 'rule_json' => ['path' => 'HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System', 'name' => 'DisableCMD', 'type' => 'DWORD', 'value' => 1], 'source' => 'default'],
             ['key' => 'disable_control_panel', 'label' => 'Disable Control Panel', 'name' => 'Disable Control Panel', 'slug' => 'security-disable-control-panel', 'category' => 'security/endpoint_hardening', 'rule_type' => 'registry', 'rule_json' => ['path' => 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer', 'name' => 'NoControlPanel', 'type' => 'DWORD', 'value' => 1], 'source' => 'default'],
+            ['key' => 'kiosk_applocker_service_enforced', 'label' => 'Kiosk: Enforce AppLocker Service', 'name' => 'Kiosk - Enforce AppLocker Service', 'slug' => 'kiosk-enforce-applocker-service', 'category' => 'education/application_control', 'rule_type' => 'command', 'rule_json' => ['command' => 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Service -Name AppIDSvc -StartupType Automatic; Start-Service -Name AppIDSvc -ErrorAction SilentlyContinue"'], 'remove_mode' => 'command', 'remove_rules' => [['type' => 'command', 'config' => ['command' => 'powershell.exe -NoProfile -Command "Set-Service -Name AppIDSvc -StartupType Manual -ErrorAction SilentlyContinue"'], 'enforce' => true]], 'source' => 'default'],
+            ['key' => 'kiosk_shell_explorer_only', 'label' => 'Kiosk: Lock Shell to Explorer', 'name' => 'Kiosk - Shell Lock (Explorer)', 'slug' => 'kiosk-shell-lock-explorer', 'category' => 'education/lab_lockdown', 'rule_type' => 'registry', 'rule_json' => ['path' => 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon', 'name' => 'Shell', 'type' => 'STRING', 'value' => 'explorer.exe'], 'remove_mode' => 'json', 'remove_rules' => [['type' => 'registry', 'config' => ['path' => 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon', 'name' => 'Shell', 'type' => 'STRING', 'ensure' => 'absent'], 'enforce' => true]], 'source' => 'default'],
             ['key' => 'daily_security_task', 'label' => 'Daily Audit Task', 'name' => 'Daily Security Audit Task', 'slug' => 'security-daily-audit-task', 'category' => 'security/monitoring', 'rule_type' => 'scheduled_task', 'rule_json' => ['task_name' => 'SecurityBaselineAudit', 'ensure' => 'present', 'schedule' => 'daily', 'time' => '03:00', 'command' => 'powershell.exe -NoProfile -File C:\\ProgramData\\DMS\\audit.ps1'], 'source' => 'default'],
             ['key' => 'disable_rdp', 'label' => 'Disable RDP', 'name' => 'Disable Remote Desktop', 'slug' => 'security-disable-rdp', 'category' => 'security/remote_access', 'rule_type' => 'registry', 'rule_json' => ['path' => 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server', 'name' => 'fDenyTSConnections', 'type' => 'DWORD', 'value' => 1], 'source' => 'default'],
             ['key' => 'enable_rdp', 'label' => 'Enable RDP', 'name' => 'Enable Remote Desktop', 'slug' => 'security-enable-rdp', 'category' => 'security/remote_access', 'rule_type' => 'registry', 'rule_json' => ['path' => 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server', 'name' => 'fDenyTSConnections', 'type' => 'DWORD', 'value' => 0], 'source' => 'default'],
@@ -6791,8 +8478,8 @@ PS1;
             ['key' => 'lab_daily_user_profile_cleanup', 'label' => 'Lab: Daily Profile Cleanup', 'name' => 'Student Lab - Daily Profile Cache Cleanup', 'slug' => 'lab-daily-profile-cleanup', 'category' => 'education/shared_device', 'rule_type' => 'scheduled_task', 'rule_json' => ['task_name' => 'LabDailyProfileCleanup', 'ensure' => 'present', 'schedule' => 'daily', 'time' => '01:30', 'command' => 'powershell.exe -NoProfile -Command "Get-ChildItem C:\\Users -Directory | Where-Object { $_.Name -notin @(\"Public\",\"Default\",\"Default User\",\"Administrator\") } | ForEach-Object { Get-ChildItem $_.FullName\\AppData\\Local\\Temp -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue }"'], 'source' => 'default'],
             ['key' => 'lab_maintenance_window_updates', 'label' => 'Lab: Overnight Update Window', 'name' => 'Student Lab - Overnight Windows Update', 'slug' => 'lab-overnight-update-window', 'category' => 'education/maintenance', 'rule_type' => 'windows_update', 'rule_json' => ['active_hours_start' => 7, 'active_hours_end' => 18, 'force_install_window' => '23:00-05:00'], 'remove_mode' => 'json', 'remove_rules' => [['type' => 'windows_update', 'config' => ['active_hours_start' => 8, 'active_hours_end' => 17], 'enforce' => true]], 'source' => 'default'],
             ['key' => 'lab_firewall_strict', 'label' => 'Lab: Strict Firewall', 'name' => 'Student Lab - Strict Firewall Baseline', 'slug' => 'lab-firewall-strict-baseline', 'category' => 'education/network_security', 'rule_type' => 'firewall', 'rule_json' => ['enabled' => true, 'profiles' => ['domain', 'private', 'public']], 'remove_mode' => 'json', 'remove_rules' => [['type' => 'firewall', 'config' => ['enabled' => false], 'enforce' => true]], 'source' => 'default'],
-            ['key' => 'lab_local_admin_restriction', 'label' => 'Lab: Restrict Local Admins', 'name' => 'Student Lab - Local Admin Restriction', 'slug' => 'lab-restrict-local-admins', 'category' => 'education/local_accounts', 'rule_type' => 'local_group', 'rule_json' => ['group' => 'Administrators', 'allowed_members' => ['Administrator', 'DOMAIN\\Lab-IT-Admins']], 'remove_mode' => 'command', 'remove_rules' => [['type' => 'command', 'config' => ['command' => 'powershell.exe -NoProfile -Command "Write-Output Lab local admin restriction removed from DMS policy profile"'], 'enforce' => true]], 'source' => 'default'],
-            ['key' => 'lab_non_persistent_uwf_enable', 'label' => 'Lab Non-Persistent: Enable UWF', 'name' => 'Non-Persistent Lab - Enable UWF Protection', 'slug' => 'lab-non-persistent-enable-uwf', 'category' => 'education/non_persistent', 'rule_type' => 'scheduled_task', 'rule_json' => ['task_name' => 'EnableUwfProtectionOnce', 'ensure' => 'present', 'schedule' => 'daily', 'time' => '00:05', 'command' => 'powershell.exe -NoProfile -Command "uwfmgr.exe filter enable; uwfmgr.exe volume protect C:; shutdown.exe /r /t 30 /c \'Enabling UWF protection\'"'], 'source' => 'default'],
+            ['key' => 'lab_local_admin_restriction', 'label' => 'Lab: Restrict Local Admins', 'name' => 'Student Lab - Local Admin Restriction', 'slug' => 'lab-restrict-local-admins', 'category' => 'education/local_accounts', 'rule_type' => 'local_group', 'rule_json' => ['group' => 'Administrators', 'allowed_members' => ['Administrator', 'DOMAIN\\Lab-IT-Admins']], 'remove_mode' => 'json', 'remove_rules' => [['type' => 'local_group', 'config' => ['group' => 'Administrators', 'ensure' => 'absent', 'restore_previous' => true, 'strict_restore' => true], 'enforce' => true]], 'source' => 'default'],
+            ['key' => 'lab_non_persistent_uwf_enable', 'label' => 'Lab Non-Persistent: Enable UWF', 'name' => 'Non-Persistent Lab - Enable UWF Protection', 'slug' => 'lab-non-persistent-enable-uwf', 'category' => 'education/non_persistent', 'rule_type' => 'uwf', 'rule_json' => ['ensure' => 'present', 'enable_feature' => true, 'enable_filter' => true, 'protect_volume' => true, 'volume' => 'C:', 'reboot_now' => true, 'reboot_if_pending' => true, 'max_reboot_attempts' => 2, 'reboot_cooldown_minutes' => 30, 'reboot_command' => 'shutdown.exe /r /t 30 /c "Enabling UWF protection"', 'file_exclusions' => ['C:\\ProgramData\\DMS\\State', 'C:\\ProgramData\\DMS\\Logs', 'C:\\ProgramData\\DMS\\Uwf'], 'registry_exclusions' => ['HKLM\\SOFTWARE\\DMS'], 'fail_on_unsupported_edition' => false], 'source' => 'default'],
             ['key' => 'lab_non_persistent_profile_purge', 'label' => 'Lab Non-Persistent: Purge Profiles', 'name' => 'Non-Persistent Lab - Purge Non-Admin Profiles', 'slug' => 'lab-non-persistent-purge-profiles', 'category' => 'education/non_persistent', 'rule_type' => 'scheduled_task', 'rule_json' => ['task_name' => 'PurgeLabProfilesOnStartup', 'ensure' => 'present', 'schedule' => 'daily', 'time' => '00:15', 'command' => 'powershell.exe -NoProfile -Command "Get-CimInstance Win32_UserProfile | Where-Object { -not $_.Special -and -not $_.Loaded -and $_.LocalPath -notmatch \'Administrator|Public|Default\' } | ForEach-Object { Remove-CimInstance $_ -ErrorAction SilentlyContinue }"'], 'source' => 'default'],
             ['key' => 'lab_non_persistent_downloads_cleanup', 'label' => 'Lab Non-Persistent: Cleanup Downloads', 'name' => 'Non-Persistent Lab - Cleanup Downloads Folder', 'slug' => 'lab-non-persistent-clean-downloads', 'category' => 'education/non_persistent', 'rule_type' => 'scheduled_task', 'rule_json' => ['task_name' => 'CleanupStudentDownloads', 'ensure' => 'present', 'schedule' => 'daily', 'time' => '00:20', 'command' => 'powershell.exe -NoProfile -Command "Get-ChildItem C:\\Users\\*\\Downloads -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue"'], 'source' => 'default'],
             ['key' => 'lab_non_persistent_block_removable', 'label' => 'Lab Non-Persistent: Block Removable Storage', 'name' => 'Non-Persistent Lab - Block Removable Storage', 'slug' => 'lab-non-persistent-block-removable', 'category' => 'education/non_persistent', 'rule_type' => 'registry', 'rule_json' => ['path' => 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR', 'name' => 'Start', 'type' => 'DWORD', 'value' => 4], 'source' => 'default'],
@@ -6843,6 +8530,9 @@ PS1;
             'allow_usb_storage' => ['description' => 'Re-enables USB storage access on managed endpoints.', 'applies_to' => 'both'],
             'enforce_firewall' => ['description' => 'Forces Windows Firewall enabled for all network profiles.', 'applies_to' => 'both'],
             'require_bitlocker' => ['description' => 'Requires BitLocker protection for system drive C:.', 'applies_to' => 'device'],
+            'fast_reboot_restore_mode' => ['description' => 'Applies a persistent startup restore manifest at every boot for non-persistent classroom behavior.', 'applies_to' => 'both'],
+            'kiosk_applocker_service_enforced' => ['description' => 'Enforces AppLocker identity service startup as a prerequisite for allowlist-based controls.', 'applies_to' => 'both'],
+            'kiosk_shell_explorer_only' => ['description' => 'Pins Winlogon shell to explorer.exe to prevent alternate shell persistence.', 'applies_to' => 'both'],
             'lab_non_persistent_uwf_enable' => ['description' => 'Turns on Unified Write Filter and protects C: for reboot-to-clean behavior.', 'applies_to' => 'group'],
             'lab_non_persistent_profile_purge' => ['description' => 'Removes non-admin local user profiles on schedule.', 'applies_to' => 'group'],
             'lab_non_persistent_downloads_cleanup' => ['description' => 'Deletes user Downloads content to reduce retained data.', 'applies_to' => 'group'],

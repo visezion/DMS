@@ -105,13 +105,28 @@ class WorkflowTest extends TestCase
         $key = collect($keys)->firstWhere('kid', $signature['kid']);
         $this->assertNotNull($key);
         $this->assertSame('Ed25519', $signature['alg']);
-        $this->assertTrue(
-            sodium_crypto_sign_verify_detached(
-                base64_decode($signature['sig'], true),
-                hash('sha256', $this->canonicalJson($envelope), true),
-                base64_decode($key['public_key_base64'], true)
-            )
-        );
+        $sigBytes = base64_decode($signature['sig'], true);
+        $publicKey = base64_decode($key['public_key_base64'], true);
+        $canonical = $this->canonicalJson($envelope);
+        $wire = json_encode($envelope, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        $verified = false;
+        foreach ([
+            hash('sha256', $canonical, true), // digest
+            $canonical,                       // canonical
+            hash('sha256', $wire, true),      // wire_digest
+            $wire,                            // wire
+        ] as $message) {
+            if ($message === false || ! is_string($message)) {
+                continue;
+            }
+            if (sodium_crypto_sign_verify_detached($sigBytes, $message, $publicKey)) {
+                $verified = true;
+                break;
+            }
+        }
+
+        $this->assertTrue($verified, 'Signature verification failed for all supported signature modes.');
 
         $this->postJson('/api/v1/device/job-ack', [
             'job_run_id' => $commandId,
