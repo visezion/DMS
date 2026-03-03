@@ -1602,6 +1602,22 @@ public sealed class PolicyApplyHandler : IJobHandler
         bool protectVolume = !config.TryGetProperty("protect_volume", out var protectVolumeNode) || protectVolumeNode.ValueKind != JsonValueKind.False;
         bool rebootNow = config.TryGetProperty("reboot_now", out var rebootNowNode) && rebootNowNode.ValueKind == JsonValueKind.True;
         bool rebootIfPending = !config.TryGetProperty("reboot_if_pending", out var rebootPendingNode) || rebootPendingNode.ValueKind != JsonValueKind.False;
+        string overlayType = config.TryGetProperty("overlay_type", out var overlayTypeNode)
+            ? (overlayTypeNode.GetString() ?? string.Empty).Trim().ToLowerInvariant()
+            : string.Empty;
+        if (overlayType is not ("ram" or "disk"))
+        {
+            overlayType = string.Empty;
+        }
+
+        int? overlayMaxSizeMb = TryReadUwfPositiveInt(config, "overlay_max_size_mb", min: 128, max: 1048576);
+        int? overlayWarningThresholdMb = TryReadUwfPositiveInt(config, "overlay_warning_threshold_mb", min: 64, max: 1048576);
+        int? overlayCriticalThresholdMb = TryReadUwfPositiveInt(config, "overlay_critical_threshold_mb", min: 64, max: 1048576);
+        if (overlayWarningThresholdMb.HasValue && overlayCriticalThresholdMb.HasValue
+            && overlayCriticalThresholdMb.Value <= overlayWarningThresholdMb.Value)
+        {
+            overlayCriticalThresholdMb = overlayWarningThresholdMb.Value + 1;
+        }
 
         int maxRebootAttempts = 2;
         if (config.TryGetProperty("max_reboot_attempts", out var attemptsNode) && attemptsNode.ValueKind == JsonValueKind.Number && attemptsNode.TryGetInt32(out int parsedAttempts))
@@ -1644,12 +1660,16 @@ public sealed class PolicyApplyHandler : IJobHandler
             rebootCommand,
             rebootIfPending,
             maxRebootAttempts,
-            rebootCooldownMinutes);
+            rebootCooldownMinutes,
+            overlayType,
+            overlayMaxSizeMb,
+            overlayWarningThresholdMb,
+            overlayCriticalThresholdMb);
 
         if (dryRun)
         {
             return (true,
-                $"uwf dry-run ensure={ensure} volume={volume} enable_feature={enableFeature} enable_filter={enableFilter} protect_volume={protectVolume} reboot_now={rebootNow} reboot_if_pending={rebootIfPending} max_reboot_attempts={maxRebootAttempts} reboot_cooldown_minutes={rebootCooldownMinutes}");
+                $"uwf dry-run ensure={ensure} volume={volume} enable_feature={enableFeature} enable_filter={enableFilter} protect_volume={protectVolume} reboot_now={rebootNow} reboot_if_pending={rebootIfPending} max_reboot_attempts={maxRebootAttempts} reboot_cooldown_minutes={rebootCooldownMinutes} overlay_type={(string.IsNullOrWhiteSpace(overlayType) ? "unchanged" : overlayType)} overlay_max_size_mb={(overlayMaxSizeMb.HasValue ? overlayMaxSizeMb.Value.ToString() : "unchanged")} overlay_warning_threshold_mb={(overlayWarningThresholdMb.HasValue ? overlayWarningThresholdMb.Value.ToString() : "unchanged")} overlay_critical_threshold_mb={(overlayCriticalThresholdMb.HasValue ? overlayCriticalThresholdMb.Value.ToString() : "unchanged")}");
         }
 
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -1754,10 +1774,24 @@ public sealed class PolicyApplyHandler : IJobHandler
 
             if (!ensureAbsent)
             {
+                string? overlayError = await ApplyUwfOverlaySettingsAsync(
+                    uwfPath,
+                    overlayType,
+                    overlayMaxSizeMb,
+                    overlayWarningThresholdMb,
+                    overlayCriticalThresholdMb,
+                    cancellationToken);
+                if (!string.IsNullOrWhiteSpace(overlayError))
+                {
+                    commandFailureMessage = overlayError;
+                }
+
                 string? fileExclusionError = await ApplyUwfExclusionsAsync(uwfPath, "file", fileExclusions, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(fileExclusionError))
                 {
-                    commandFailureMessage = fileExclusionError;
+                    commandFailureMessage = string.IsNullOrWhiteSpace(commandFailureMessage)
+                        ? fileExclusionError
+                        : $"{commandFailureMessage}; {fileExclusionError}";
                 }
 
                 string? registryExclusionError = await ApplyUwfExclusionsAsync(uwfPath, "registry", registryExclusions, cancellationToken);
@@ -2034,7 +2068,11 @@ public sealed class PolicyApplyHandler : IJobHandler
         string rebootCommand,
         bool rebootIfPending,
         int maxRebootAttempts,
-        int rebootCooldownMinutes)
+        int rebootCooldownMinutes,
+        string overlayType,
+        int? overlayMaxSizeMb,
+        int? overlayWarningThresholdMb,
+        int? overlayCriticalThresholdMb)
     {
         string raw = string.Join("|", new[]
         {
@@ -2047,6 +2085,10 @@ public sealed class PolicyApplyHandler : IJobHandler
             rebootIfPending ? "1" : "0",
             maxRebootAttempts.ToString(),
             rebootCooldownMinutes.ToString(),
+            overlayType.Trim().ToLowerInvariant(),
+            overlayMaxSizeMb?.ToString() ?? string.Empty,
+            overlayWarningThresholdMb?.ToString() ?? string.Empty,
+            overlayCriticalThresholdMb?.ToString() ?? string.Empty,
         });
 
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
@@ -2138,6 +2180,75 @@ public sealed class PolicyApplyHandler : IJobHandler
         return list
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static int? TryReadUwfPositiveInt(JsonElement config, string propertyName, int min, int max)
+    {
+        if (!config.TryGetProperty(propertyName, out var node))
+        {
+            return null;
+        }
+
+        if (node.ValueKind == JsonValueKind.Number && node.TryGetInt32(out int asNumber))
+        {
+            return Math.Clamp(asNumber, min, max);
+        }
+
+        if (node.ValueKind == JsonValueKind.String && int.TryParse(node.GetString(), out int asString))
+        {
+            return Math.Clamp(asString, min, max);
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> ApplyUwfOverlaySettingsAsync(
+        string uwfPath,
+        string overlayType,
+        int? overlayMaxSizeMb,
+        int? overlayWarningThresholdMb,
+        int? overlayCriticalThresholdMb,
+        CancellationToken cancellationToken)
+    {
+        var commands = new List<(string Args, string Label)>();
+
+        if (!string.IsNullOrWhiteSpace(overlayType))
+        {
+            commands.Add(($"overlay set-type {overlayType}", "overlay type"));
+        }
+        if (overlayMaxSizeMb.HasValue)
+        {
+            commands.Add(($"overlay set-size {overlayMaxSizeMb.Value}", "overlay max size"));
+        }
+        if (overlayWarningThresholdMb.HasValue)
+        {
+            commands.Add(($"overlay set-warningthreshold {overlayWarningThresholdMb.Value}", "overlay warning threshold"));
+        }
+        if (overlayCriticalThresholdMb.HasValue)
+        {
+            commands.Add(($"overlay set-criticalthreshold {overlayCriticalThresholdMb.Value}", "overlay critical threshold"));
+        }
+
+        foreach (var (args, label) in commands)
+        {
+            var result = await RunUwfCommandAsync(uwfPath, args, allowSystemFallback: true, cancellationToken);
+            if (result.ExitCode == 0)
+            {
+                continue;
+            }
+
+            if (IsWindowsAccessDeniedExitCode(result.ExitCode))
+            {
+                return await BuildUwfAccessDeniedMessageAsync(label, result.ExitCode, cancellationToken);
+            }
+
+            string detail = ExtractProcessFailureDetail(result.StdErr, result.StdOut);
+            return string.IsNullOrWhiteSpace(detail)
+                ? $"uwf {label} command failed exit code {result.ExitCode}"
+                : $"uwf {label} command failed exit code {result.ExitCode}: {detail}";
+        }
+
+        return null;
     }
 
     private static async Task<string?> ApplyUwfExclusionsAsync(

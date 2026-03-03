@@ -62,52 +62,8 @@
                 <div>
                     <p class="text-sm font-semibold text-red-800">Danger Zone: Remote Agent Uninstall</p>
                     <p class="text-xs text-red-700">Queues <span class="font-mono">uninstall_agent</span> on this device. Requires your admin password.</p>
-                    @php
-                        $freezeModeState = (string) ($freeze_mode_state ?? 'inactive');
-                        $freezeModeClass = match ($freezeModeState) {
-                            'active' => 'bg-cyan-100 text-cyan-800 border border-cyan-200',
-                            'pending' => 'bg-amber-100 text-amber-800 border border-amber-200',
-                            default => 'bg-slate-100 text-slate-700 border border-slate-200',
-                        };
-                        $freezeModeLabel = match ($freezeModeState) {
-                            'active' => 'Active',
-                            'pending' => 'Pending Activation',
-                            default => 'Inactive',
-                        };
-                    @endphp
-                    <p class="mt-1 text-xs">
-                        <span id="freeze-mode-badge" class="rounded-full px-2 py-0.5 {{ $freezeModeClass }}">
-                            Freeze Mode: {{ $freezeModeLabel }}
-                        </span>
-                    </p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                <form method="POST" action="{{ route('admin.devices.freeze', $device->id) }}" class="flex flex-wrap items-center gap-2 js-sensitive-action" data-action-label="freeze" data-action-title="Freeze Device" data-action-description="Enable freeze mode for this device? Device will restore at every reboot until unfreezed." data-action-confirm="Confirm Freeze">
-                    @csrf
-                    <input type="hidden" name="admin_password" value="">
-                    <input type="hidden" name="priority" value="95">
-                    <button class="inline-flex items-center gap-1 rounded-lg bg-cyan-600 text-white px-3 py-2 text-xs font-medium hover:bg-cyan-700">
-                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                            <path d="M12 3v18"/>
-                            <path d="M5 8h14"/>
-                            <path d="M7 13h10"/>
-                        </svg>
-                        Freeze Device
-                    </button>
-                </form>
-                <form method="POST" action="{{ route('admin.devices.unfreeze', $device->id) }}" class="flex flex-wrap items-center gap-2 js-sensitive-action" data-action-label="unfreeze" data-action-title="Unfreeze Device" data-action-description="Disable freeze mode for this device? This removes persistent restore mode and disables UWF before reboot." data-action-confirm="Confirm Unfreeze">
-                    @csrf
-                    <input type="hidden" name="admin_password" value="">
-                    <input type="hidden" name="priority" value="95">
-                    <button class="inline-flex items-center gap-1 rounded-lg bg-emerald-600 text-white px-3 py-2 text-xs font-medium hover:bg-emerald-700">
-                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                            <path d="M5 12h14"/>
-                            <path d="M7 16h10"/>
-                            <path d="M9 8h6"/>
-                        </svg>
-                        Unfreeze Device
-                    </button>
-                </form>
                 <form method="POST" action="{{ route('admin.devices.reboot', $device->id) }}" class="flex flex-wrap items-center gap-2 js-sensitive-action" data-action-label="reboot" data-action-title="Reboot Device" data-action-description="Restart this device now? Unsaved work on target device may be lost." data-action-confirm="Confirm Reboot">
                     @csrf
                     <input type="hidden" name="admin_password" value="">
@@ -132,12 +88,6 @@
                 <p class="mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
             @enderror
             @error('agent_uninstall')
-                <p class="mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
-            @enderror
-            @error('device_freeze')
-                <p class="mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
-            @enderror
-            @error('device_unfreeze')
                 <p class="mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
             @enderror
         </div>
@@ -442,7 +392,6 @@
             const inventoryCollectedNode = document.getElementById('inventory-collected');
             const inventoryPanelNode = document.getElementById('inventory-panel');
             const inventoryJsonNode = document.getElementById('inventory-json');
-            const freezeBadgeNode = document.getElementById('freeze-mode-badge');
             const toastContainer = document.getElementById('job-toast-container');
             const initialInventory = @json($inventory);
             let polling = false;
@@ -493,35 +442,6 @@
                     return;
                 }
                 statusNode.classList.add('text-slate-700');
-            }
-
-            function applyFreezeModeBadge(stateValue) {
-                if (!freezeBadgeNode) {
-                    return;
-                }
-
-                const state = String(stateValue || 'inactive').toLowerCase();
-
-                freezeBadgeNode.classList.remove(
-                    'bg-cyan-100', 'text-cyan-800', 'border-cyan-200',
-                    'bg-amber-100', 'text-amber-800', 'border-amber-200',
-                    'bg-slate-100', 'text-slate-700', 'border-slate-200'
-                );
-
-                if (state === 'active') {
-                    freezeBadgeNode.classList.add('bg-cyan-100', 'text-cyan-800', 'border-cyan-200');
-                    freezeBadgeNode.textContent = 'Freeze Mode: Active';
-                    return;
-                }
-
-                if (state === 'pending') {
-                    freezeBadgeNode.classList.add('bg-amber-100', 'text-amber-800', 'border-amber-200');
-                    freezeBadgeNode.textContent = 'Freeze Mode: Pending Activation';
-                    return;
-                }
-
-                freezeBadgeNode.classList.add('bg-slate-100', 'text-slate-700', 'border-slate-200');
-                freezeBadgeNode.textContent = 'Freeze Mode: Inactive';
             }
 
             function renderRuns(runs) {
@@ -748,7 +668,6 @@
                         if (inventoryCollectedNode) {
                             inventoryCollectedNode.textContent = `Snapshot: ${(data.device.inventory && data.device.inventory.collected_at) ? data.device.inventory.collected_at : 'n/a'}`;
                         }
-                        applyFreezeModeBadge(data.device.freeze_mode_state || 'inactive');
                         if (inventoryJsonNode) {
                             inventoryJsonNode.textContent = JSON.stringify(data.device.inventory || null, null, 2);
                         }
@@ -776,7 +695,6 @@
             }
 
             renderInventory(initialInventory || null);
-            applyFreezeModeBadge(@json($freeze_mode_state ?? 'inactive'));
             applyDeviceStatus(@json($device->status));
             poll();
             setInterval(poll, 5000);
@@ -810,8 +728,6 @@
                 if (descNode) descNode.textContent = actionDescription;
                 const descriptionClassByAction = {
                     uninstall: 'rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700',
-                    freeze: 'rounded-lg border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs text-cyan-800',
-                    unfreeze: 'rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800',
                     reboot: 'rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-700',
                 };
                 if (descNode) {
@@ -820,8 +736,6 @@
                 }
                 const buttonClassByAction = {
                     uninstall: 'rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700',
-                    freeze: 'rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white hover:bg-cyan-700',
-                    unfreeze: 'rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700',
                     reboot: 'rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700',
                 };
                 if (confirmBtn) {

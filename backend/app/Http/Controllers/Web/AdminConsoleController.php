@@ -239,19 +239,10 @@ class AdminConsoleController extends Controller
                     'last_run_at' => $run?->updated_at,
                 ];
             });
-        $freezePolicySlug = 'ops-fast-reboot-restore-mode';
-        $isDeviceFrozenRequested = $effectivePolicies->contains(fn ($policy) => (string) ($policy->policy_slug ?? '') === $freezePolicySlug);
         $tags = is_array($device->tags) ? $device->tags : [];
         $runtimeDiagnostics = $this->normalizeRuntimeDiagnostics(
             is_array($tags['runtime_diagnostics'] ?? null) ? $tags['runtime_diagnostics'] : null
         );
-        $isUwfFeatureEnabled = (($runtimeDiagnostics['uwf_feature_enabled'] ?? null) === true);
-        $isUwfFilterEnabled = (($runtimeDiagnostics['uwf_filter_enabled'] ?? null) === true);
-        $isUwfVolumeProtected = (($runtimeDiagnostics['uwf_volume_c_protected'] ?? null) === true);
-        $isDeviceFrozenActive = $isUwfFeatureEnabled && $isUwfFilterEnabled && $isUwfVolumeProtected;
-        $freezeModeState = $isDeviceFrozenActive
-            ? 'active'
-            : ($isDeviceFrozenRequested ? 'pending' : 'inactive');
 
         $packageVersions = PackageVersion::query()
             ->whereIn('id', array_keys($packageRunByVersion))
@@ -320,9 +311,6 @@ class AdminConsoleController extends Controller
                 ->get(),
             'effective_policies' => $effectivePolicies,
             'device_packages' => $devicePackages,
-            'is_device_frozen' => $isDeviceFrozenActive,
-            'is_device_frozen_requested' => $isDeviceFrozenRequested,
-            'freeze_mode_state' => $freezeModeState,
         ]);
     }
 
@@ -390,34 +378,6 @@ class AdminConsoleController extends Controller
             is_array($tags['runtime_diagnostics'] ?? null) ? $tags['runtime_diagnostics'] : null
         );
 
-        $groupIds = \DB::table('device_group_memberships')
-            ->where('device_id', $device->id)
-            ->pluck('device_group_id')
-            ->all();
-        $freezePolicySlug = 'ops-fast-reboot-restore-mode';
-        $isDeviceFrozenRequested = \DB::table('policy_assignments as a')
-            ->join('policy_versions as pv', 'pv.id', '=', 'a.policy_version_id')
-            ->join('policies as p', 'p.id', '=', 'pv.policy_id')
-            ->where(function ($query) use ($device, $groupIds) {
-                $query->where(function ($deviceQuery) use ($device) {
-                    $deviceQuery->where('a.target_type', 'device')->where('a.target_id', $device->id);
-                });
-                if ($groupIds !== []) {
-                    $query->orWhere(function ($groupQuery) use ($groupIds) {
-                        $groupQuery->where('a.target_type', 'group')->whereIn('a.target_id', $groupIds);
-                    });
-                }
-            })
-            ->where('p.slug', $freezePolicySlug)
-            ->exists();
-        $isUwfFeatureEnabled = (($runtimeDiagnostics['uwf_feature_enabled'] ?? null) === true);
-        $isUwfFilterEnabled = (($runtimeDiagnostics['uwf_filter_enabled'] ?? null) === true);
-        $isUwfVolumeProtected = (($runtimeDiagnostics['uwf_volume_c_protected'] ?? null) === true);
-        $isDeviceFrozenActive = $isUwfFeatureEnabled && $isUwfFilterEnabled && $isUwfVolumeProtected;
-        $freezeModeState = $isDeviceFrozenActive
-            ? 'active'
-            : ($isDeviceFrozenRequested ? 'pending' : 'inactive');
-
         return response()->json([
             'device' => [
                 'id' => $device->id,
@@ -428,9 +388,6 @@ class AdminConsoleController extends Controller
                 'agent_build' => (string) ($tags['agent_build'] ?? 'unknown'),
                 'inventory' => is_array($tags['inventory'] ?? null) ? $tags['inventory'] : null,
                 'inventory_updated_at' => (string) ($tags['inventory_updated_at'] ?? ''),
-                'freeze_mode_requested' => $isDeviceFrozenRequested,
-                'freeze_mode_active' => $isDeviceFrozenActive,
-                'freeze_mode_state' => $freezeModeState,
                 'last_seen_at' => $device->last_seen_at?->toIso8601String(),
                 'last_seen_human' => $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'never',
             ],
@@ -1909,140 +1866,6 @@ class AdminConsoleController extends Controller
         return back()->with('status', 'Reboot job queued for device.');
     }
 
-    public function freezeDevice(Request $request, string $deviceId, AuditLogger $auditLogger): RedirectResponse
-    {
-        $data = $request->validate([
-            'admin_password' => ['required', 'string', 'max:255'],
-            'priority' => ['nullable', 'integer', 'min:1', 'max:1000'],
-        ]);
-
-        $user = $request->user();
-        if (! $user || ! Hash::check((string) $data['admin_password'], (string) $user->password)) {
-            return back()->withErrors([
-                'device_freeze' => 'Admin password is incorrect.',
-            ]);
-        }
-
-        $device = Device::query()->findOrFail($deviceId);
-
-        $catalogItem = collect($this->policyCatalog())
-            ->first(fn ($item) => is_array($item) && (string) ($item['key'] ?? '') === 'fast_reboot_restore_mode');
-        if (! is_array($catalogItem)) {
-            return back()->withErrors([
-                'device_freeze' => 'Freeze preset is missing from policy catalog.',
-            ]);
-        }
-
-        $ensured = $this->ensureCatalogPresetPolicyVersion($catalogItem, $user->id);
-        $version = $ensured['version'] ?? null;
-        if (! $version instanceof PolicyVersion) {
-            return back()->withErrors([
-                'device_freeze' => 'Unable to prepare freeze policy version.',
-            ]);
-        }
-
-        $assignmentCreated = $this->createPolicyAssignment($version->id, 'device', $device->id);
-        $this->queueApplyPolicyJob($version, 'device', $device->id, $user->id);
-
-        $priority = (int) ($data['priority'] ?? 95);
-        $freezeCommand = $this->buildDeviceFreezeCommand();
-        $freezeJob = $this->queueDeviceApplyPolicyCommandJob($device->id, $freezeCommand, $user->id, $priority, $version->id);
-
-        $auditLogger->log('device.freeze.web', 'job', $freezeJob->id, null, [
-            'device_id' => $device->id,
-            'freeze_policy_version_id' => $version->id,
-            'freeze_policy_assignment_created' => $assignmentCreated,
-            'uwf_command_queued' => true,
-        ], $user->id);
-
-        $status = 'Device freeze queued. UWF feature/protection workflow started. It may take up to two reboots to fully activate freeze.';
-        if ($assignmentCreated) {
-            $status .= ' Freeze policy assignment was created.';
-        }
-
-        return back()->with('status', $status);
-    }
-
-    public function unfreezeDevice(Request $request, string $deviceId, AuditLogger $auditLogger): RedirectResponse
-    {
-        $data = $request->validate([
-            'admin_password' => ['required', 'string', 'max:255'],
-            'priority' => ['nullable', 'integer', 'min:1', 'max:1000'],
-        ]);
-
-        $user = $request->user();
-        if (! $user || ! Hash::check((string) $data['admin_password'], (string) $user->password)) {
-            return back()->withErrors([
-                'device_unfreeze' => 'Admin password is incorrect.',
-            ]);
-        }
-
-        $device = Device::query()->findOrFail($deviceId);
-        $freezeSlug = 'ops-fast-reboot-restore-mode';
-        $groupIds = \DB::table('device_group_memberships')
-            ->where('device_id', $device->id)
-            ->pluck('device_group_id')
-            ->values();
-
-        if ($groupIds->isNotEmpty()) {
-            $groupFreezeExists = \DB::table('policy_assignments as a')
-                ->join('policy_versions as pv', 'pv.id', '=', 'a.policy_version_id')
-                ->join('policies as p', 'p.id', '=', 'pv.policy_id')
-                ->where('a.target_type', 'group')
-                ->whereIn('a.target_id', $groupIds)
-                ->where('p.slug', $freezeSlug)
-                ->exists();
-            if ($groupFreezeExists) {
-                return back()->withErrors([
-                    'device_unfreeze' => 'Device inherits freeze mode from its group. Remove group freeze assignment first.',
-                ]);
-            }
-        }
-
-        $deviceFreezeAssignments = \DB::table('policy_assignments as a')
-            ->join('policy_versions as pv', 'pv.id', '=', 'a.policy_version_id')
-            ->join('policies as p', 'p.id', '=', 'pv.policy_id')
-            ->where('a.target_type', 'device')
-            ->where('a.target_id', $device->id)
-            ->where('p.slug', $freezeSlug)
-            ->select(['a.id', 'a.policy_version_id'])
-            ->get();
-
-        $removedAssignments = 0;
-        $cleanupQueued = 0;
-        foreach ($deviceFreezeAssignments as $assignment) {
-            \DB::table('policy_assignments')->where('id', $assignment->id)->delete();
-            $removedAssignments++;
-            $cleanupQueued += $this->queuePolicyRemovalProfileForDevice($device->id, (string) $assignment->policy_version_id, $user->id);
-        }
-
-        $priority = (int) ($data['priority'] ?? 95);
-        $unfreezeCommand = $this->buildDeviceUnfreezeCommand();
-        $unfreezeJob = $this->queueDeviceApplyPolicyCommandJob($device->id, $unfreezeCommand, $user->id, $priority);
-        $reconcileQueued = $this->queuePolicyReconcileForDevice($device->id, $user->id);
-
-        $auditLogger->log('device.unfreeze.web', 'job', $unfreezeJob->id, null, [
-            'device_id' => $device->id,
-            'removed_device_freeze_assignments' => $removedAssignments,
-            'queued_cleanup_jobs' => $cleanupQueued,
-            'queued_policy_reconcile_jobs' => $reconcileQueued,
-            'uwf_disable_command_queued' => true,
-        ], $user->id);
-
-        $status = 'Device unfreeze queued. UWF disable + restore manifest cleanup + reboot job scheduled.';
-        if ($removedAssignments > 0) {
-            $status .= " Removed {$removedAssignments} freeze assignment(s).";
-        }
-        if ($cleanupQueued > 0) {
-            $status .= " Queued {$cleanupQueued} freeze cleanup job(s).";
-        }
-        if ($reconcileQueued > 0) {
-            $status .= " Queued {$reconcileQueued} policy reconcile job(s).";
-        }
-
-        return back()->with('status', $status);
-    }
-
     public function deletePackageVersion(Request $request, string $packageId, string $versionId, AuditLogger $auditLogger): RedirectResponse
     {
         $package = PackageModel::query()->findOrFail($packageId);
@@ -2901,6 +2724,10 @@ class AdminConsoleController extends Controller
             'apply_uwf_file_exclusions' => ['nullable', 'string', 'max:4000'],
             'apply_uwf_registry_exclusions' => ['nullable', 'string', 'max:4000'],
             'apply_uwf_fail_on_unsupported_edition' => ['nullable', 'boolean'],
+            'apply_uwf_overlay_type' => ['nullable', 'in:ram,disk'],
+            'apply_uwf_overlay_max_size_mb' => ['nullable', 'integer', 'min:128', 'max:1048576'],
+            'apply_uwf_overlay_warning_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
+            'apply_uwf_overlay_critical_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
             'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
@@ -2996,6 +2823,10 @@ class AdminConsoleController extends Controller
             'apply_uwf_file_exclusions' => ['nullable', 'string', 'max:4000'],
             'apply_uwf_registry_exclusions' => ['nullable', 'string', 'max:4000'],
             'apply_uwf_fail_on_unsupported_edition' => ['nullable', 'boolean'],
+            'apply_uwf_overlay_type' => ['nullable', 'in:ram,disk'],
+            'apply_uwf_overlay_max_size_mb' => ['nullable', 'integer', 'min:128', 'max:1048576'],
+            'apply_uwf_overlay_warning_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
+            'apply_uwf_overlay_critical_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
             'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
@@ -4130,314 +3961,6 @@ POWERSHELL;
         }
 
         return implode('; ', $lines);
-    }
-
-    private function queueDeviceApplyPolicyCommandJob(
-        string $deviceId,
-        string $command,
-        ?int $createdBy,
-        int $priority = 95,
-        ?string $policyVersionId = null
-    ): DmsJob {
-        $payload = [
-            'rules' => [[
-                'type' => 'command',
-                'config' => ['command' => $command],
-                'enforce' => true,
-            ]],
-        ];
-        if ($policyVersionId !== null && trim($policyVersionId) !== '') {
-            $payload['policy_version_id'] = $policyVersionId;
-        }
-
-        $job = DmsJob::query()->create([
-            'id' => (string) Str::uuid(),
-            'job_type' => 'apply_policy',
-            'status' => 'queued',
-            'priority' => max(1, min(1000, $priority)),
-            'payload' => $payload,
-            'target_type' => 'device',
-            'target_id' => $deviceId,
-            'created_by' => $createdBy,
-        ]);
-
-        JobRun::query()->create([
-            'id' => (string) Str::uuid(),
-            'job_id' => $job->id,
-            'device_id' => $deviceId,
-            'status' => 'pending',
-            'next_retry_at' => null,
-        ]);
-
-        return $job;
-    }
-
-    private function buildDeviceFreezeCommand(): string
-    {
-        $script = trim(<<<'POWERSHELL'
-$ErrorActionPreference = 'Stop'
-$root = 'C:\ProgramData\DMS\Freeze'
-$taskName = 'DMS-Freeze-Finalize'
-$runOnceName = 'DMSFreezeFinalize'
-$scriptPath = Join-Path $root 'freeze-finalize.ps1'
-$statePath = Join-Path $root 'state.json'
-$logPath = Join-Path $root 'freeze.log'
-
-New-Item -ItemType Directory -Path $root -Force | Out-Null
-
-function Write-Log([string]$line) {
-  $ts = (Get-Date).ToUniversalTime().ToString('o')
-  Add-Content -Path $logPath -Value ($ts + ' ' + $line) -Encoding UTF8
-}
-
-function Save-State([string]$state,[string]$message='') {
-  $obj = @{
-    state = $state
-    message = $message
-    utc = (Get-Date).ToUniversalTime().ToString('o')
-  } | ConvertTo-Json -Depth 4
-  Set-Content -Path $statePath -Value $obj -Encoding UTF8 -Force
-  Write-Log ($state + ' :: ' + $message)
-}
-
-function Register-RunOnce([string]$scriptPathToRun) {
-  $escapedScriptPath = $scriptPathToRun.Replace('"','""')
-  $run = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $escapedScriptPath + '"'
-  New-Item -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Force | Out-Null
-  New-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name $runOnceName -Value $run -PropertyType String -Force | Out-Null
-}
-
-function Ensure-ResumeHooks([string]$scriptPathToRun) {
-  $escapedScriptPath = $scriptPathToRun.Replace('"','""')
-  $run = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $escapedScriptPath + '"'
-  Write-Log ('register startup task: ' + $taskName)
-  schtasks.exe /Create /TN $taskName /TR $run /SC ONSTART /RU SYSTEM /RL HIGHEST /F | Out-Null
-  if ($LASTEXITCODE -ne 0) {
-    throw ('failed to create startup finalize task: ' + $taskName + ' exit=' + $LASTEXITCODE)
-  }
-  Write-Log ('register runonce: ' + $runOnceName)
-  Register-RunOnce -scriptPathToRun $scriptPathToRun
-}
-
-function Remove-ResumeHooks {
-  schtasks.exe /Delete /TN $taskName /F | Out-Null
-  Remove-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name $runOnceName -ErrorAction SilentlyContinue
-}
-
-function Invoke-Uwf([string]$uwfPath, [string[]]$args) {
-  $out = (& $uwfPath @args 2>&1 | Out-String)
-  $code = $LASTEXITCODE
-  return @{
-    exit = $code
-    output = $out
-  }
-}
-
-function Get-UwfState([string]$uwfPath) {
-  $cfg = (& $uwfPath get-config 2>&1 | Out-String)
-  $vol = (& $uwfPath volume get-config C: 2>&1 | Out-String)
-  $filterCurrent = ($cfg -match '(?im)Filter\s+state\s*:\s*(Enabled|ON)')
-  $filterNext = ($cfg -match '(?im)Next\s+session.*(Enabled|ON)')
-  $volumeCurrent = ($vol -match '(?im)Current\s+session.*(Protected|ON|Yes)')
-  $volumeNext = ($vol -match '(?im)Next\s+session.*(Protected|ON|Yes)')
-  return @{
-    ready = (($filterCurrent -or $filterNext) -and ($volumeCurrent -or $volumeNext))
-    filterCurrent = $filterCurrent
-    filterNext = $filterNext
-    volumeCurrent = $volumeCurrent
-    volumeNext = $volumeNext
-    cfg = $cfg
-    vol = $vol
-  }
-}
-
-$finalizeScript = @'
-$ErrorActionPreference = "Stop"
-$root = "C:\ProgramData\DMS\Freeze"
-$taskName = "DMS-Freeze-Finalize"
-$runOnceName = "DMSFreezeFinalize"
-$statePath = Join-Path $root "state.json"
-$logPath = Join-Path $root "freeze.log"
-$attemptPath = Join-Path $root "attempt.txt"
-$maxAttempts = 3
-
-function Write-Log([string]$line) {
-  $ts = (Get-Date).ToUniversalTime().ToString("o")
-  Add-Content -Path $logPath -Value ($ts + " " + $line) -Encoding UTF8
-}
-
-function Save-State([string]$state,[string]$message="") {
-  $obj = @{
-    state = $state
-    message = $message
-    utc = (Get-Date).ToUniversalTime().ToString("o")
-  } | ConvertTo-Json -Depth 4
-  Set-Content -Path $statePath -Value $obj -Encoding UTF8 -Force
-  Write-Log ($state + " :: " + $message)
-}
-
-function Remove-ResumeHooks {
-  schtasks.exe /Delete /TN $taskName /F | Out-Null
-  Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce" -Name $runOnceName -ErrorAction SilentlyContinue
-}
-
-function Read-Attempt {
-  if (-not (Test-Path $attemptPath)) { return 0 }
-  try {
-    $raw = (Get-Content -Path $attemptPath -Raw -ErrorAction Stop).Trim()
-    $val = 0
-    if ([int]::TryParse($raw, [ref]$val)) { return $val }
-  } catch {}
-  return 0
-}
-
-function Write-Attempt([int]$value) {
-  Set-Content -Path $attemptPath -Value ([string]$value) -Encoding UTF8 -Force
-}
-
-function Invoke-Uwf([string]$uwfPath, [string[]]$args) {
-  $out = (& $uwfPath @args 2>&1 | Out-String)
-  $code = $LASTEXITCODE
-  return @{
-    exit = $code
-    output = $out
-  }
-}
-
-function Get-UwfState([string]$uwfPath) {
-  $cfg = (& $uwfPath get-config 2>&1 | Out-String)
-  $vol = (& $uwfPath volume get-config C: 2>&1 | Out-String)
-  $filterCurrent = ($cfg -match "(?im)Filter\s+state\s*:\s*(Enabled|ON)")
-  $filterNext = ($cfg -match "(?im)Next\s+session.*(Enabled|ON)")
-  $volumeCurrent = ($vol -match "(?im)Current\s+session.*(Protected|ON|Yes)")
-  $volumeNext = ($vol -match "(?im)Next\s+session.*(Protected|ON|Yes)")
-  return @{
-    ready = (($filterCurrent -or $filterNext) -and ($volumeCurrent -or $volumeNext))
-    filterCurrent = $filterCurrent
-    filterNext = $filterNext
-    volumeCurrent = $volumeCurrent
-    volumeNext = $volumeNext
-  }
-}
-
-$uwf = Join-Path $env:WINDIR "System32\uwfmgr.exe"
-if (-not (Test-Path $uwf)) {
-  Save-State -state "failed" -message "uwfmgr.exe not found"
-  exit 1
-}
-
-if (-not (Test-Path $root)) {
-  New-Item -ItemType Directory -Path $root -Force | Out-Null
-}
-
-$attempt = (Read-Attempt) + 1
-Write-Attempt -value $attempt
-Write-Log "finalize script invoked"
-Write-Log ("finalize attempt=" + $attempt)
-
-if ($attempt -gt $maxAttempts) {
-  Remove-ResumeHooks
-  Save-State -state "failed_loop_guard" -message ("Freeze finalize exceeded reboot attempts (" + $attempt + "/" + $maxAttempts + "). Hooks removed to stop reboot loop.")
-  exit 1
-}
-
-$protect = Invoke-Uwf -uwfPath $uwf -args @("volume","protect","C:")
-$filter = Invoke-Uwf -uwfPath $uwf -args @("filter","enable")
-$state = Get-UwfState -uwfPath $uwf
-
-if ($state.ready) {
-  Remove-ResumeHooks
-  Remove-Item -Path $attemptPath -Force -ErrorAction SilentlyContinue
-  Save-State -state "frozen_enabled" -message ("UWF active. protect_exit=" + $protect.exit + "; filter_exit=" + $filter.exit + "; current_filter=" + $state.filterCurrent + "; current_volume=" + $state.volumeCurrent)
-  exit 0
-}
-
-Save-State -state "pending_reboot_for_protection" -message ("Waiting reboot to finalize protection. attempt=" + $attempt + "/" + $maxAttempts + "; protect_exit=" + $protect.exit + "; filter_exit=" + $filter.exit + "; next_filter=" + $state.filterNext + "; next_volume=" + $state.volumeNext)
-shutdown.exe /r /t 0
-exit 0
-'@
-
-Set-Content -Path $scriptPath -Value $finalizeScript -Encoding UTF8 -Force
-Ensure-ResumeHooks -scriptPathToRun $scriptPath
-
-$featureInfo = (dism.exe /online /Get-FeatureInfo /FeatureName:Client-UnifiedWriteFilter) 2>&1 | Out-String
-$featureEnabled = $featureInfo -match 'State\s*:\s*Enabled'
-
-if (-not $featureEnabled) {
-  Save-State -state 'enabling_uwf_feature' -message 'Unified Write Filter feature is disabled. Enabling and rebooting.'
-  $enableOut = (dism.exe /online /Enable-Feature /FeatureName:Client-UnifiedWriteFilter /All /NoRestart) 2>&1 | Out-String
-  $exit = $LASTEXITCODE
-  if (($exit -ne 0) -and ($exit -ne 3010)) {
-    Save-State -state 'failed' -message ('Enable UWF feature failed. exit=' + $exit)
-    throw ('Enable UWF feature failed. exit=' + $exit + ' output=' + $enableOut)
-  }
-  Save-State -state 'pending_reboot_for_feature' -message ('Feature enable queued. exit=' + $exit)
-  shutdown.exe /r /t 0
-  exit 0
-}
-
-Save-State -state 'configuring_uwf' -message 'UWF feature is enabled. Running finalize stage now.'
-$finalizeOut = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2>&1 | Out-String)
-$finalizeExit = $LASTEXITCODE
-if ($finalizeExit -ne 0) {
-  Save-State -state 'failed' -message ('Finalize stage failed. exit=' + $finalizeExit)
-  throw ('Finalize stage failed. exit=' + $finalizeExit + ' output=' + $finalizeOut)
-}
-
-exit 0
-POWERSHELL);
-
-        return $this->buildPowerShellEncodedCommand($script);
-    }
-
-    private function buildDeviceUnfreezeCommand(): string
-    {
-        $script = trim(<<<'POWERSHELL'
-$ErrorActionPreference = 'SilentlyContinue'
-$restoreRoot = 'C:\ProgramData\DMS\Restore'
-$freezeRoot = 'C:\ProgramData\DMS\Freeze'
-$taskName = 'DMS-Freeze-Finalize'
-$runOnceName = 'DMSFreezeFinalize'
-$attemptPath = Join-Path $freezeRoot 'attempt.txt'
-
-Remove-Item (Join-Path $restoreRoot 'persistent-restore.json') -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $restoreRoot 'pending-restore.json') -Force -ErrorAction SilentlyContinue
-
-schtasks.exe /Delete /TN $taskName /F | Out-Null
-Remove-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name $runOnceName -ErrorAction SilentlyContinue
-Remove-Item $attemptPath -Force -ErrorAction SilentlyContinue
-
-$uwf = Join-Path $env:WINDIR 'System32\uwfmgr.exe'
-if (Test-Path $uwf) {
-  & $uwf filter disable | Out-Null
-  & $uwf volume unprotect C: | Out-Null
-}
-
-if (Test-Path $freezeRoot) {
-  $statePath = Join-Path $freezeRoot 'state.json'
-  $obj = @{
-    state = 'unfrozen'
-    message = 'Freeze mode disabled by DMS unfreeze action.'
-    utc = (Get-Date).ToUniversalTime().ToString('o')
-  } | ConvertTo-Json -Depth 4
-  Set-Content -Path $statePath -Value $obj -Encoding UTF8 -Force
-}
-
-shutdown.exe /r /t 0
-exit 0
-POWERSHELL);
-
-        return $this->buildPowerShellEncodedCommand($script);
-    }
-
-    private function buildPowerShellEncodedCommand(string $script): string
-    {
-        $utf16 = @iconv('UTF-8', 'UTF-16LE', $script);
-        if ($utf16 === false) {
-            $utf16 = $script;
-        }
-
-        return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand '.base64_encode($utf16);
     }
 
     private function buildAgentUninstallAuthorizationPayload(?User $user): array
@@ -7590,6 +7113,10 @@ PS1;
             'apply_uwf_file_exclusions',
             'apply_uwf_registry_exclusions',
             'apply_uwf_fail_on_unsupported_edition',
+            'apply_uwf_overlay_type',
+            'apply_uwf_overlay_max_size_mb',
+            'apply_uwf_overlay_warning_threshold_mb',
+            'apply_uwf_overlay_critical_threshold_mb',
         ];
 
         $hasUwfInputs = false;
@@ -7636,6 +7163,23 @@ PS1;
 
         if ((bool) ($data['apply_uwf_fail_on_unsupported_edition'] ?? false)) {
             $config['fail_on_unsupported_edition'] = true;
+        }
+
+        $overlayType = strtolower(trim((string) ($data['apply_uwf_overlay_type'] ?? '')));
+        if (in_array($overlayType, ['ram', 'disk'], true)) {
+            $config['overlay_type'] = $overlayType;
+        }
+
+        if (isset($data['apply_uwf_overlay_max_size_mb']) && (string) $data['apply_uwf_overlay_max_size_mb'] !== '') {
+            $config['overlay_max_size_mb'] = max(128, min(1048576, (int) $data['apply_uwf_overlay_max_size_mb']));
+        }
+
+        if (isset($data['apply_uwf_overlay_warning_threshold_mb']) && (string) $data['apply_uwf_overlay_warning_threshold_mb'] !== '') {
+            $config['overlay_warning_threshold_mb'] = max(64, min(1048576, (int) $data['apply_uwf_overlay_warning_threshold_mb']));
+        }
+
+        if (isset($data['apply_uwf_overlay_critical_threshold_mb']) && (string) $data['apply_uwf_overlay_critical_threshold_mb'] !== '') {
+            $config['overlay_critical_threshold_mb'] = max(64, min(1048576, (int) $data['apply_uwf_overlay_critical_threshold_mb']));
         }
 
         return $config;
@@ -8073,6 +7617,35 @@ PS1;
 
         if (array_key_exists('fail_on_unsupported_edition', $config) && ! is_bool($config['fail_on_unsupported_edition'])) {
             return 'UWF "fail_on_unsupported_edition" must be true/false.';
+        }
+
+        if (array_key_exists('overlay_type', $config)) {
+            $overlayType = strtolower(trim((string) $config['overlay_type']));
+            if (! in_array($overlayType, ['ram', 'disk'], true)) {
+                return 'UWF "overlay_type" must be ram or disk.';
+            }
+        }
+
+        foreach ([
+            'overlay_max_size_mb' => ['min' => 128, 'max' => 1048576],
+            'overlay_warning_threshold_mb' => ['min' => 64, 'max' => 1048576],
+            'overlay_critical_threshold_mb' => ['min' => 64, 'max' => 1048576],
+        ] as $overlayKey => $range) {
+            if (! array_key_exists($overlayKey, $config)) {
+                continue;
+            }
+            if (! is_int($config[$overlayKey])) {
+                return sprintf('UWF "%s" must be an integer.', $overlayKey);
+            }
+            if ($config[$overlayKey] < $range['min'] || $config[$overlayKey] > $range['max']) {
+                return sprintf('UWF "%s" must be between %d and %d.', $overlayKey, $range['min'], $range['max']);
+            }
+        }
+
+        $overlayWarn = array_key_exists('overlay_warning_threshold_mb', $config) ? (int) $config['overlay_warning_threshold_mb'] : null;
+        $overlayCritical = array_key_exists('overlay_critical_threshold_mb', $config) ? (int) $config['overlay_critical_threshold_mb'] : null;
+        if ($overlayWarn !== null && $overlayCritical !== null && $overlayCritical <= $overlayWarn) {
+            return 'UWF "overlay_critical_threshold_mb" must be greater than "overlay_warning_threshold_mb".';
         }
 
         return null;

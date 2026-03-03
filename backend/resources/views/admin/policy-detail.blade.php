@@ -191,6 +191,19 @@ C:\ProgramData\DMS\Uwf</textarea>
                     <input type="checkbox" name="apply_uwf_fail_on_unsupported_edition" value="1" />
                     fail when Windows edition does not support UWF
                 </label>
+                <p class="md:col-span-2 text-xs font-semibold text-slate-700 mt-1">Overlay Options (optional)</p>
+                <label class="text-xs text-slate-500">Overlay Type</label>
+                <select name="apply_uwf_overlay_type" class="rounded border border-slate-300 px-2 py-1">
+                    <option value="">leave unchanged</option>
+                    <option value="ram">RAM</option>
+                    <option value="disk">DISK</option>
+                </select>
+                <label class="text-xs text-slate-500">Overlay Max Size (MB)</label>
+                <input name="apply_uwf_overlay_max_size_mb" type="number" min="128" max="1048576" placeholder="e.g. 4096" class="rounded border border-slate-300 px-2 py-1" />
+                <label class="text-xs text-slate-500">Overlay Warning Threshold (MB)</label>
+                <input name="apply_uwf_overlay_warning_threshold_mb" type="number" min="64" max="1048576" placeholder="e.g. 3072" class="rounded border border-slate-300 px-2 py-1" />
+                <label class="text-xs text-slate-500">Overlay Critical Threshold (MB)</label>
+                <input name="apply_uwf_overlay_critical_threshold_mb" type="number" min="64" max="1048576" placeholder="e.g. 3584" class="rounded border border-slate-300 px-2 py-1" />
             </div>
             <label class="md:col-span-2 text-xs text-slate-500 apply-command-label hidden">Apply Command</label>
             <textarea name="apply_command" placeholder="Apply command (example: reg add HKLM\\...)" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-24 apply-command-field hidden"></textarea>
@@ -276,6 +289,19 @@ C:\ProgramData\DMS\Uwf</textarea>
                     ? array_values(array_filter(array_map(fn ($v) => trim((string) $v), $uwfConfigDefault['registry_exclusions']), fn ($v) => $v !== ''))
                     : ['HKLM\\SOFTWARE\\DMS'];
                 $applyUwfFailUnsupportedEditionDefault = (bool) ($uwfConfigDefault['fail_on_unsupported_edition'] ?? false);
+                $applyUwfOverlayTypeDefault = strtolower(trim((string) ($uwfConfigDefault['overlay_type'] ?? '')));
+                if (!in_array($applyUwfOverlayTypeDefault, ['ram', 'disk'], true)) {
+                    $applyUwfOverlayTypeDefault = '';
+                }
+                $applyUwfOverlayMaxSizeDefault = array_key_exists('overlay_max_size_mb', $uwfConfigDefault)
+                    ? max(128, min(1048576, (int) $uwfConfigDefault['overlay_max_size_mb']))
+                    : null;
+                $applyUwfOverlayWarningDefault = array_key_exists('overlay_warning_threshold_mb', $uwfConfigDefault)
+                    ? max(64, min(1048576, (int) $uwfConfigDefault['overlay_warning_threshold_mb']))
+                    : null;
+                $applyUwfOverlayCriticalDefault = array_key_exists('overlay_critical_threshold_mb', $uwfConfigDefault)
+                    ? max(64, min(1048576, (int) $uwfConfigDefault['overlay_critical_threshold_mb']))
+                    : null;
             @endphp
             <div class="rounded-xl bg-white border border-slate-200 p-3 policy-shell">
                 <details class="group" @if($loop->first) open @endif>
@@ -386,6 +412,19 @@ C:\ProgramData\DMS\Uwf</textarea>
                             <input type="checkbox" name="apply_uwf_fail_on_unsupported_edition" value="1" @checked($applyUwfFailUnsupportedEditionDefault) />
                             fail when Windows edition does not support UWF
                         </label>
+                        <p class="md:col-span-2 text-xs font-semibold text-slate-700 mt-1">Overlay Options (optional)</p>
+                        <label class="text-xs text-slate-500">Overlay Type</label>
+                        <select name="apply_uwf_overlay_type" class="rounded border border-slate-300 px-2 py-1">
+                            <option value="" @selected($applyUwfOverlayTypeDefault === '')>leave unchanged</option>
+                            <option value="ram" @selected($applyUwfOverlayTypeDefault === 'ram')>RAM</option>
+                            <option value="disk" @selected($applyUwfOverlayTypeDefault === 'disk')>DISK</option>
+                        </select>
+                        <label class="text-xs text-slate-500">Overlay Max Size (MB)</label>
+                        <input name="apply_uwf_overlay_max_size_mb" type="number" min="128" max="1048576" value="{{ $applyUwfOverlayMaxSizeDefault ?? '' }}" class="rounded border border-slate-300 px-2 py-1" />
+                        <label class="text-xs text-slate-500">Overlay Warning Threshold (MB)</label>
+                        <input name="apply_uwf_overlay_warning_threshold_mb" type="number" min="64" max="1048576" value="{{ $applyUwfOverlayWarningDefault ?? '' }}" class="rounded border border-slate-300 px-2 py-1" />
+                        <label class="text-xs text-slate-500">Overlay Critical Threshold (MB)</label>
+                        <input name="apply_uwf_overlay_critical_threshold_mb" type="number" min="64" max="1048576" value="{{ $applyUwfOverlayCriticalDefault ?? '' }}" class="rounded border border-slate-300 px-2 py-1" />
                     </div>
                     <label class="md:col-span-2 text-xs text-slate-500 apply-command-label hidden">Apply Command</label>
                     <textarea name="apply_command" placeholder="Apply command" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-24 apply-command-field {{ $applyModeDefault === 'command' ? '' : 'hidden' }}">{{ $applyCommandDefault }}</textarea>
@@ -535,6 +574,10 @@ C:\ProgramData\DMS\Uwf</textarea>
                 const applyUwfFileExclusionsField = form.querySelector('textarea[name="apply_uwf_file_exclusions"]');
                 const applyUwfRegistryExclusionsField = form.querySelector('textarea[name="apply_uwf_registry_exclusions"]');
                 const applyUwfFailUnsupportedEditionField = form.querySelector('input[name="apply_uwf_fail_on_unsupported_edition"]');
+                const applyUwfOverlayTypeField = form.querySelector('select[name="apply_uwf_overlay_type"]');
+                const applyUwfOverlayMaxSizeField = form.querySelector('input[name="apply_uwf_overlay_max_size_mb"]');
+                const applyUwfOverlayWarningField = form.querySelector('input[name="apply_uwf_overlay_warning_threshold_mb"]');
+                const applyUwfOverlayCriticalField = form.querySelector('input[name="apply_uwf_overlay_critical_threshold_mb"]');
                 const removeModeSelect = form.querySelector('.remove-mode-select');
                 const removeJsonFields = form.querySelectorAll('.remove-json-field');
                 const removeCommandField = form.querySelector('.remove-command-field');
@@ -579,6 +622,10 @@ C:\ProgramData\DMS\Uwf</textarea>
                         file_exclusions: ['C:\\ProgramData\\DMS\\State', 'C:\\ProgramData\\DMS\\Logs', 'C:\\ProgramData\\DMS\\Uwf'],
                         registry_exclusions: ['HKLM\\SOFTWARE\\DMS'],
                         fail_on_unsupported_edition: false,
+                        overlay_type: '',
+                        overlay_max_size_mb: null,
+                        overlay_warning_threshold_mb: null,
+                        overlay_critical_threshold_mb: null,
                     };
                 };
                 const parseListFromText = function (value) {
@@ -609,6 +656,26 @@ C:\ProgramData\DMS\Uwf</textarea>
                         ? Array.from(new Set(cfg.registry_exclusions.map(function (item) { return String(item || '').trim(); }).filter(function (item) { return item.length > 0; })))
                         : [];
                     cfg.fail_on_unsupported_edition = Boolean(cfg.fail_on_unsupported_edition);
+                    cfg.overlay_type = ['ram', 'disk'].includes(String(cfg.overlay_type || '').toLowerCase())
+                        ? String(cfg.overlay_type || '').toLowerCase()
+                        : '';
+                    const overlayMax = Number(cfg.overlay_max_size_mb);
+                    cfg.overlay_max_size_mb = Number.isFinite(overlayMax) && overlayMax >= 128
+                        ? Math.max(128, Math.min(1048576, Math.trunc(overlayMax)))
+                        : null;
+                    const overlayWarn = Number(cfg.overlay_warning_threshold_mb);
+                    cfg.overlay_warning_threshold_mb = Number.isFinite(overlayWarn) && overlayWarn >= 64
+                        ? Math.max(64, Math.min(1048576, Math.trunc(overlayWarn)))
+                        : null;
+                    const overlayCritical = Number(cfg.overlay_critical_threshold_mb);
+                    cfg.overlay_critical_threshold_mb = Number.isFinite(overlayCritical) && overlayCritical >= 64
+                        ? Math.max(64, Math.min(1048576, Math.trunc(overlayCritical)))
+                        : null;
+                    if (cfg.overlay_warning_threshold_mb !== null
+                        && cfg.overlay_critical_threshold_mb !== null
+                        && cfg.overlay_critical_threshold_mb <= cfg.overlay_warning_threshold_mb) {
+                        cfg.overlay_critical_threshold_mb = cfg.overlay_warning_threshold_mb + 1;
+                    }
                     return cfg;
                 };
                 const syncUwfFieldsFromJson = function () {
@@ -626,6 +693,10 @@ C:\ProgramData\DMS\Uwf</textarea>
                     if (applyUwfFileExclusionsField) applyUwfFileExclusionsField.value = config.file_exclusions.join('\n');
                     if (applyUwfRegistryExclusionsField) applyUwfRegistryExclusionsField.value = config.registry_exclusions.join('\n');
                     if (applyUwfFailUnsupportedEditionField) applyUwfFailUnsupportedEditionField.checked = config.fail_on_unsupported_edition;
+                    if (applyUwfOverlayTypeField) applyUwfOverlayTypeField.value = config.overlay_type;
+                    if (applyUwfOverlayMaxSizeField) applyUwfOverlayMaxSizeField.value = config.overlay_max_size_mb !== null ? String(config.overlay_max_size_mb) : '';
+                    if (applyUwfOverlayWarningField) applyUwfOverlayWarningField.value = config.overlay_warning_threshold_mb !== null ? String(config.overlay_warning_threshold_mb) : '';
+                    if (applyUwfOverlayCriticalField) applyUwfOverlayCriticalField.value = config.overlay_critical_threshold_mb !== null ? String(config.overlay_critical_threshold_mb) : '';
                 };
                 const syncJsonFromUwfFields = function () {
                     const config = normalizeUwfConfig({
@@ -642,6 +713,10 @@ C:\ProgramData\DMS\Uwf</textarea>
                         file_exclusions: applyUwfFileExclusionsField ? parseListFromText(applyUwfFileExclusionsField.value) : [],
                         registry_exclusions: applyUwfRegistryExclusionsField ? parseListFromText(applyUwfRegistryExclusionsField.value) : [],
                         fail_on_unsupported_edition: applyUwfFailUnsupportedEditionField ? applyUwfFailUnsupportedEditionField.checked : false,
+                        overlay_type: applyUwfOverlayTypeField ? applyUwfOverlayTypeField.value : '',
+                        overlay_max_size_mb: applyUwfOverlayMaxSizeField ? applyUwfOverlayMaxSizeField.value : '',
+                        overlay_warning_threshold_mb: applyUwfOverlayWarningField ? applyUwfOverlayWarningField.value : '',
+                        overlay_critical_threshold_mb: applyUwfOverlayCriticalField ? applyUwfOverlayCriticalField.value : '',
                     });
                     jsonInput.value = JSON.stringify(config);
                 };
@@ -899,6 +974,10 @@ C:\ProgramData\DMS\Uwf</textarea>
                     applyUwfFileExclusionsField,
                     applyUwfRegistryExclusionsField,
                     applyUwfFailUnsupportedEditionField,
+                    applyUwfOverlayTypeField,
+                    applyUwfOverlayMaxSizeField,
+                    applyUwfOverlayWarningField,
+                    applyUwfOverlayCriticalField,
                 ].forEach(function (el) {
                     if (!el) return;
                     el.addEventListener('change', function () {

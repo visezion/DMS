@@ -32,8 +32,6 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::post('/devices/{deviceId}/packages/uninstall', [AdminConsoleController::class, 'uninstallDevicePackage'])->name('devices.packages.uninstall');
     Route::post('/devices/{deviceId}/agent/uninstall', [AdminConsoleController::class, 'uninstallDeviceAgent'])->name('devices.agent.uninstall');
     Route::post('/devices/{deviceId}/reboot', [AdminConsoleController::class, 'rebootDevice'])->name('devices.reboot');
-    Route::post('/devices/{deviceId}/freeze', [AdminConsoleController::class, 'freezeDevice'])->name('devices.freeze');
-    Route::post('/devices/{deviceId}/unfreeze', [AdminConsoleController::class, 'unfreezeDevice'])->name('devices.unfreeze');
     Route::post('/devices/{deviceId}/reenroll', [AdminConsoleController::class, 'reenrollDevice'])->name('devices.reenroll');
     Route::post('/devices/enrollment-token', [AdminConsoleController::class, 'createEnrollmentToken'])->name('devices.enrollment-token');
 
