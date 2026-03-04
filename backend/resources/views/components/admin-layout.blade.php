@@ -26,6 +26,20 @@
             $topbarUserAvatar = trim((string) $profileSettingValue['avatar_url']) ?: null;
         }
     }
+    if (is_string($topbarUserAvatar) && $topbarUserAvatar !== '') {
+        if (preg_match('/^https?:\/\//i', $topbarUserAvatar) === 1) {
+            $path = parse_url($topbarUserAvatar, PHP_URL_PATH);
+            $topbarUserAvatar = is_string($path) ? $path : '';
+        }
+        $uploadsPos = strpos($topbarUserAvatar, '/uploads/avatars/');
+        if ($uploadsPos !== false) {
+            $topbarUserAvatar = substr($topbarUserAvatar, $uploadsPos);
+        }
+        $topbarUserAvatar = '/'.ltrim($topbarUserAvatar, '/');
+        if (!str_starts_with($topbarUserAvatar, '/uploads/avatars/')) {
+            $topbarUserAvatar = null;
+        }
+    }
 
     $securitySettingKeys = [
         'security.production_lock_mode',
@@ -126,32 +140,10 @@
     @if($brandFavicon !== '')
         <link rel="icon" type="image/png" href="{{ $brandFavicon }}">
     @endif
-    <script src="https://cdn.tailwindcss.com"></script>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Space Grotesk', 'ui-sans-serif', 'system-ui'],
-                        mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular']
-                    },
-                    colors: {
-                        ink: '#0f172a',
-                        skyline: @json($brandPrimary),
-                        ember: @json($brandAccent),
-                        leaf: '#16a34a',
-                        mist: '#e2e8f0'
-                    },
-                    boxShadow: {
-                        glow: '0 20px 60px rgba(14,165,233,.25)'
-                    }
-                }
-            }
-        }
-    </script>
     <style>
         :root {
             --brand-primary: {{ $brandPrimary }};
@@ -360,7 +352,8 @@
                 <div class="relative" id="topbar-profile-root">
                     <button type="button" id="topbar-profile-btn" class="flex items-center rounded-full bg-white border border-slate-200 p-0.5 hover:bg-slate-50 shadow-sm">
                         @if($topbarUserAvatar)
-                            <img src="{{ $topbarUserAvatar }}" alt="Profile" class="h-8 w-8 rounded-full object-cover border border-slate-200">
+                            <img src="{{ asset(ltrim($topbarUserAvatar, '/')) }}" alt="Profile" class="h-8 w-8 rounded-full object-cover border border-slate-200" onerror="this.style.display='none'; this.nextElementSibling?.classList.remove('hidden');">
+                            <span class="hidden h-8 w-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-xs font-semibold">{{ $topbarInitial }}</span>
                         @else
                             <span class="h-8 w-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-xs font-semibold">{{ $topbarInitial }}</span>
                         @endif

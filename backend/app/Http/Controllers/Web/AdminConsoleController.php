@@ -6019,6 +6019,9 @@ PS1;
     {
         $user = $request->user();
         $pref = $this->settingArray('users.profile.'.$user->id, []);
+        if (is_array($pref)) {
+            $pref['avatar_url'] = $this->normalizeAvatarPath($pref['avatar_url'] ?? null);
+        }
         $mfaSecretPlain = null;
         $mfaProvisioningUri = null;
         if (is_string($user->mfa_secret) && trim($user->mfa_secret) !== '') {
@@ -6078,6 +6081,7 @@ PS1;
             'bio' => '',
             'avatar_url' => null,
         ], $this->settingArray($prefKey, []));
+        $pref['avatar_url'] = $this->normalizeAvatarPath($pref['avatar_url'] ?? null);
 
         $pref['timezone'] = trim((string) ($data['timezone'] ?? $pref['timezone']));
         $pref['locale'] = trim((string) ($data['locale'] ?? $pref['locale']));
@@ -6096,7 +6100,7 @@ PS1;
                 }
                 $avatarName = 'avatar-'.$user->id.'-'.date('YmdHis').'-'.Str::lower(Str::random(8)).'.'.$avatarFile->getClientOriginalExtension();
                 $avatarFile->move($uploadDir, $avatarName);
-                $pref['avatar_url'] = url('uploads/avatars/'.$avatarName);
+                $pref['avatar_url'] = '/uploads/avatars/'.$avatarName;
             }
         }
 
@@ -6112,6 +6116,34 @@ PS1;
         ], $user->id);
 
         return back()->with('status', 'Profile updated successfully.');
+    }
+
+    private function normalizeAvatarPath(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $candidate = trim($value);
+        if ($candidate === '') {
+            return null;
+        }
+
+        if (preg_match('/^https?:\/\//i', $candidate) === 1) {
+            $path = parse_url($candidate, PHP_URL_PATH);
+            $candidate = is_string($path) ? $path : '';
+        }
+
+        $uploadsPos = strpos($candidate, '/uploads/avatars/');
+        if ($uploadsPos !== false) {
+            $candidate = substr($candidate, $uploadsPos);
+        }
+
+        $candidate = '/'.ltrim($candidate, '/');
+
+        return str_starts_with($candidate, '/uploads/avatars/')
+            ? $candidate
+            : null;
     }
 
     public function setupProfileMfa(Request $request, AuditLogger $auditLogger, TotpService $totpService): RedirectResponse

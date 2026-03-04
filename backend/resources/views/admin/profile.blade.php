@@ -6,6 +6,19 @@
             'bio' => '',
             'avatar_url' => null,
         ], is_array($profilePref ?? null) ? $profilePref : []);
+        $profileAvatarUrl = is_string($profilePref['avatar_url'] ?? null) ? trim((string) $profilePref['avatar_url']) : '';
+        if ($profileAvatarUrl !== '' && preg_match('/^https?:\/\//i', $profileAvatarUrl) === 1) {
+            $path = parse_url($profileAvatarUrl, PHP_URL_PATH);
+            $profileAvatarUrl = is_string($path) ? $path : '';
+        }
+        $uploadsPos = strpos($profileAvatarUrl, '/uploads/avatars/');
+        if ($uploadsPos !== false) {
+            $profileAvatarUrl = substr($profileAvatarUrl, $uploadsPos);
+        }
+        $profileAvatarUrl = $profileAvatarUrl === '' ? '' : '/'.ltrim($profileAvatarUrl, '/');
+        if ($profileAvatarUrl !== '' && !str_starts_with($profileAvatarUrl, '/uploads/avatars/')) {
+            $profileAvatarUrl = '';
+        }
     @endphp
 
     <div class="grid gap-4 lg:grid-cols-3">
@@ -13,8 +26,8 @@
             <h3 class="font-semibold">Account</h3>
             <p class="text-xs text-slate-500 mt-1">Your login identity and avatar.</p>
             <div class="mt-4 flex items-center gap-3">
-                @if(!empty($profilePref['avatar_url']))
-                    <img src="{{ $profilePref['avatar_url'] }}" alt="Avatar" class="h-14 w-14 rounded-full object-cover border border-slate-200">
+                @if($profileAvatarUrl !== '')
+                    <img src="{{ asset(ltrim($profileAvatarUrl, '/')) }}" alt="Avatar" class="h-14 w-14 rounded-full object-cover border border-slate-200">
                 @else
                     <span class="h-14 w-14 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-lg font-semibold">
                         {{ strtoupper(substr((string) ($user->name ?? 'U'), 0, 1)) }}
