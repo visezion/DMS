@@ -251,11 +251,23 @@
                             <a href="{{ $generated['script_url'] }}" target="_blank" class="rounded bg-ink text-white px-3 py-1 text-xs">Open Script URL</a>
                         </div>
                     </div>
+                    @if(!empty($generated['cmd_script']))
+                        <div>
+                            <p class="text-xs uppercase text-slate-500">CMD Script</p>
+                            <textarea id="client-cmd-script" readonly class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono min-h-24">{{ $generated['cmd_script'] }}</textarea>
+                            <div class="mt-2 flex items-center gap-2">
+                                <button type="button" data-copy-target="client-cmd-script" class="rounded bg-slate-900 text-white px-3 py-1 text-xs">Copy CMD Script</button>
+                                @if(!empty($generated['launcher_url']))
+                                    <a href="{{ $generated['launcher_url'] }}" class="rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700">Download `.cmd`</a>
+                                @endif
+                            </div>
+                        </div>
+                    @endif
                     <div>
                         <p class="text-xs uppercase text-slate-500">Public Base URL Used</p>
                         <textarea readonly class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono min-h-12">{{ $generated['public_base_url'] ?? '' }}</textarea>
                     </div>
-                    <p class="text-xs text-slate-600">Share the one-liner with the client PC. It downloads the active installer and sets `DMS_API_BASE_URL` + `DMS_ENROLLMENT_TOKEN` machine variables.</p>
+                    <p class="text-xs text-slate-600">Share the PowerShell one-liner or the CMD script with the client PC. Both download the active installer and set `DMS_API_BASE_URL` + `DMS_ENROLLMENT_TOKEN` machine variables.</p>
                 </div>
             @endif
 
@@ -293,26 +305,6 @@
     </div>
         </div>
     </section>
-    <div id="agent-backend-down-popup" class="hidden fixed bottom-6 right-6 z-50 w-[360px] max-w-[92vw] rounded-2xl border border-red-200 bg-white shadow-2xl ring-1 ring-red-100 overflow-hidden">
-        <div class="h-1.5 bg-gradient-to-r from-red-500 via-rose-500 to-amber-500"></div>
-        <div class="p-4">
-            <div class="flex items-start gap-3">
-                <div class="mt-0.5 h-9 w-9 rounded-full bg-red-100 text-red-600 flex items-center justify-center">
-                    <svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor" aria-hidden="true">
-                        <path d="M11 7h2v7h-2zm0 9h2v2h-2z"></path>
-                        <path d="M1 21h22L12 2 1 21zm3.47-2L12 6.06 19.53 19H4.47z"></path>
-                    </svg>
-                </div>
-                <div class="min-w-0">
-                    <p class="text-sm font-semibold text-slate-900">Agent backend server is not running</p>
-                    <p class="mt-1 text-xs text-slate-600">Policy/install actions that depend on it may fail.</p>
-                    <p id="agent-backend-down-meta" class="mt-2 text-[11px] font-mono text-slate-500">127.0.0.1:8000</p>
-                </div>
-                <button id="agent-backend-down-close" type="button" class="ml-auto rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">x</button>
-            </div>
-        </div>
-    </div>
-
     <div id="autobuild-progress-modal" class="hidden fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center px-4">
         <div class="w-full max-w-md rounded-2xl bg-white border border-slate-200 p-6">
             <div class="flex items-start gap-3">
@@ -384,12 +376,6 @@
             const form = document.getElementById('autobuild-form');
             const submitBtn = document.getElementById('autobuild-submit');
             const modal = document.getElementById('autobuild-progress-modal');
-            const backendStatusLine = document.getElementById('agent-backend-status-line');
-            const backendEndpointLine = document.getElementById('agent-backend-endpoint-line');
-            const backendDownPopup = document.getElementById('agent-backend-down-popup');
-            const backendDownMeta = document.getElementById('agent-backend-down-meta');
-            const backendDownClose = document.getElementById('agent-backend-down-close');
-            const backendStatusUrl = @json(route('admin.agent.backend.status'));
 
             if (!form || !submitBtn || !modal) {
                 // Still allow backend polling even if build form is not present.
@@ -424,51 +410,6 @@
                     }
                 });
             });
-
-            let backendDownNotified = false;
-            let backendDismissed = false;
-            backendDownClose?.addEventListener('click', function () {
-                backendDismissed = true;
-                backendDownPopup?.classList.add('hidden');
-            });
-            async function pollBackendStatus() {
-                try {
-                    const res = await fetch(backendStatusUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-                    if (!res.ok) {
-                        return;
-                    }
-                    const data = await res.json();
-                    const running = !!data.running;
-                    if (backendStatusLine) {
-                        backendStatusLine.innerHTML = running
-                            ? 'Status: <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">running</span>'
-                            : 'Status: <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">not running</span>';
-                    }
-                    if (backendEndpointLine) {
-                        backendEndpointLine.textContent = `${data.host}:${data.port}`;
-                    }
-                    if (backendDownMeta) {
-                        backendDownMeta.textContent = `${data.host}:${data.port}${data.error ? ` | ${data.error}` : ''}`;
-                    }
-                    if (!running) {
-                        if (!backendDismissed) {
-                            backendDownPopup?.classList.remove('hidden');
-                        }
-                        if (!backendDownNotified) {
-                            backendDownNotified = true;
-                        }
-                    } else {
-                        backendDownPopup?.classList.add('hidden');
-                        backendDownNotified = false;
-                        backendDismissed = false;
-                    }
-                } catch (e) {
-                    // Ignore transient polling failures.
-                }
-            }
-
-            pollBackendStatus();
-            setInterval(pollBackendStatus, 10000);
         })();
     </script>
 </x-admin-layout>

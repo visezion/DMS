@@ -48,6 +48,10 @@
             "BouncyCastle.Cryptography": {
               "target": "Package",
               "version": "[2.5.1, )"
+            },
+            "System.Diagnostics.EventLog": {
+              "target": "Package",
+              "version": "[8.0.0, )"
             }
           },
           "imports": [

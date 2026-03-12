@@ -148,6 +148,168 @@ class PolicyAndSoftwareLifecycleTest extends TestCase
         $this->assertNotNull($deviceCleanupJob, 'Expected cleanup apply_policy job after device policy removal.');
     }
 
+    public function test_local_admin_restriction_queues_restore_cleanup_when_removed_from_group_or_device(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Tester',
+            'email' => 'tester-local-admin-cleanup@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        [$device, $group] = $this->createDeviceAndGroupFixture('LOCALADMIN', 'Local Admin Cleanup Group');
+        $version = $this->createPolicyVersionWithSingleRule(
+            $user,
+            'Student Lab - Local Admin Restriction',
+            'student-lab-local-admin-restriction-test',
+            'local_group',
+            [
+                'group' => 'Administrators',
+                'allowed_members' => ['Administrator', 'DOMAIN\\Lab-IT-Admins'],
+            ]
+        );
+
+        $this->post(route('admin.groups.policies.add', $group->id), [
+            'policy_version_id' => $version->id,
+            'queue_now' => 0,
+        ])->assertRedirect();
+
+        $groupAssignmentId = (string) DB::table('policy_assignments')
+            ->where('target_type', 'group')
+            ->where('target_id', $group->id)
+            ->where('policy_version_id', $version->id)
+            ->value('id');
+        $this->assertNotSame('', $groupAssignmentId);
+
+        $this->delete(route('admin.groups.policies.remove', [$group->id, $groupAssignmentId]))
+            ->assertRedirect();
+
+        $this->assertLatestCleanupRulesForDevice($device->id, function (array $rules): void {
+            $hasCleanup = collect($rules)->contains(function ($rule) {
+                return strtolower((string) ($rule['type'] ?? '')) === 'local_group'
+                    && strtolower((string) (($rule['config']['group'] ?? ''))) === 'administrators'
+                    && strtolower((string) (($rule['config']['ensure'] ?? ''))) === 'absent'
+                    && (bool) (($rule['config']['restore_previous'] ?? false)) === true
+                    && (bool) (($rule['config']['strict_restore'] ?? false)) === true;
+            });
+
+            $this->assertTrue($hasCleanup, 'Expected local_group restore cleanup after group removal.');
+        });
+
+        DB::table('policy_assignments')->insert([
+            'id' => (string) Str::uuid(),
+            'policy_version_id' => $version->id,
+            'target_type' => 'device',
+            'target_id' => $device->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $deviceAssignmentId = (string) DB::table('policy_assignments')
+            ->where('target_type', 'device')
+            ->where('target_id', $device->id)
+            ->where('policy_version_id', $version->id)
+            ->value('id');
+        $this->assertNotSame('', $deviceAssignmentId);
+
+        $this->delete(route('admin.devices.policies.remove', [$device->id, $deviceAssignmentId]))
+            ->assertRedirect();
+
+        $this->assertLatestCleanupRulesForDevice($device->id, function (array $rules): void {
+            $hasCleanup = collect($rules)->contains(function ($rule) {
+                return strtolower((string) ($rule['type'] ?? '')) === 'local_group'
+                    && strtolower((string) (($rule['config']['group'] ?? ''))) === 'administrators'
+                    && strtolower((string) (($rule['config']['ensure'] ?? ''))) === 'absent'
+                    && (bool) (($rule['config']['restore_previous'] ?? false)) === true
+                    && (bool) (($rule['config']['strict_restore'] ?? false)) === true;
+            });
+
+            $this->assertTrue($hasCleanup, 'Expected local_group restore cleanup after device removal.');
+        });
+    }
+
+    public function test_disable_control_panel_restores_default_when_removed_from_group_or_device(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Tester',
+            'email' => 'tester-control-panel-cleanup@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        [$device, $group] = $this->createDeviceAndGroupFixture('NOCP', 'Control Panel Cleanup Group');
+        $version = $this->createPolicyVersionWithSingleRule(
+            $user,
+            'Disable Control Panel',
+            'disable-control-panel-cleanup-test',
+            'registry',
+            [
+                'path' => 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer',
+                'name' => 'NoControlPanel',
+                'type' => 'DWORD',
+                'value' => 1,
+            ]
+        );
+
+        $this->post(route('admin.groups.policies.add', $group->id), [
+            'policy_version_id' => $version->id,
+            'queue_now' => 0,
+        ])->assertRedirect();
+
+        $groupAssignmentId = (string) DB::table('policy_assignments')
+            ->where('target_type', 'group')
+            ->where('target_id', $group->id)
+            ->where('policy_version_id', $version->id)
+            ->value('id');
+        $this->assertNotSame('', $groupAssignmentId);
+
+        $this->delete(route('admin.groups.policies.remove', [$group->id, $groupAssignmentId]))
+            ->assertRedirect();
+
+        $this->assertLatestCleanupRulesForDevice($device->id, function (array $rules): void {
+            $hasCleanup = collect($rules)->contains(function ($rule) {
+                return strtolower((string) ($rule['type'] ?? '')) === 'registry'
+                    && strtoupper((string) (($rule['config']['path'] ?? ''))) === 'HKLM\\SOFTWARE\\MICROSOFT\\WINDOWS\\CURRENTVERSION\\POLICIES\\EXPLORER'
+                    && strtoupper((string) (($rule['config']['name'] ?? ''))) === 'NOCONTROLPANEL'
+                    && strtolower((string) (($rule['config']['ensure'] ?? ''))) === 'absent';
+            });
+
+            $this->assertTrue($hasCleanup, 'Expected NoControlPanel cleanup after group removal.');
+        });
+
+        DB::table('policy_assignments')->insert([
+            'id' => (string) Str::uuid(),
+            'policy_version_id' => $version->id,
+            'target_type' => 'device',
+            'target_id' => $device->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $deviceAssignmentId = (string) DB::table('policy_assignments')
+            ->where('target_type', 'device')
+            ->where('target_id', $device->id)
+            ->where('policy_version_id', $version->id)
+            ->value('id');
+        $this->assertNotSame('', $deviceAssignmentId);
+
+        $this->delete(route('admin.devices.policies.remove', [$device->id, $deviceAssignmentId]))
+            ->assertRedirect();
+
+        $this->assertLatestCleanupRulesForDevice($device->id, function (array $rules): void {
+            $hasCleanup = collect($rules)->contains(function ($rule) {
+                return strtolower((string) ($rule['type'] ?? '')) === 'registry'
+                    && strtoupper((string) (($rule['config']['path'] ?? ''))) === 'HKLM\\SOFTWARE\\MICROSOFT\\WINDOWS\\CURRENTVERSION\\POLICIES\\EXPLORER'
+                    && strtoupper((string) (($rule['config']['name'] ?? ''))) === 'NOCONTROLPANEL'
+                    && strtolower((string) (($rule['config']['ensure'] ?? ''))) === 'absent';
+            });
+
+            $this->assertTrue($hasCleanup, 'Expected NoControlPanel cleanup after device removal.');
+        });
+    }
+
     public function test_software_add_and_remove_lifecycle_for_group_target(): void
     {
         $user = User::query()->create([
@@ -533,5 +695,80 @@ class PolicyAndSoftwareLifecycleTest extends TestCase
         $this->assertNotSame('', $command);
         $this->assertStringContainsStringIgnoringCase('powershell.exe', $command);
         $this->assertStringContainsStringIgnoringCase('Infer App', $command);
+    }
+
+    private function createDeviceAndGroupFixture(string $deviceSuffix, string $groupName): array
+    {
+        $device = Device::query()->create([
+            'id' => (string) Str::uuid(),
+            'hostname' => 'TEST-'.$deviceSuffix,
+            'os_name' => 'Windows',
+            'os_version' => '10.0.19045',
+            'agent_version' => '2.0.2',
+            'status' => 'online',
+        ]);
+
+        $group = DeviceGroup::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => $groupName,
+            'description' => 'Policy cleanup regression test group',
+        ]);
+
+        DB::table('device_group_memberships')->insert([
+            'device_group_id' => $group->id,
+            'device_id' => $device->id,
+            'created_at' => now(),
+        ]);
+
+        return [$device, $group];
+    }
+
+    private function createPolicyVersionWithSingleRule(User $user, string $policyName, string $slug, string $ruleType, array $ruleConfig): PolicyVersion
+    {
+        $policy = Policy::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => $policyName,
+            'slug' => $slug,
+            'category' => 'education/lab_lockdown',
+            'status' => 'active',
+        ]);
+
+        $version = PolicyVersion::query()->create([
+            'id' => (string) Str::uuid(),
+            'policy_id' => $policy->id,
+            'version_number' => 1,
+            'status' => 'active',
+            'created_by' => $user->id,
+            'published_at' => now(),
+        ]);
+
+        PolicyRule::query()->create([
+            'id' => (string) Str::uuid(),
+            'policy_version_id' => $version->id,
+            'order_index' => 0,
+            'rule_type' => $ruleType,
+            'rule_config' => $ruleConfig,
+            'enforce' => true,
+        ]);
+
+        return $version;
+    }
+
+    private function assertLatestCleanupRulesForDevice(string $deviceId, callable $assertion): void
+    {
+        $cleanupJob = DmsJob::query()
+            ->where('job_type', 'apply_policy')
+            ->where('target_type', 'device')
+            ->where('target_id', $deviceId)
+            ->where('payload->cleanup', true)
+            ->latest('created_at')
+            ->first();
+
+        $this->assertNotNull($cleanupJob, 'Expected cleanup apply_policy job.');
+        $payload = is_array($cleanupJob->payload) ? $cleanupJob->payload : [];
+        $rules = is_array($payload['rules'] ?? null) ? $payload['rules'] : [];
+        $this->assertNotEmpty($rules, 'Expected cleanup job to contain rules.');
+
+        $assertion($rules);
     }
 }

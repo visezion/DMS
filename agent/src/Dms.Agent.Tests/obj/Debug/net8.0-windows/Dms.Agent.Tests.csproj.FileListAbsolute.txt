@@ -101,3 +101,6 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\obj\Debug\net8.0-windows\refint\Dm
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\obj\Debug\net8.0-windows\Dms.Agent.Tests.pdb
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\obj\Debug\net8.0-windows\Dms.Agent.Tests.genruntimeconfig.cache
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\obj\Debug\net8.0-windows\ref\Dms.Agent.Tests.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\System.Diagnostics.EventLog.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\runtimes\win\lib\net8.0\System.Diagnostics.EventLog.Messages.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\runtimes\win\lib\net8.0\System.Diagnostics.EventLog.dll

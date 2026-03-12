@@ -1,5 +1,6 @@
 using Dms.Agent.Core.Jobs;
 using Dms.Agent.Core.Runtime;
+using Dms.Agent.Core.Telemetry;
 using Dms.Agent.Core.Transport;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,7 +14,8 @@ public sealed class Worker(
     JobProcessor jobProcessor,
     AutonomousRemediationLoop remediationLoop,
     StartupRestoreApplier startupRestoreApplier,
-    AgentTamperProtection tamperProtection) : BackgroundService
+    AgentTamperProtection tamperProtection,
+    BehaviorTelemetryCollector behaviorTelemetryCollector) : BackgroundService
 {
     private static readonly string ProgramDataDir = Environment.GetEnvironmentVariable("ProgramData") ?? @"C:\ProgramData";
     private static readonly string DiagnosticsDir = Path.Combine(ProgramDataDir, "DMS", "Diagnostics");
@@ -70,6 +72,19 @@ public sealed class Worker(
                             ? null
                             : checkin.ServerTime.ToUniversalTime();
                         await jobProcessor.ProcessAsync(checkin.Commands, stoppingToken, verificationNowUtc);
+                        try
+                        {
+                            var behaviorEvents = await behaviorTelemetryCollector.CollectAsync(stoppingToken);
+                            if (behaviorEvents.Count > 0)
+                            {
+                                await apiClient.PostBehaviorEventsAsync(behaviorEvents, stoppingToken);
+                                logger.LogInformation("Uploaded {Count} behavior telemetry event(s).", behaviorEvents.Count);
+                            }
+                        }
+                        catch (Exception telemetryEx)
+                        {
+                            logger.LogWarning(telemetryEx, "Behavior telemetry upload failed");
+                        }
 
                         completed = true;
                         WriteDiagnosticsFile(LastSuccessPath, $"utc={DateTimeOffset.UtcNow:O}{Environment.NewLine}attempt={attempt}");

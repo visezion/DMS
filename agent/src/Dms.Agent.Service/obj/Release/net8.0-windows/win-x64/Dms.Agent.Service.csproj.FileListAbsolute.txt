@@ -49,6 +49,7 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\win-x
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\win-x64\Dms.Agent.Service.pdb
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\win-x64\Dms.Agent.Service.genruntimeconfig.cache
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\win-x64\ref\Dms.Agent.Service.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\win-x64\Dms.Agent.Service.sourcelink.json
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\Microsoft.CSharp.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\Microsoft.VisualBasic.Core.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\Microsoft.VisualBasic.dll
@@ -231,4 +232,3 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\mscordbi.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\mscorrc.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\msquic.dll
-C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\win-x64\Dms.Agent.Service.sourcelink.json

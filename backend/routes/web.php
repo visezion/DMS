@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Web\AdminAuthController;
+use App\Http\Controllers\Web\BehaviorAiController;
 use App\Http\Controllers\Web\AdminConsoleController;
 use Illuminate\Support\Facades\Route;
 
@@ -36,6 +37,7 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::post('/devices/enrollment-token', [AdminConsoleController::class, 'createEnrollmentToken'])->name('devices.enrollment-token');
 
     Route::get('/groups', [AdminConsoleController::class, 'groups'])->name('groups');
+    Route::get('/groups/create', [AdminConsoleController::class, 'groupsCreate'])->name('groups.create-page');
     Route::get('/groups/{groupId}', [AdminConsoleController::class, 'groupDetail'])->name('groups.show');
     Route::post('/groups', [AdminConsoleController::class, 'createGroup'])->name('groups.create');
     Route::delete('/groups/{groupId}', [AdminConsoleController::class, 'deleteGroup'])->name('groups.delete');
@@ -92,6 +94,7 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::post('/agent/releases/{releaseId}/activate', [AdminConsoleController::class, 'activateAgentRelease'])->name('agent.releases.activate');
     Route::delete('/agent/releases/{releaseId}', [AdminConsoleController::class, 'deleteAgentRelease'])->name('agent.releases.delete');
     Route::post('/agent/releases/generate', [AdminConsoleController::class, 'generateAgentInstaller'])->name('agent.releases.generate');
+    Route::post('/agent/releases/generate-json', [AdminConsoleController::class, 'generateAgentInstallerJson'])->name('agent.releases.generate-json');
     Route::post('/agent/push-update', [AdminConsoleController::class, 'pushAgentUpdate'])->name('agent.push-update');
     Route::post('/agent/test-connectivity', [AdminConsoleController::class, 'testAgentApiConnectivity'])->name('agent.test-connectivity');
     Route::post('/agent/backend/start', [AdminConsoleController::class, 'startAgentBackendServer'])->name('agent.backend.start');
@@ -126,14 +129,25 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::delete('/access/roles/{roleId}', [AdminConsoleController::class, 'deleteRole'])->name('access.roles.delete');
     Route::patch('/access/users/{userId}/roles', [AdminConsoleController::class, 'assignUserRoles'])->name('access.users.roles.update');
     Route::get('/audit', [AdminConsoleController::class, 'audit'])->name('audit');
+    Route::get('/behavior-ai', [BehaviorAiController::class, 'index'])->name('behavior-ai.index');
+    Route::post('/behavior-ai/recommendations/{recommendationId}/review', [BehaviorAiController::class, 'reviewRecommendation'])->name('behavior-ai.review');
+    Route::post('/behavior-ai/recommendations/approve-all-pending', [BehaviorAiController::class, 'approveAllPendingRecommendations'])->name('behavior-ai.review.approve-all-pending');
+    Route::post('/behavior-ai/runtime/start', [BehaviorAiController::class, 'startRuntime'])->name('behavior-ai.runtime.start');
+    Route::get('/behavior-ai/runtime/status', [BehaviorAiController::class, 'runtimeStatus'])->name('behavior-ai.runtime.status');
+    Route::post('/behavior-ai/train-now', [BehaviorAiController::class, 'queueTrainNow'])->name('behavior-ai.train-now');
+    Route::post('/behavior-ai/retrain', [BehaviorAiController::class, 'queueRetrain'])->name('behavior-ai.retrain');
+    Route::post('/behavior-ai/replay', [BehaviorAiController::class, 'replayFailedStream'])->name('behavior-ai.replay');
 });
 
 Route::get('/agent/releases/{releaseId}/download', [AdminConsoleController::class, 'downloadAgentRelease'])
-    ->middleware('signed:relative')
+    ->middleware('signed')
     ->name('agent.release.download');
 Route::get('/agent/releases/{releaseId}/install-script', [AdminConsoleController::class, 'agentInstallScript'])
-    ->middleware('signed:relative')
+    ->middleware('signed')
     ->name('agent.release.script');
+Route::get('/agent/releases/{releaseId}/install-launcher', [AdminConsoleController::class, 'agentInstallLauncher'])
+    ->middleware('signed')
+    ->name('agent.release.launcher');
 Route::get('/packages/files/{packageFileId}/download', [AdminConsoleController::class, 'downloadPackageFile'])
     ->middleware('signed:relative')
     ->name('package.file.download');

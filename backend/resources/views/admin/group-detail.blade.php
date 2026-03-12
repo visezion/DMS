@@ -4,12 +4,20 @@
         $policies = $policies ?? collect();
         $packages = $packages ?? collect();
         $memberIds = $members->pluck('device_id')->all();
+        $availableDevices = collect($devices ?? [])
+            ->reject(fn ($device) => in_array($device->id, $memberIds, true))
+            ->values();
     @endphp
 
     <style>
         .group-shell {
             border-color: #d7deea;
             box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+        }
+        .search-panel-shell {
+            border: 1px solid #d7deea;
+            background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+            padding: 0.85rem;
         }
     </style>
 
@@ -116,17 +124,35 @@
                 <svg class="h-4 w-4 text-slate-700" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm-5.5 8a5.5 5.5 0 0 1 11 0h-11ZM13 20a5 5 0 0 1 8.5-3.5V20H13Z"/></svg>
                 Group Members
             </h4>
-            <form method="POST" action="{{ route('admin.groups.members.add', $group->id) }}" class="flex gap-2 mb-3">
+            <form method="POST" action="{{ route('admin.groups.members.add', $group->id) }}" class="searchable-select-form search-panel-shell rounded-xl space-y-2 mb-3" data-empty-label="No devices match this search." data-placeholder-label="Add device..." data-count-label="available">
                 @csrf
-                <select name="device_id" class="flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm" required>
-                    <option value="">Add device...</option>
-                    @foreach($devices as $device)
-                        @if(!in_array($device->id, $memberIds, true))
-                            <option value="{{ $device->id }}">{{ $device->hostname }}</option>
-                        @endif
-                    @endforeach
-                </select>
-                <button class="rounded bg-ink text-white px-3 py-1.5 text-xs">Add</button>
+                <div class="flex items-center justify-between gap-2">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Add Member</p>
+                        <p class="text-[11px] text-slate-500">Search by hostname, then add the selected device to this group.</p>
+                    </div>
+                    <span class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 searchable-select-count">
+                        {{ $availableDevices->count() }} available
+                    </span>
+                </div>
+                <div class="grid gap-2">
+                    <input
+                        type="search"
+                        class="searchable-select-input rounded border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Search devices by hostname..."
+                        autocomplete="off"
+                    />
+                    <div class="flex gap-2">
+                        <select name="device_id" class="searchable-select-control flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm" required>
+                            <option value="">Add device...</option>
+                            @foreach($availableDevices as $device)
+                                <option value="{{ $device->id }}">{{ $device->hostname }}</option>
+                            @endforeach
+                        </select>
+                        <button class="rounded bg-ink text-white px-3 py-1.5 text-xs">Add</button>
+                    </div>
+                    <p class="text-[11px] text-slate-500 searchable-select-empty hidden">No devices match this search.</p>
+                </div>
             </form>
 
             <div class="max-h-80 overflow-auto space-y-2 pr-1">
@@ -153,16 +179,34 @@
                 <svg class="h-4 w-4 text-slate-700" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 4 7v6c0 5 3.5 7.8 8 9 4.5-1.2 8-4 8-9V7l-8-4Z"/></svg>
                 Group Policies
             </h4>
-            <form method="POST" action="{{ route('admin.groups.policies.add', $group->id) }}" class="space-y-2 mb-3">
+            <form method="POST" action="{{ route('admin.groups.policies.add', $group->id) }}" class="searchable-select-form search-panel-shell rounded-xl space-y-2 mb-3" data-empty-label="No policies match this search." data-placeholder-label="Assign policy version..." data-count-label="versions">
                 @csrf
-                <select name="policy_version_id" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm" required>
-                    <option value="">Assign policy version...</option>
-                    @foreach(($policyVersionOptions ?? collect()) as $option)
-                        <option value="{{ $option->id }}">
-                            {{ $option->policy_name }} ({{ $option->policy_slug }}) v{{ $option->version_number }} [{{ $option->status }}]
-                        </option>
-                    @endforeach
-                </select>
+                <div class="flex items-center justify-between gap-2">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Assign Policy</p>
+                        <p class="text-[11px] text-slate-500">Search by policy name, slug, version, or status before adding it to this group.</p>
+                    </div>
+                    <span class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 searchable-select-count">
+                        {{ collect($policyVersionOptions ?? [])->count() }} versions
+                    </span>
+                </div>
+                <div class="grid gap-2">
+                    <input
+                        type="search"
+                        class="searchable-select-input rounded border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Search policy versions..."
+                        autocomplete="off"
+                    />
+                    <select name="policy_version_id" class="searchable-select-control w-full rounded border border-slate-300 px-2 py-1.5 text-sm" required>
+                        <option value="">Assign policy version...</option>
+                        @foreach(($policyVersionOptions ?? collect()) as $option)
+                            <option value="{{ $option->id }}">
+                                {{ $option->policy_name }} ({{ $option->policy_slug }}) v{{ $option->version_number }} [{{ $option->status }}]
+                            </option>
+                        @endforeach
+                    </select>
+                    <p class="text-[11px] text-slate-500 searchable-select-empty hidden">No policies match this search.</p>
+                </div>
                 <label class="flex items-center gap-2 text-xs text-slate-700">
                     <input type="checkbox" name="queue_now" value="1" checked>
                     Queue apply policy now
@@ -197,16 +241,34 @@
             @error('group_package')
                 <div class="mb-2 rounded border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700">{{ $message }}</div>
             @enderror
-            <form method="POST" action="{{ route('admin.groups.packages.add', $group->id) }}" class="space-y-2 mb-3">
+            <form method="POST" action="{{ route('admin.groups.packages.add', $group->id) }}" class="searchable-select-form search-panel-shell rounded-xl space-y-2 mb-3" data-empty-label="No packages match this search." data-placeholder-label="Assign package version..." data-count-label="versions">
                 @csrf
-                <select name="package_version_id" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm" required>
-                    <option value="">Assign package version...</option>
-                    @foreach(($packageVersionOptions ?? collect()) as $option)
-                        <option value="{{ $option->id }}">
-                            {{ $option->package_name }} ({{ $option->package_slug }}) v{{ $option->version }} [{{ $option->package_type }}]
-                        </option>
-                    @endforeach
-                </select>
+                <div class="flex items-center justify-between gap-2">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Assign Package</p>
+                        <p class="text-[11px] text-slate-500">Search by package name, slug, version, or type before deploying it to this group.</p>
+                    </div>
+                    <span class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 searchable-select-count">
+                        {{ collect($packageVersionOptions ?? [])->count() }} versions
+                    </span>
+                </div>
+                <div class="grid gap-2">
+                    <input
+                        type="search"
+                        class="searchable-select-input rounded border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Search package versions..."
+                        autocomplete="off"
+                    />
+                    <select name="package_version_id" class="searchable-select-control w-full rounded border border-slate-300 px-2 py-1.5 text-sm" required>
+                        <option value="">Assign package version...</option>
+                        @foreach(($packageVersionOptions ?? collect()) as $option)
+                            <option value="{{ $option->id }}">
+                                {{ $option->package_name }} ({{ $option->package_slug }}) v{{ $option->version }} [{{ $option->package_type }}]
+                            </option>
+                        @endforeach
+                    </select>
+                    <p class="text-[11px] text-slate-500 searchable-select-empty hidden">No packages match this search.</p>
+                </div>
                 <div class="grid grid-cols-2 gap-2">
                     <input name="priority" type="number" min="1" max="1000" value="100" placeholder="Priority" class="rounded border border-slate-300 px-2 py-1.5 text-sm" />
                     <input name="stagger_seconds" type="number" min="0" max="3600" value="0" placeholder="Stagger (s)" class="rounded border border-slate-300 px-2 py-1.5 text-sm" />
@@ -251,4 +313,71 @@
             </div>
         </section>
     </div>
+
+    <script>
+        (function () {
+            document.querySelectorAll('.searchable-select-form').forEach(function (form) {
+                const searchInput = form.querySelector('.searchable-select-input');
+                const select = form.querySelector('.searchable-select-control');
+                const countLabel = form.querySelector('.searchable-select-count');
+                const emptyState = form.querySelector('.searchable-select-empty');
+                if (!searchInput || !select) {
+                    return;
+                }
+
+                const options = Array.from(select.options)
+                    .filter(function (option) { return option.value !== ''; })
+                    .map(function (option) {
+                        return {
+                            value: option.value,
+                            label: option.textContent || '',
+                        };
+                    });
+                const countLabelText = (form.getAttribute('data-count-label') || 'options').trim();
+                const emptyLabel = (form.getAttribute('data-empty-label') || 'No matching options').trim();
+                const placeholderLabel = (form.getAttribute('data-placeholder-label') || 'Select option...').trim();
+
+                const renderOptions = function () {
+                    const query = searchInput.value.trim().toLowerCase();
+                    const previousValue = select.value;
+                    const matches = options.filter(function (item) {
+                        return query === '' || item.label.toLowerCase().includes(query);
+                    });
+
+                    select.innerHTML = '';
+                    const placeholder = document.createElement('option');
+                    placeholder.value = '';
+                    placeholder.textContent = matches.length > 0 ? placeholderLabel : 'No matching options';
+                    select.appendChild(placeholder);
+
+                    matches.forEach(function (item) {
+                        const option = document.createElement('option');
+                        option.value = item.value;
+                        option.textContent = item.label;
+                        if (item.value === previousValue) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+
+                    if (!matches.some(function (item) { return item.value === previousValue; })) {
+                        select.value = '';
+                    }
+
+                    if (countLabel) {
+                        countLabel.textContent = query === ''
+                            ? matches.length + ' ' + countLabelText
+                            : matches.length + ' match' + (matches.length === 1 ? '' : 'es');
+                    }
+                    if (emptyState) {
+                        emptyState.classList.toggle('hidden', matches.length > 0);
+                        emptyState.textContent = emptyLabel;
+                    }
+                };
+
+                searchInput.addEventListener('input', renderOptions);
+                renderOptions();
+            });
+        })();
+    </script>
 </x-admin-layout>

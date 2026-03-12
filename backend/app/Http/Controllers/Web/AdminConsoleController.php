@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\AgentRelease;
 use App\Models\AdminNote;
 use App\Models\AuditLog;
+use App\Models\BehaviorAnomalyCase;
+use App\Models\BehaviorPolicyRecommendation;
 use App\Models\ComplianceResult;
 use App\Models\ControlPlaneSetting;
 use App\Models\Device;
@@ -45,11 +47,29 @@ class AdminConsoleController extends Controller
 {
     public function dashboard(): View
     {
+        $windowStart = now()->subDays(6)->startOfDay();
+        $onlineThreshold = now()->subMinutes(2);
+        $days = collect(range(6, 0))
+            ->map(fn (int $daysAgo) => now()->subDays($daysAgo)->toDateString())
+            ->values();
         $retryingRuns = JobRun::query()->whereNotNull('next_retry_at')->where('status', 'pending')->count();
         $complianceTotal = ComplianceResult::query()->count();
         $complianceCompliant = ComplianceResult::query()->where('status', 'compliant')->count();
+        $complianceNonCompliant = ComplianceResult::query()->where('status', 'non_compliant')->count();
         $jobFinalCount = JobRun::query()->whereIn('status', ['success', 'failed'])->count();
         $jobSuccessCount = JobRun::query()->where('status', 'success')->count();
+        $devicesTotal = Device::query()->count();
+        $devicesPending = Device::query()->where('status', 'pending')->count();
+        $devicesOnline = Device::query()
+            ->whereNotIn('status', ['pending', 'quarantined'])
+            ->whereNotNull('last_seen_at')
+            ->where('last_seen_at', '>', $onlineThreshold)
+            ->count();
+        $devicesEnrolled = Device::query()->where('status', '!=', 'pending')->count();
+        $devicesOffline = max(0, $devicesTotal - $devicesOnline - $devicesPending);
+        $jobsPending = JobRun::query()->whereIn('status', ['pending', 'acked', 'running'])->count();
+        $jobsFailed = JobRun::query()->where('status', 'failed')->count();
+        $jobsSuccess = JobRun::query()->where('status', 'success')->count();
         $replayRejects = JobRun::query()
             ->where('status', 'failed')
             ->where('result_payload', 'like', '%replay_detected%')
@@ -58,26 +78,105 @@ class AdminConsoleController extends Controller
             ->where('purpose', 'command_signing')
             ->latest('created_at')
             ->value('created_at');
+        $jobTrendRows = JobRun::query()
+            ->selectRaw('date(updated_at) as day, status, count(*) as total')
+            ->where('updated_at', '>=', $windowStart)
+            ->whereIn('status', ['success', 'failed', 'pending', 'acked', 'running'])
+            ->groupBy('day', 'status')
+            ->get()
+            ->groupBy('day');
+        $deviceTrendRows = Device::query()
+            ->selectRaw('date(created_at) as day, count(*) as total')
+            ->where('created_at', '>=', $windowStart)
+            ->groupBy('day')
+            ->pluck('total', 'day');
+        $auditTrendRows = AuditLog::query()
+            ->selectRaw('date(created_at) as day, count(*) as total')
+            ->where('created_at', '>=', $windowStart)
+            ->groupBy('day')
+            ->pluck('total', 'day');
+        $anomalyTrendRows = BehaviorAnomalyCase::query()
+            ->selectRaw('date(detected_at) as day, count(*) as total')
+            ->whereNotNull('detected_at')
+            ->where('detected_at', '>=', $windowStart)
+            ->groupBy('day')
+            ->pluck('total', 'day');
+        $jobTrend = $days->map(function (string $day) use ($jobTrendRows) {
+            $rows = collect($jobTrendRows->get($day, collect()));
+
+            return [
+                'day' => $day,
+                'label' => \Carbon\Carbon::parse($day)->format('M d'),
+                'success' => (int) (($rows->firstWhere('status', 'success')->total ?? 0)),
+                'failed' => (int) (($rows->firstWhere('status', 'failed')->total ?? 0)),
+                'active' => (int) $rows
+                    ->filter(fn ($row) => in_array((string) $row->status, ['pending', 'acked', 'running'], true))
+                    ->sum('total'),
+            ];
+        })->values();
+        $enrollmentTrend = $days->map(fn (string $day) => [
+            'day' => $day,
+            'label' => \Carbon\Carbon::parse($day)->format('M d'),
+            'total' => (int) ($deviceTrendRows[$day] ?? 0),
+        ])->values();
+        $auditTrend = $days->map(fn (string $day) => [
+            'day' => $day,
+            'label' => \Carbon\Carbon::parse($day)->format('M d'),
+            'total' => (int) ($auditTrendRows[$day] ?? 0),
+        ])->values();
+        $anomalyTrend = $days->map(fn (string $day) => [
+            'day' => $day,
+            'label' => \Carbon\Carbon::parse($day)->format('M d'),
+            'total' => (int) ($anomalyTrendRows[$day] ?? 0),
+        ])->values();
 
         return view('admin.dashboard', [
             'metrics' => [
-                'devices_total' => Device::query()->count(),
-                'devices_online' => Device::query()->where('status', 'online')->count(),
-                'devices_enrolled' => Device::query()->where('status', '!=', 'pending')->count(),
-                'jobs_pending' => JobRun::query()->whereIn('status', ['pending', 'acked', 'running'])->count(),
-                'jobs_failed' => JobRun::query()->where('status', 'failed')->count(),
+                'devices_total' => $devicesTotal,
+                'devices_online' => $devicesOnline,
+                'devices_offline' => $devicesOffline,
+                'devices_pending' => $devicesPending,
+                'devices_enrolled' => $devicesEnrolled,
+                'jobs_pending' => $jobsPending,
+                'jobs_failed' => $jobsFailed,
+                'jobs_success' => $jobsSuccess,
                 'packages_total' => PackageModel::query()->count(),
                 'policies_total' => Policy::query()->count(),
-                'compliance_non_compliant' => ComplianceResult::query()->where('status', 'non_compliant')->count(),
+                'compliance_non_compliant' => $complianceNonCompliant,
                 'audit_events' => AuditLog::query()->count(),
                 'retrying_runs' => $retryingRuns,
                 'compliance_rate' => $complianceTotal > 0 ? round(($complianceCompliant / $complianceTotal) * 100, 1) : null,
                 'job_success_rate' => $jobFinalCount > 0 ? round(($jobSuccessCount / $jobFinalCount) * 100, 1) : null,
                 'replay_rejects' => $replayRejects,
                 'last_key_rotation' => $lastKeyRotation,
+                'behavior_ai_cases_pending' => BehaviorAnomalyCase::query()->where('status', 'pending_review')->count(),
+                'behavior_ai_cases_total' => BehaviorAnomalyCase::query()->count(),
+                'behavior_ai_recommendations_pending' => BehaviorPolicyRecommendation::query()->where('status', 'pending')->count(),
             ],
             'recent_jobs' => JobRun::query()->latest('updated_at')->limit(8)->get(),
             'recent_devices' => Device::query()->latest('updated_at')->limit(8)->get(),
+            'recent_behavior_ai_cases' => BehaviorAnomalyCase::query()->latest('detected_at')->limit(8)->get(),
+            'charts' => [
+                'job_trend' => $jobTrend,
+                'enrollment_trend' => $enrollmentTrend,
+                'audit_trend' => $auditTrend,
+                'anomaly_trend' => $anomalyTrend,
+                'device_status' => [
+                    'online' => $devicesOnline,
+                    'offline' => $devicesOffline,
+                    'pending' => $devicesPending,
+                ],
+                'job_status' => [
+                    'success' => $jobsSuccess,
+                    'failed' => $jobsFailed,
+                    'active' => $jobsPending,
+                ],
+                'compliance_status' => [
+                    'compliant' => $complianceCompliant,
+                    'non_compliant' => $complianceNonCompliant,
+                    'unknown' => max(0, $complianceTotal - $complianceCompliant - $complianceNonCompliant),
+                ],
+            ],
             'ops' => [
                 'kill_switch' => $this->settingBool('jobs.kill_switch', false),
                 'max_retries' => $this->settingInt('jobs.max_retries', 3),
@@ -651,10 +750,16 @@ class AdminConsoleController extends Controller
 
         return view('admin.groups', [
             'groups' => $groups,
-            'devices' => Device::query()->orderBy('hostname')->get(['id', 'hostname']),
             'memberCounts' => $memberCounts,
             'policyCounts' => $policyCounts,
             'packageCounts' => $packageCounts,
+        ]);
+    }
+
+    public function groupsCreate(): View
+    {
+        return view('admin.groups-create', [
+            'devices' => Device::query()->orderBy('hostname')->get(['id', 'hostname']),
         ]);
     }
 
@@ -845,7 +950,7 @@ class AdminConsoleController extends Controller
 
         $auditLogger->log('group.create.web', 'device_group', $group->id, null, $group->toArray(), $request->user()?->id);
 
-        return back()->with('status', 'Group created.');
+        return redirect()->route('admin.groups')->with('status', 'Group created.');
     }
 
     public function deleteGroup(Request $request, string $groupId, AuditLogger $auditLogger): RedirectResponse
@@ -2307,12 +2412,12 @@ class AdminConsoleController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100'],
-            'rule_type' => ['required', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'rule_type' => ['required', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['required', 'json'],
             'description' => ['nullable', 'string', 'max:240'],
             'applies_to' => ['nullable', 'in:device,group,both'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
         ]);
@@ -2407,12 +2512,12 @@ class AdminConsoleController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100'],
-            'rule_type' => ['required', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'rule_type' => ['required', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['required', 'json'],
             'description' => ['nullable', 'string', 'max:240'],
             'applies_to' => ['nullable', 'in:device,group,both'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
         ]);
@@ -2706,7 +2811,7 @@ class AdminConsoleController extends Controller
         $data = $request->validate([
             'version_number' => ['required', 'integer', 'min:1'],
             'apply_mode' => ['nullable', 'in:json,command'],
-            'rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['nullable', 'json'],
             'apply_command' => ['nullable', 'string', 'max:15000'],
             'apply_run_as' => ['nullable', 'in:default,elevated,system'],
@@ -2729,7 +2834,7 @@ class AdminConsoleController extends Controller
             'apply_uwf_overlay_warning_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'apply_uwf_overlay_critical_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
             'target_type' => ['nullable', 'in:device,group'],
@@ -2805,7 +2910,7 @@ class AdminConsoleController extends Controller
             'version_number' => ['required', 'integer', 'min:1'],
             'status' => ['required', 'in:draft,active,retired'],
             'apply_mode' => ['nullable', 'in:json,command'],
-            'rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['nullable', 'json'],
             'apply_command' => ['nullable', 'string', 'max:15000'],
             'apply_run_as' => ['nullable', 'in:default,elevated,system'],
@@ -2828,7 +2933,7 @@ class AdminConsoleController extends Controller
             'apply_uwf_overlay_warning_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'apply_uwf_overlay_critical_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
             'enforce' => ['nullable', 'boolean'],
@@ -3114,11 +3219,13 @@ class AdminConsoleController extends Controller
         $activeScheduledTaskSignatures = [];
         $activeCommandSignatures = [];
         $activeLocalGroupSignatures = [];
+        $activeDnsSignatures = [];
+        $activeNetworkAdapterSignatures = [];
         $activeUwfSignatures = [];
         if ($activeVersionIds->isNotEmpty()) {
             $activeRules = PolicyRule::query()
                 ->whereIn('policy_version_id', $activeVersionIds)
-                ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'uwf'])
+                ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'dns', 'network_adapter', 'uwf'])
                 ->get(['rule_type', 'rule_config']);
 
             foreach ($activeRules as $rule) {
@@ -3156,6 +3263,22 @@ class AdminConsoleController extends Controller
                     continue;
                 }
 
+                if ($ruleType === 'dns') {
+                    $signature = $this->networkSelectorSignature($config);
+                    if ($signature !== null) {
+                        $activeDnsSignatures[$signature] = true;
+                    }
+                    continue;
+                }
+
+                if ($ruleType === 'network_adapter') {
+                    $signature = $this->networkSelectorSignature($config);
+                    if ($signature !== null) {
+                        $activeNetworkAdapterSignatures[$signature] = true;
+                    }
+                    continue;
+                }
+
                 if ($ruleType === 'uwf') {
                     $signature = $this->uwfRuleSignature($config);
                     if ($signature !== null && ! $this->isUwfMarkedAbsent($config)) {
@@ -3170,6 +3293,8 @@ class AdminConsoleController extends Controller
         $queuedScheduledTaskSignatures = [];
         $queuedCommandSignatures = [];
         $queuedLocalGroupSignatures = [];
+        $queuedDnsSignatures = [];
+        $queuedNetworkAdapterSignatures = [];
         $queuedUwfSignatures = [];
         foreach ($configuredRemoveRules as $rule) {
             if (! is_array($rule)) {
@@ -3213,6 +3338,40 @@ class AdminConsoleController extends Controller
                     'enforce' => true,
                 ];
                 $queuedLocalGroupSignatures[$signature] = true;
+                continue;
+            }
+
+            if ($type === 'dns') {
+                $signature = $this->networkSelectorSignature($config);
+                if ($signature === null) {
+                    continue;
+                }
+                if (isset($activeDnsSignatures[$signature]) || isset($queuedDnsSignatures[$signature])) {
+                    continue;
+                }
+                $cleanupRules[] = [
+                    'type' => 'dns',
+                    'config' => $config + ['mode' => 'automatic'],
+                    'enforce' => true,
+                ];
+                $queuedDnsSignatures[$signature] = true;
+                continue;
+            }
+
+            if ($type === 'network_adapter') {
+                $signature = $this->networkSelectorSignature($config);
+                if ($signature === null) {
+                    continue;
+                }
+                if (isset($activeNetworkAdapterSignatures[$signature]) || isset($queuedNetworkAdapterSignatures[$signature])) {
+                    continue;
+                }
+                $cleanupRules[] = [
+                    'type' => 'network_adapter',
+                    'config' => $config + ['ipv4_mode' => 'dhcp'],
+                    'enforce' => true,
+                ];
+                $queuedNetworkAdapterSignatures[$signature] = true;
                 continue;
             }
 
@@ -3275,7 +3434,7 @@ class AdminConsoleController extends Controller
     {
         $rules = PolicyRule::query()
             ->where('policy_version_id', $policyVersionId)
-            ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'uwf'])
+            ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'dns', 'network_adapter', 'uwf'])
             ->get(['rule_type', 'rule_config']);
 
         $removeRules = [];
@@ -3322,6 +3481,45 @@ class AdminConsoleController extends Controller
         }
 
         return hash('sha256', $command);
+    }
+
+    private function networkSelectorSignature(array $config): ?string
+    {
+        $alias = strtoupper(trim((string) ($config['interface_alias'] ?? '')));
+        if ($alias !== '') {
+            return 'ALIAS:'.$alias;
+        }
+
+        if (array_key_exists('interface_index', $config) && is_numeric($config['interface_index'])) {
+            return 'INDEX:'.(int) $config['interface_index'];
+        }
+
+        $description = strtoupper(trim((string) ($config['interface_description'] ?? '')));
+        if ($description !== '') {
+            return 'DESCRIPTION:'.$description;
+        }
+
+        return null;
+    }
+
+    private function copyNetworkSelectorConfig(array $config): array
+    {
+        $selector = [];
+        $alias = trim((string) ($config['interface_alias'] ?? ''));
+        if ($alias !== '') {
+            $selector['interface_alias'] = $alias;
+        }
+
+        if (array_key_exists('interface_index', $config) && is_numeric($config['interface_index'])) {
+            $selector['interface_index'] = (int) $config['interface_index'];
+        }
+
+        $description = trim((string) ($config['interface_description'] ?? ''));
+        if ($description !== '') {
+            $selector['interface_description'] = $description;
+        }
+
+        return $selector;
     }
 
     private function localGroupRuleSignature(array $config): ?string
@@ -4221,6 +4419,11 @@ POWERSHELL;
                 'allowed_script_hashes' => $this->settingArray('scripts.allowed_sha256', []),
                 'auto_allow_run_command_hashes' => $this->settingBool('scripts.auto_allow_run_command_hashes', false),
                 'delete_cleanup_before_uninstall' => $this->settingBool('devices.delete_cleanup_before_uninstall', false),
+                'package_download_url_mode' => $this->settingString('packages.download_url_mode', 'public'),
+                'behavior_detection_mode' => 'ai',
+                'behavior_ai_threshold' => $this->settingString('behavior.ai_threshold', '0.82'),
+                'behavior_ai_model_path' => $this->settingString('behavior.ai_model_path', 'behavior_models/current-model.json'),
+                'behavior_ai_model_trained_at' => $this->settingString('behavior.ai_model_trained_at', 'not-trained'),
             ],
         ]);
     }
@@ -4563,6 +4766,7 @@ POWERSHELL;
             'auto_allow_run_command_hashes' => ['nullable', 'boolean'],
             'delete_cleanup_before_uninstall' => ['nullable', 'boolean'],
             'package_download_url_mode' => ['nullable', 'in:public,signed'],
+            'behavior_ai_threshold' => ['nullable', 'numeric', 'min:0.10', 'max:0.99'],
         ]);
 
         $settings = [
@@ -4577,6 +4781,8 @@ POWERSHELL;
             'scripts.auto_allow_run_command_hashes' => (bool) ($data['auto_allow_run_command_hashes'] ?? false),
             'devices.delete_cleanup_before_uninstall' => (bool) ($data['delete_cleanup_before_uninstall'] ?? false),
             'packages.download_url_mode' => (string) ($data['package_download_url_mode'] ?? 'public'),
+            'behavior.detection_mode' => 'ai',
+            'behavior.ai_threshold' => (string) ($data['behavior_ai_threshold'] ?? $this->settingString('behavior.ai_threshold', '0.82')),
         ];
 
         foreach ($settings as $key => $value) {
@@ -4842,50 +5048,34 @@ POWERSHELL;
             'public_base_url' => ['nullable', 'url'],
         ]);
 
-        $release = AgentRelease::query()->findOrFail($data['release_id']);
-        $expiresAt = now()->addHours((int) ($data['expires_hours'] ?? 24));
-        $requestPublicBase = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
-        $requestApiBase = $requestPublicBase.'/api/v1';
-        $apiBaseUrl = rtrim((string) ($data['api_base_url'] ?? $requestApiBase), '/');
-        $publicBaseUrl = rtrim((string) ($data['public_base_url'] ?? preg_replace('#/api/v1$#', '', $apiBaseUrl)), '/');
-
-        if ($this->isLocalOnlyHost($publicBaseUrl) || $this->isLocalOnlyHost($apiBaseUrl)) {
-            return back()->withErrors([
-                'agent_generate' => 'Install link cannot use localhost/127.0.0.1. Use a LAN IP or DNS host reachable from client PCs.',
-            ])->withInput();
+        try {
+            $bundle = $this->buildAgentInstallerBundle($request, $data, $auditLogger);
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['agent_generate' => $e->getMessage()])->withInput();
         }
 
-        $rawToken = Str::random(64);
-        $token = EnrollmentToken::query()->create([
-            'id' => (string) Str::uuid(),
-            'token_hash' => hash('sha256', $rawToken),
-            'expires_at' => $expiresAt,
-            'created_by' => $request->user()?->id,
+        return back()->with('agent_generated', $bundle)->with('status', 'Installer links generated.');
+    }
+
+    public function generateAgentInstallerJson(Request $request, AuditLogger $auditLogger): JsonResponse
+    {
+        $data = $request->validate([
+            'release_id' => ['required', 'uuid'],
+            'expires_hours' => ['nullable', 'integer', 'min:1', 'max:168'],
+            'api_base_url' => ['nullable', 'url'],
+            'public_base_url' => ['nullable', 'url'],
         ]);
 
-        $downloadPath = URL::temporarySignedRoute('agent.release.download', $expiresAt, ['releaseId' => $release->id], absolute: false);
-        $scriptPath = URL::temporarySignedRoute('agent.release.script', $expiresAt, [
-            'releaseId' => $release->id,
-            'token' => $rawToken,
-            'api_base_url' => $apiBaseUrl,
-        ], absolute: false);
-        $downloadUrl = $this->buildAbsoluteUrl($publicBaseUrl, $downloadPath);
-        $scriptUrl = $this->buildAbsoluteUrl($publicBaseUrl, $scriptPath);
+        try {
+            $bundle = $this->buildAgentInstallerBundle($request, $data, $auditLogger);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
-        $auditLogger->log('agent.release.generate_installer.web', 'agent_release', $release->id, null, [
-            'expires_at' => $expiresAt->toIso8601String(),
-            'token_id' => $token->id,
-        ], $request->user()?->id);
-
-        return back()->with('agent_generated', [
-            'expires_at' => $expiresAt->toIso8601String(),
-            'download_url' => $downloadUrl,
-            'script_url' => $scriptUrl,
-            'copy_command' => "powershell -ExecutionPolicy Bypass -Command \"iwr -useb '$scriptUrl' | iex\"",
-            'token' => $rawToken,
-            'api_base_url' => $apiBaseUrl,
-            'public_base_url' => $publicBaseUrl,
-        ])->with('status', 'Installer links generated.');
+        return response()->json([
+            'message' => 'Installer links generated.',
+            'bundle' => $bundle,
+        ]);
     }
 
     public function pushAgentUpdate(Request $request, AuditLogger $auditLogger): RedirectResponse
@@ -4914,13 +5104,7 @@ POWERSHELL;
             ])->withInput();
         }
 
-        $downloadPath = URL::temporarySignedRoute(
-            'agent.release.download',
-            $expiresAt,
-            ['releaseId' => $release->id],
-            absolute: false
-        );
-        $downloadUrl = $this->buildAbsoluteUrl($publicBaseUrl, $downloadPath);
+        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', $expiresAt, ['releaseId' => $release->id]);
         $priority = (int) ($data['priority'] ?? 100);
         $staggerSeconds = (int) ($data['stagger_seconds'] ?? 0);
 
@@ -5160,12 +5344,11 @@ POWERSHELL;
                 'created_by' => $request->user()?->id,
             ]);
 
-            $scriptPath = URL::temporarySignedRoute('agent.release.script', $expiresAt, [
+            $scriptUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.script', $expiresAt, [
                 'releaseId' => $release->id,
                 'token' => $rawToken,
                 'api_base_url' => $apiBaseUrl,
-            ], absolute: false);
-            $scriptUrl = $this->buildAbsoluteUrl($publicBaseUrl, $scriptPath);
+            ]);
         }
 
         $scriptFile = $deployMethod === 'psexec'
@@ -5336,8 +5519,8 @@ POWERSHELL;
     public function agentInstallScript(Request $request, string $releaseId): Response
     {
         $release = AgentRelease::query()->findOrFail($releaseId);
-        $downloadPath = URL::temporarySignedRoute('agent.release.download', now()->addMinutes(30), ['releaseId' => $release->id], absolute: false);
-        $downloadUrl = $request->getSchemeAndHttpHost().$request->getBaseUrl().$downloadPath;
+        $publicBaseUrl = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
+        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', now()->addMinutes(30), ['releaseId' => $release->id]);
         $token = (string) $request->query('token');
         $apiBaseUrl = (string) $request->query('api_base_url', rtrim(config('app.url'), '/').'/api/v1');
 
@@ -5353,6 +5536,25 @@ $InstallerPath = Join-Path $WorkDir "__FILE_NAME__"
 $ExtractPath = Join-Path $WorkDir "agent"
 $TokenFile = Join-Path $WorkDir "enrollment-token.txt"
 $ApiFile = Join-Path $WorkDir "api-base-url.txt"
+
+function Test-DmsAdmin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+if (-not (Test-DmsAdmin)) {
+    if ([string]::IsNullOrWhiteSpace($PSCommandPath)) {
+        throw "Administrator rights are required. Save this script to disk and run it again so Windows can prompt for elevation."
+    }
+
+    Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "`"$PSCommandPath`""
+    )
+    exit 0
+}
 
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 [Environment]::SetEnvironmentVariable("DMS_API_BASE_URL", $ApiBaseUrl, "Machine")
@@ -5399,9 +5601,130 @@ PS1;
         ]);
     }
 
+    public function agentInstallLauncher(Request $request, string $releaseId): Response
+    {
+        $release = AgentRelease::query()->findOrFail($releaseId);
+        $publicBaseUrl = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
+        $scriptUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.script', now()->addMinutes(30), [
+            'releaseId' => $release->id,
+            'token' => (string) $request->query('token'),
+            'api_base_url' => (string) $request->query('api_base_url', rtrim(config('app.url'), '/').'/api/v1'),
+        ]);
+        $launcher = $this->buildAgentInstallLauncherScript($scriptUrl);
+
+        return response($launcher, 200, [
+            'Content-Type' => 'application/octet-stream',
+            'Content-Disposition' => 'attachment; filename="install-dms-agent.cmd"',
+        ]);
+    }
+
     private function buildAbsoluteUrl(string $publicBaseUrl, string $relativeSignedPath): string
     {
         return rtrim($publicBaseUrl, '/').$relativeSignedPath;
+    }
+
+    private function buildSignedUrl(string $publicBaseUrl, string $routeName, \DateTimeInterface $expiration, array $parameters = []): string
+    {
+        $defaultRoot = rtrim((string) config('app.url'), '/');
+        URL::forceRootUrl(rtrim($publicBaseUrl, '/'));
+
+        try {
+            return URL::temporarySignedRoute($routeName, $expiration, $parameters);
+        } finally {
+            if ($defaultRoot !== '') {
+                URL::forceRootUrl($defaultRoot);
+            }
+        }
+    }
+
+    private function buildAgentInstallLauncherScript(string $scriptUrl): string
+    {
+        $cmdSafeScriptUrl = str_replace('%', '%%', $scriptUrl);
+
+        return str_replace('__SCRIPT_URL__', $cmdSafeScriptUrl, <<<'CMD'
+@echo off
+setlocal
+set "SCRIPT_URL=__SCRIPT_URL__"
+set "SCRIPT_PATH=%TEMP%\install-dms-agent.ps1"
+
+echo Downloading DMS installer...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing '%SCRIPT_URL%' -OutFile '%SCRIPT_PATH%'"
+if errorlevel 1 (
+  echo Failed to download installer script.
+  pause
+  exit /b 1
+)
+
+echo Requesting administrator permission...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','%SCRIPT_PATH%')"
+if errorlevel 1 (
+  echo Elevation was canceled or failed.
+  pause
+  exit /b 1
+)
+
+exit /b 0
+CMD);
+    }
+
+    /**
+     * @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    private function buildAgentInstallerBundle(Request $request, array $data, AuditLogger $auditLogger): array
+    {
+        $release = AgentRelease::query()->findOrFail((string) $data['release_id']);
+        $expiresAt = now()->addHours((int) ($data['expires_hours'] ?? 24));
+        $requestPublicBase = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
+        $requestApiBase = $requestPublicBase.'/api/v1';
+        $apiBaseUrl = rtrim((string) ($data['api_base_url'] ?? $requestApiBase), '/');
+        $publicBaseUrl = rtrim((string) ($data['public_base_url'] ?? preg_replace('#/api/v1$#', '', $apiBaseUrl)), '/');
+
+        if ($this->isLocalOnlyHost($publicBaseUrl) || $this->isLocalOnlyHost($apiBaseUrl)) {
+            throw new \InvalidArgumentException('Install link cannot use localhost/127.0.0.1. Use a LAN IP or DNS host reachable from client PCs.');
+        }
+
+        $rawToken = Str::random(64);
+        $token = EnrollmentToken::query()->create([
+            'id' => (string) Str::uuid(),
+            'token_hash' => hash('sha256', $rawToken),
+            'expires_at' => $expiresAt,
+            'created_by' => $request->user()?->id,
+        ]);
+
+        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', $expiresAt, ['releaseId' => $release->id]);
+        $scriptUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.script', $expiresAt, [
+            'releaseId' => $release->id,
+            'token' => $rawToken,
+            'api_base_url' => $apiBaseUrl,
+        ]);
+        $launcherUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.launcher', $expiresAt, [
+            'releaseId' => $release->id,
+            'token' => $rawToken,
+            'api_base_url' => $apiBaseUrl,
+        ]);
+
+        $auditLogger->log('agent.release.generate_installer.web', 'agent_release', $release->id, null, [
+            'expires_at' => $expiresAt->toIso8601String(),
+            'token_id' => $token->id,
+        ], $request->user()?->id);
+
+        $copyCommand = "powershell -NoProfile -ExecutionPolicy Bypass -Command '\$scriptPath = Join-Path \$env:TEMP ''install-dms-agent.ps1''; Invoke-WebRequest -UseBasicParsing ''{$scriptUrl}'' -OutFile \$scriptPath; Start-Process -FilePath ''powershell.exe'' -Verb RunAs -ArgumentList @(''-NoProfile'',''-ExecutionPolicy'',''Bypass'',''-File'',\$scriptPath)'";
+        $cmdScript = $this->buildAgentInstallLauncherScript($scriptUrl);
+
+        return [
+            'expires_at' => $expiresAt->toIso8601String(),
+            'download_url' => $downloadUrl,
+            'script_url' => $scriptUrl,
+            'launcher_url' => $launcherUrl,
+            'copy_command' => $copyCommand,
+            'cmd_script' => $cmdScript,
+            'token' => $rawToken,
+            'api_base_url' => $apiBaseUrl,
+            'public_base_url' => $publicBaseUrl,
+            'release_id' => $release->id,
+            'release_version' => $release->version,
+        ];
     }
 
     private function resolvePackageArtifactDownloadUrl(
@@ -5794,6 +6117,10 @@ PS1;
                 'allowed_script_hashes' => $this->settingArray('scripts.allowed_sha256', []),
                 'auto_allow_run_command_hashes' => $this->settingBool('scripts.auto_allow_run_command_hashes', false),
                 'delete_cleanup_before_uninstall' => $this->settingBool('devices.delete_cleanup_before_uninstall', false),
+                'behavior_detection_mode' => 'ai',
+                'behavior_ai_threshold' => $this->settingString('behavior.ai_threshold', '0.82'),
+                'behavior_ai_model_path' => $this->settingString('behavior.ai_model_path', 'behavior_models/current-model.json'),
+                'behavior_ai_model_trained_at' => $this->settingString('behavior.ai_model_trained_at', 'not-trained'),
             ],
             'signatureBypassEnabled' => $this->settingBool(
                 'security.signature_bypass_enabled',
@@ -7024,6 +7351,32 @@ PS1;
             ]];
         }
 
+        if ($type === 'dns') {
+            $selectorConfig = $this->copyNetworkSelectorConfig($ruleConfig);
+            if ($selectorConfig === []) {
+                return [];
+            }
+
+            return [[
+                'type' => 'dns',
+                'config' => $selectorConfig + ['mode' => 'automatic'],
+                'enforce' => true,
+            ]];
+        }
+
+        if ($type === 'network_adapter') {
+            $selectorConfig = $this->copyNetworkSelectorConfig($ruleConfig);
+            if ($selectorConfig === []) {
+                return [];
+            }
+
+            return [[
+                'type' => 'network_adapter',
+                'config' => $selectorConfig + ['ipv4_mode' => 'dhcp'],
+                'enforce' => true,
+            ]];
+        }
+
         if ($type === 'scheduled_task') {
             $taskName = trim((string) ($ruleConfig['task_name'] ?? ''));
             if ($taskName === '') {
@@ -7346,6 +7699,8 @@ PS1;
         return match ($ruleType) {
             'registry' => $this->validateRegistryRuleConfig($config),
             'firewall' => $this->validateFirewallRuleConfig($config),
+            'dns' => $this->validateDnsRuleConfig($config),
+            'network_adapter' => $this->validateNetworkAdapterRuleConfig($config),
             'bitlocker' => $this->validateBitlockerRuleConfig($config),
             'local_group' => $this->validateLocalGroupRuleConfig($config),
             'windows_update' => $this->validateWindowsUpdateRuleConfig($config),
@@ -7807,6 +8162,129 @@ PS1;
         return null;
     }
 
+    private function validateDnsRuleConfig(array $config): ?string
+    {
+        $selectorError = $this->validateNetworkSelectorConfig($config);
+        if ($selectorError !== null) {
+            return $selectorError;
+        }
+
+        $mode = strtolower(trim((string) ($config['mode'] ?? 'static')));
+        if (! in_array($mode, ['static', 'automatic'], true)) {
+            return 'DNS rule "mode" must be "static" or "automatic".';
+        }
+
+        if (array_key_exists('dry_run', $config) && ! is_bool($config['dry_run'])) {
+            return 'DNS rule "dry_run" must be true/false.';
+        }
+
+        $servers = $config['servers'] ?? null;
+        if ($mode === 'static') {
+            if (! is_array($servers) || $servers === []) {
+                return 'DNS rule requires non-empty "servers" array when mode=static.';
+            }
+
+            foreach ($servers as $idx => $server) {
+                $value = trim((string) $server);
+                if ($value === '' || ! $this->isValidIpv4Address($value)) {
+                    return sprintf('DNS rule servers[%d] must be a valid IPv4 address.', $idx);
+                }
+            }
+
+            return null;
+        }
+
+        if ($servers !== null && (! is_array($servers) || count($servers) > 0)) {
+            return 'DNS rule "servers" must be omitted or empty when mode=automatic.';
+        }
+
+        return null;
+    }
+
+    private function validateNetworkAdapterRuleConfig(array $config): ?string
+    {
+        $selectorError = $this->validateNetworkSelectorConfig($config);
+        if ($selectorError !== null) {
+            return $selectorError;
+        }
+
+        $mode = strtolower(trim((string) ($config['ipv4_mode'] ?? '')));
+        if (! in_array($mode, ['dhcp', 'static'], true)) {
+            return 'Network adapter rule "ipv4_mode" must be "dhcp" or "static".';
+        }
+
+        if (array_key_exists('dry_run', $config) && ! is_bool($config['dry_run'])) {
+            return 'Network adapter rule "dry_run" must be true/false.';
+        }
+
+        if ($mode === 'dhcp') {
+            if (array_key_exists('address', $config) || array_key_exists('prefix_length', $config) || array_key_exists('gateway', $config)) {
+                return 'Network adapter rule address/prefix_length/gateway must be omitted when ipv4_mode=dhcp.';
+            }
+
+            return null;
+        }
+
+        $address = trim((string) ($config['address'] ?? ''));
+        if ($address === '' || ! $this->isValidIpv4Address($address)) {
+            return 'Network adapter rule requires valid IPv4 "address" when ipv4_mode=static.';
+        }
+
+        if (! array_key_exists('prefix_length', $config) || ! is_int($config['prefix_length'])) {
+            return 'Network adapter rule requires integer "prefix_length" when ipv4_mode=static.';
+        }
+        $prefixLength = (int) $config['prefix_length'];
+        if ($prefixLength < 1 || $prefixLength > 32) {
+            return 'Network adapter rule "prefix_length" must be between 1 and 32.';
+        }
+
+        if (array_key_exists('gateway', $config)) {
+            $gateway = trim((string) $config['gateway']);
+            if ($gateway !== '' && ! $this->isValidIpv4Address($gateway)) {
+                return 'Network adapter rule "gateway" must be a valid IPv4 address when provided.';
+            }
+        }
+
+        return null;
+    }
+
+    private function validateNetworkSelectorConfig(array $config): ?string
+    {
+        $selectorCount = 0;
+
+        $alias = trim((string) ($config['interface_alias'] ?? ''));
+        if ($alias !== '') {
+            $selectorCount++;
+        }
+
+        if (array_key_exists('interface_index', $config)) {
+            if (! is_int($config['interface_index']) || (int) $config['interface_index'] < 1) {
+                return 'Network rule "interface_index" must be a positive integer.';
+            }
+            $selectorCount++;
+        }
+
+        $description = trim((string) ($config['interface_description'] ?? ''));
+        if ($description !== '') {
+            $selectorCount++;
+        }
+
+        if ($selectorCount === 0) {
+            return 'Network rule requires exactly one selector: interface_alias, interface_index, or interface_description.';
+        }
+
+        if ($selectorCount > 1) {
+            return 'Network rule selector must use only one of interface_alias, interface_index, or interface_description.';
+        }
+
+        return null;
+    }
+
+    private function isValidIpv4Address(string $value): bool
+    {
+        return filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+    }
+
     private function validateBitlockerRuleConfig(array $config): ?string
     {
         $drive = trim((string) ($config['drive'] ?? ''));
@@ -8021,6 +8499,8 @@ PS1;
             ['key' => 'block_usb_storage', 'label' => 'Block USB Storage', 'name' => 'Block USB Storage', 'slug' => 'security-usb-storage-block', 'category' => 'security/device_control', 'rule_type' => 'registry', 'rule_json' => ['path' => 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR', 'name' => 'Start', 'type' => 'DWORD', 'value' => 4], 'source' => 'default'],
             ['key' => 'allow_usb_storage', 'label' => 'Allow USB Storage', 'name' => 'Allow USB Storage', 'slug' => 'security-usb-storage-allow', 'category' => 'security/device_control', 'rule_type' => 'registry', 'rule_json' => ['path' => 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR', 'name' => 'Start', 'type' => 'DWORD', 'value' => 3], 'source' => 'default'],
             ['key' => 'enforce_firewall', 'label' => 'Enforce Firewall', 'name' => 'Enforce Firewall', 'slug' => 'security-firewall-enforce', 'category' => 'security/network', 'rule_type' => 'firewall', 'rule_json' => ['enabled' => true, 'profiles' => ['domain', 'private', 'public']], 'remove_mode' => 'json', 'remove_rules' => [['type' => 'firewall', 'config' => ['enabled' => false], 'enforce' => true]], 'source' => 'default'],
+            ['key' => 'dns_static_servers', 'label' => 'DNS: Static Servers', 'name' => 'DNS Static Servers', 'slug' => 'network-dns-static-servers', 'category' => 'security/network', 'rule_type' => 'dns', 'rule_json' => ['interface_alias' => 'Ethernet', 'mode' => 'static', 'servers' => ['10.0.0.10', '10.0.0.11']], 'remove_mode' => 'auto', 'remove_rules' => [['type' => 'dns', 'config' => ['interface_alias' => 'Ethernet', 'mode' => 'automatic'], 'enforce' => true]], 'source' => 'default'],
+            ['key' => 'ipv4_static_address', 'label' => 'IPv4: Static Address', 'name' => 'IPv4 Static Address', 'slug' => 'network-ipv4-static-address', 'category' => 'security/network', 'rule_type' => 'network_adapter', 'rule_json' => ['interface_alias' => 'Ethernet', 'ipv4_mode' => 'static', 'address' => '10.0.0.25', 'prefix_length' => 24, 'gateway' => '10.0.0.1'], 'remove_mode' => 'auto', 'remove_rules' => [['type' => 'network_adapter', 'config' => ['interface_alias' => 'Ethernet', 'ipv4_mode' => 'dhcp'], 'enforce' => true]], 'source' => 'default'],
             ['key' => 'require_bitlocker', 'label' => 'Require BitLocker', 'name' => 'Require BitLocker', 'slug' => 'security-bitlocker-required', 'category' => 'security/encryption', 'rule_type' => 'bitlocker', 'rule_json' => ['drive' => 'C:', 'required' => true], 'remove_mode' => 'command', 'remove_rules' => [['type' => 'command', 'config' => ['command' => 'powershell.exe -NoProfile -Command "Write-Output BitLocker baseline removed from DMS policy profile"'], 'enforce' => true]], 'source' => 'default'],
             ['key' => 'local_admins_baseline', 'label' => 'Local Admin Baseline', 'name' => 'Local Admin Group Baseline', 'slug' => 'security-local-admins-baseline', 'category' => 'security/local_accounts', 'rule_type' => 'local_group', 'rule_json' => ['group' => 'Administrators', 'allowed_members' => ['DOMAIN\\IT-Admins', 'Administrator']], 'remove_mode' => 'command', 'remove_rules' => [['type' => 'command', 'config' => ['command' => 'powershell.exe -NoProfile -Command "Write-Output Local admin baseline removed from DMS policy profile"'], 'enforce' => true]], 'source' => 'default'],
             ['key' => 'windows_update_business', 'label' => 'Windows Update Hours', 'name' => 'Windows Update Active Hours', 'slug' => 'update-active-hours', 'category' => 'update/windows_update', 'rule_type' => 'windows_update', 'rule_json' => ['active_hours_start' => 8, 'active_hours_end' => 17, 'force_install_window' => '22:00-02:00'], 'remove_mode' => 'json', 'remove_rules' => [['type' => 'windows_update', 'config' => ['active_hours_start' => 8, 'active_hours_end' => 17], 'enforce' => true]], 'source' => 'default'],
@@ -8134,6 +8614,8 @@ PS1;
             'block_usb_storage' => ['description' => 'Blocks USB storage devices by disabling UsbStor service start.', 'applies_to' => 'both'],
             'allow_usb_storage' => ['description' => 'Re-enables USB storage access on managed endpoints.', 'applies_to' => 'both'],
             'enforce_firewall' => ['description' => 'Forces Windows Firewall enabled for all network profiles.', 'applies_to' => 'both'],
+            'dns_static_servers' => ['description' => 'Sets explicit IPv4 DNS resolvers on a selected network interface.', 'applies_to' => 'device'],
+            'ipv4_static_address' => ['description' => 'Pins a selected interface to a static IPv4 address and optional default gateway.', 'applies_to' => 'device'],
             'require_bitlocker' => ['description' => 'Requires BitLocker protection for system drive C:.', 'applies_to' => 'device'],
             'fast_reboot_restore_mode' => ['description' => 'Applies a persistent startup restore manifest at every boot for non-persistent classroom behavior.', 'applies_to' => 'both'],
             'kiosk_applocker_service_enforced' => ['description' => 'Enforces AppLocker identity service startup as a prerequisite for allowlist-based controls.', 'applies_to' => 'both'],

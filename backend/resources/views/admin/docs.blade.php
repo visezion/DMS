@@ -1,4 +1,203 @@
 <x-admin-layout title="Docs" heading="Project Documentation">
+    @php
+        $featureGuides = [
+            [
+                'title' => 'Overview Dashboard',
+                'summary' => 'Use the dashboard as the first stop for fleet health, rollout risk, and security posture.',
+                'paths' => ['/admin'],
+                'works' => [
+                    'The dashboard aggregates device state, job outcomes, security posture, and operational controls into one admin landing page.',
+                    'It is meant to answer what changed, what is broken, and where you should drill in next.',
+                    'The value of the dashboard is navigation: it should send you to Devices, Jobs, Policies, or Security Hardening to take action.',
+                ],
+                'example_title' => 'Example: investigate a bad rollout',
+                'example_steps' => [
+                    'You notice failed jobs or a lower security score after a change window.',
+                    'Open the affected metric from Overview, inspect the impacted devices, then move into Jobs or Policies to rerun, remove, or correct the rollout.',
+                ],
+            ],
+            [
+                'title' => 'Enroll Devices',
+                'summary' => 'Bring a new Windows endpoint under management and make it start checking in.',
+                'paths' => ['/admin/enroll-devices', '/admin/devices'],
+                'works' => [
+                    'Admins generate or reuse an enrollment token, then run the installer script on the Windows endpoint as Administrator.',
+                    'The agent enrolls, stores identity locally, starts the Windows service, and begins heartbeat and check-in traffic.',
+                    'After enrollment, the device appears in Devices and becomes available for group membership, policy assignment, package deployment, and jobs.',
+                ],
+                'example_title' => 'Example: onboard a new lab PC',
+                'example_steps' => [
+                    'Open Enroll Devices, copy the installer command, and run it on LAB-PC-22.',
+                    'Confirm the device appears in Devices, then add it to the Student Lab group so it inherits the correct restrictions and packages.',
+                ],
+            ],
+            [
+                'title' => 'Devices',
+                'summary' => 'Manage one endpoint directly when you need diagnostics, lifecycle actions, or emergency targeting.',
+                'paths' => ['/admin/devices', '/admin/devices/{deviceId}', '/admin/devices/{deviceId}/live'],
+                'works' => [
+                    'The Devices list is the operational inventory for hostnames, status, agent version, and last check-in.',
+                    'Device Detail shows deeper data such as inventory, network information, assignments, and queued actions.',
+                    'From a device you can re-enroll, reboot, uninstall the agent, remove assignments, or queue one-off actions when group targeting is too broad.',
+                ],
+                'example_title' => 'Example: fix one offline laptop',
+                'example_steps' => [
+                    'Search for a staff laptop in Devices and open Device Detail.',
+                    'Use the live view to confirm recent check-in and inventory, then queue a reboot or remove a bad assignment if that single device is broken.',
+                ],
+            ],
+            [
+                'title' => 'Groups',
+                'summary' => 'Groups are the main targeting container for members, policies, packages, and bundled lockdown workflows.',
+                'paths' => ['/admin/groups', '/admin/groups/{groupId}'],
+                'works' => [
+                    'A group collects devices so you can assign policy versions and package deployments once instead of device by device.',
+                    'Group Detail lets admins search and add members, then attach policies and packages from searchable pickers.',
+                    'The kiosk lockdown bundle composes multiple existing policies into one controlled rollout for labs or kiosks.',
+                ],
+                'example_title' => 'Example: build a student lab group',
+                'example_steps' => [
+                    'Create a group named Student Lab - Floor 2, then search and add the classroom devices as members.',
+                    'Apply the kiosk lockdown bundle and add required packages so every current and future member receives the same baseline.',
+                ],
+            ],
+            [
+                'title' => 'Software Packages',
+                'summary' => 'Packages are the software catalog for install, uninstall, versioning, and rollout history.',
+                'paths' => ['/admin/packages', '/admin/packages/{packageId}'],
+                'works' => [
+                    'Create a package shell first, then add versions with artifacts or source URIs, hashes, detection rules, and install arguments.',
+                    'Each version can be deployed to a device, a group, or all devices through the package detail view.',
+                    'Deployment results are recorded through jobs and deployment history so admins can see what shipped and what failed.',
+                ],
+                'example_title' => 'Example: deploy Notepad++',
+                'example_steps' => [
+                    'Create a Notepad++ package, add version 8.9.2 with detection data, then open that version in Package Detail.',
+                    'Deploy the version to the Accounting group and monitor completion in Deployment History and Jobs.',
+                ],
+            ],
+            [
+                'title' => 'Policies',
+                'summary' => 'Policies are versioned configuration rules that can be assigned safely and removed cleanly.',
+                'paths' => ['/admin/policies', '/admin/policies/{policyId}', '/admin/catalog'],
+                'works' => [
+                    'A policy contains one or more typed rules such as registry, firewall, local_group, command, DNS, or network_adapter.',
+                    'Admins assign a specific policy version to a device or group so changes are explicit and auditable.',
+                    'When a policy is removed, the platform can queue cleanup logic so Windows returns to its default or previous state where supported.',
+                ],
+                'example_title' => 'Example: restrict a student lab safely',
+                'example_steps' => [
+                    'Assign Disable Control Panel and Student Lab - Local Admin Restriction to the Student Lab group.',
+                    'If the group no longer needs those controls, remove the assignments and the cleanup logic restores the Control Panel default and previous local admin state.',
+                ],
+            ],
+            [
+                'title' => 'Network Policies',
+                'summary' => 'Network policy rules let admins manage DNS and IPv4 adapter state without raw command payloads.',
+                'paths' => ['/admin/policies/{policyId}'],
+                'works' => [
+                    'DNS rules support automatic or manual server configuration and can target adapters by alias, index, or description.',
+                    'Network adapter rules support DHCP or static IPv4 settings, including subnet mask or gateway data through the guided editor.',
+                    'Removal behavior is important: DNS returns to automatic and IPv4 returns to DHCP when the policy cleanup runs.',
+                ],
+                'example_title' => 'Example: set branch office DNS',
+                'example_steps' => [
+                    'Create a DNS policy that targets the Ethernet adapter and sets preferred and alternate DNS servers for the branch office.',
+                    'Assign it to the branch group, then remove it later to send those devices back to automatic DNS.',
+                ],
+            ],
+            [
+                'title' => 'Jobs',
+                'summary' => 'Jobs are the execution layer for packages, policies, reboots, commands, updates, and rollback operations.',
+                'paths' => ['/admin/jobs', '/admin/jobs/{jobId}'],
+                'works' => [
+                    'Every remote operation eventually becomes a job and one or more device runs with statuses such as pending, running, acked, completed, or failed.',
+                    'The Jobs page lets admins queue a new job manually, filter the current queue, rerun items, and inspect payload history.',
+                    'Jobs are the main place to confirm whether a rollout actually executed on endpoints, not just whether it was assigned in the UI.',
+                ],
+                'example_title' => 'Example: test a command on one endpoint',
+                'example_steps' => [
+                    'Queue a run_command job with a simple payload such as hostname against a single device.',
+                    'Watch the status move through pending to completed, then open the job detail to verify the output and timing.',
+                ],
+            ],
+            [
+                'title' => 'Agent Delivery and IP Deployment',
+                'summary' => 'These tools manage the agent release lifecycle and remote installation workflows.',
+                'paths' => ['/admin/agent', '/admin/ip-deploy'],
+                'works' => [
+                    'Agent Delivery handles release upload or autobuild, release activation, installer generation, push updates, and connectivity checks.',
+                    'IP Deployment is for remote installation workflows when you know the target hosts and need to push the agent over network protocols.',
+                    'Together they cover both packaging the agent and distributing it into the fleet.',
+                ],
+                'example_title' => 'Example: ship a new agent release',
+                'example_steps' => [
+                    'Build or upload agent release 1.3.0, activate it, and generate a fresh installer for new devices.',
+                    'After a pilot verifies clean check-ins, use push update so enrolled devices move to the new release.',
+                ],
+            ],
+            [
+                'title' => 'AI Control Center',
+                'summary' => 'Behavior AI collects telemetry, produces anomaly cases, and lets admins convert signals into actions.',
+                'paths' => ['/admin/behavior-ai', '/admin/behavior-alerts'],
+                'works' => [
+                    'Endpoints send behavior events such as logon activity, app launches, and file access into the backend.',
+                    'The AI and rule engines create cases and recommendations, which admins can review, approve, dismiss, replay, or retrain against.',
+                    'Runtime controls on the page help operators keep the queue worker and scheduler healthy so detection stays active.',
+                ],
+                'example_title' => 'Example: review suspicious behavior',
+                'example_steps' => [
+                    'An endpoint starts launching blocked tools outside normal hours and a case appears in AI Control Center.',
+                    'Review the recommendation, approve the policy action if it is valid, or dismiss it if the activity is expected for that user.',
+                ],
+            ],
+            [
+                'title' => 'Settings and Security Hardening',
+                'summary' => 'Settings control global safety rails, trust boundaries, branding, and authentication posture.',
+                'paths' => ['/admin/settings', '/admin/security-hardening', '/admin/settings/branding'],
+                'works' => [
+                    'Operations controls include kill switch, retry counts, backoff, behavior detection mode, and script hash allowlist controls.',
+                    'Security settings cover signature bypass rules, auth hardening, HTTPS app URL, and other trust-sensitive options.',
+                    'These are high-impact controls because they affect the whole platform, not just one device or group.',
+                ],
+                'example_title' => 'Example: freeze dispatch during maintenance',
+                'example_steps' => [
+                    'Before backend maintenance, enable the kill switch in Settings so no new dispatches are sent.',
+                    'Complete the maintenance, verify health, then disable the kill switch so normal delivery resumes.',
+                ],
+            ],
+            [
+                'title' => 'Access Control, Audit Logs, and Notes',
+                'summary' => 'Use these modules to control who can act, trace what happened, and keep shared operator notes.',
+                'paths' => ['/admin/access', '/admin/audit', '/admin/notes'],
+                'works' => [
+                    'Access Control creates staff users, roles, and permission sets so teams only see or change the modules they own.',
+                    'Audit Logs record important admin and device-side actions for forensics, compliance, and rollback analysis.',
+                    'Admin Notes provide a lightweight internal knowledge base for change windows, exceptions, and operator reminders.',
+                ],
+                'example_title' => 'Example: delegate helpdesk access safely',
+                'example_steps' => [
+                    'Create a Helpdesk role with read access to Devices and Jobs but without policy or package write permissions.',
+                    'When a change is made, use Audit Logs to see who performed it and pin a note with the agreed support procedure.',
+                ],
+            ],
+            [
+                'title' => 'API and Agent Flow',
+                'summary' => 'The API and Windows agent form the execution pipeline behind every UI action.',
+                'paths' => ['/api/v1/device/*', '/api/v1/admin/*'],
+                'works' => [
+                    'A device enrolls once, then repeatedly heartbeats, checks in for work, acknowledges job receipt, executes locally, and reports results back.',
+                    'Admin APIs expose the same core entities that the web UI uses: devices, groups, packages, policies, jobs, and audit logs.',
+                    'Understanding this flow matters when debugging because a UI issue may actually be a check-in, signing, or job-result problem.',
+                ],
+                'example_title' => 'Example: package deployment end-to-end',
+                'example_steps' => [
+                    'An admin deploys a package version to a group from the web UI.',
+                    'The backend creates jobs, each device receives the command at check-in, downloads metadata, executes the install, and posts ACK plus result back to the API.',
+                ],
+            ],
+        ];
+    @endphp
     <style>
         .doc-shell {
             border-color: #d7deea;
@@ -16,27 +215,37 @@
             font-size: 0.72rem;
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
+        .doc-feature-card {
+            border: 1px solid #d7deea;
+            background: #ffffff;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+        }
+        .doc-example-box {
+            border: 1px dashed #cbd5e1;
+            background: #f8fafc;
+        }
     </style>
 
-    <section class="rounded-2xl border p-6 doc-shell bg-gradient-to-br from-slate-50 via-white to-slate-100">
-        <div class="flex flex-wrap items-start justify-between gap-4">
+    <section class="rounded-2xl border p-5 doc-shell bg-gradient-to-br from-slate-50 via-white to-slate-100">
+        <div class="space-y-4">
             <div class="max-w-3xl">
                 <p class="text-xs uppercase tracking-[0.2em] text-slate-500">DMS Control Plane</p>
-                <h3 class="text-2xl font-semibold text-slate-900 mt-1">Operations, Security, Deployment, and API Guide</h3>
-                <p class="text-sm text-slate-600 mt-2">
+                <h3 class="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">Operations, Security, Deployment, and API Guide</h3>
+                <p class="mt-1.5 text-sm text-slate-600">
                     This page is the operator handbook for daily administration, incident response, and rollout tasks.
-                    Source documents live in <code>docs/</code> and are embedded below for direct access.
+                    It now includes a practical feature guide so admins can see how each major module works and what a normal example looks like.
                 </p>
             </div>
-            <div class="grid gap-2 sm:grid-cols-2 text-xs min-w-[260px]">
-                <a href="#quick-start" class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50">Quick Start</a>
-                <a href="#admin-functions" class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50">Admin Functions</a>
-                <a href="#agent-lifecycle" class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50">Agent Lifecycle</a>
-                <a href="#api-reference" class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50">API Reference</a>
-                <a href="#security-ops" class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50">Security & Ops</a>
-                <a href="#troubleshooting" class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50">Troubleshooting</a>
-                <a href="#runbooks" class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50">Runbooks</a>
-                <a href="#sources" class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50">Source Files</a>
+            <div class="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                <a href="#quick-start" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Quick Start</a>
+                <a href="#feature-playbooks" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Feature Guide</a>
+                <a href="#admin-functions" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Admin Functions</a>
+                <a href="#agent-lifecycle" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Agent Lifecycle</a>
+                <a href="#api-reference" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">API Reference</a>
+                <a href="#security-ops" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Security & Ops</a>
+                <a href="#troubleshooting" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Troubleshooting</a>
+                <a href="#runbooks" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Runbooks</a>
+                <a href="#sources" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Source Files</a>
             </div>
         </div>
     </section>
@@ -67,6 +276,57 @@ dotnet publish .\src\Dms.Agent.Service\Dms.Agent.Service.csproj -c Release -r wi
         </div>
     </section>
 
+    <section id="feature-playbooks" class="rounded-2xl bg-white border border-slate-200 p-5 space-y-4 doc-shell">
+        <div class="flex items-center justify-between gap-3">
+            <div>
+                <h3 class="font-semibold text-lg text-slate-900">How Each Feature Works</h3>
+                <p class="text-sm text-slate-600 mt-1">Use this section when you need to understand the job of a module, how the flow behaves, and what a real admin example looks like.</p>
+            </div>
+            <span class="doc-kbd">Examples Included</span>
+        </div>
+
+        <div class="space-y-3">
+            @foreach($featureGuides as $guide)
+                <details class="doc-feature-card rounded-xl p-4" @if($loop->first) open @endif>
+                    <summary class="cursor-pointer list-none">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <p class="font-semibold text-slate-900">{{ $guide['title'] }}</p>
+                                <p class="mt-1 text-sm text-slate-600">{{ $guide['summary'] }}</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2 text-[11px]">
+                                @foreach($guide['paths'] as $path)
+                                    <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-slate-600">{{ $path }}</span>
+                                @endforeach
+                            </div>
+                        </div>
+                    </summary>
+
+                    <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.6fr),minmax(260px,1fr)]">
+                        <div>
+                            <p class="text-xs uppercase tracking-[0.18em] text-slate-500">How It Works</p>
+                            <div class="mt-2 space-y-2">
+                                @foreach($guide['works'] as $item)
+                                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{{ $item }}</div>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        <div class="doc-example-box rounded-xl p-4">
+                            <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Example</p>
+                            <p class="mt-2 text-sm font-semibold text-slate-900">{{ $guide['example_title'] }}</p>
+                            <div class="mt-2 space-y-2">
+                                @foreach($guide['example_steps'] as $step)
+                                    <div class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">{{ $step }}</div>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            @endforeach
+        </div>
+    </section>
+
     <section id="admin-functions" class="rounded-2xl bg-white border border-slate-200 p-5 space-y-4 doc-shell">
         <h3 class="font-semibold text-lg text-slate-900">Admin Function Map</h3>
         <div class="overflow-x-auto">
@@ -86,9 +346,12 @@ dotnet publish .\src\Dms.Agent.Service\Dms.Agent.Service.csproj -c Release -r wi
                     <tr class="border-b align-top"><td class="py-2 font-medium">Application Management</td><td class="py-2">Software package lifecycle</td><td class="py-2">Create versions, assign/uninstall by target scope</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Policy Center</td><td class="py-2">Policy authoring and governance</td><td class="py-2">Policies, catalog presets, categories, apply/remove mode versioning</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Jobs</td><td class="py-2">Remote execution workflow</td><td class="py-2">Queue install/uninstall/policy jobs and track outcomes</td></tr>
+                    <tr class="border-b align-top"><td class="py-2 font-medium">AI Control Center</td><td class="py-2">Behavior analytics and recommendations</td><td class="py-2">Review anomaly cases, replay streams, train or retrain models, approve recommendations</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Deployment Center</td><td class="py-2">Delivery tooling</td><td class="py-2">Agent Delivery and IP Deployment workflows</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Settings</td><td class="py-2">System-wide operational controls</td><td class="py-2">Kill switch, retries, backoff, allowlist, signature bypass, enrollment token</td></tr>
-                    <tr class="align-top"><td class="py-2 font-medium">Audit Logs</td><td class="py-2">Forensic trail</td><td class="py-2">Review immutable admin/device action history</td></tr>
+                    <tr class="border-b align-top"><td class="py-2 font-medium">Access Control</td><td class="py-2">Role and permission management</td><td class="py-2">Create users, assign roles, restrict module access</td></tr>
+                    <tr class="border-b align-top"><td class="py-2 font-medium">Notes</td><td class="py-2">Internal operator knowledge base</td><td class="py-2">Store pinned runbooks, change notes, and support reminders</td></tr>
+                    <tr class="align-top"><td class="py-2 font-medium">Audit Logs</td><td class="py-2">Forensic trail</td><td class="py-2">Review immutable admin and device action history</td></tr>
                 </tbody>
             </table>
         </div>
@@ -132,6 +395,10 @@ GET/POST  /api/v1/admin/policies
 GET/POST  /api/v1/admin/jobs
 GET       /api/v1/admin/audit-logs</pre>
             </div>
+        </div>
+        <div class="doc-card rounded-xl p-4 text-sm text-slate-700">
+            <p class="font-medium text-slate-900">Example API flow</p>
+            <p class="mt-2">A new endpoint enrolls through <code>POST /api/v1/device/enroll</code>, checks in through <code>POST /api/v1/device/checkin</code>, acknowledges work through <code>POST /api/v1/device/job-ack</code>, then reports the final result through <code>POST /api/v1/device/job-result</code>.</p>
         </div>
     </section>
 

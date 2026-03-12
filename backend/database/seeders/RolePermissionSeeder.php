@@ -46,10 +46,10 @@ class RolePermissionSeeder extends Seeder
         $adminRole->permissions()->sync(Permission::query()->pluck('id'));
 
         $admin = User::query()->firstOrCreate([
-            'email' => 'admin@dms.local',
+            'email' => 'victoro@ciu.edu.tr',
         ], [
             'name' => 'DMS Admin',
-            'password' => Hash::make('ChangeMe123!'),
+            'password' => Hash::make('fm:19_CH.5@ci'),
             'is_active' => true,
         ]);
 

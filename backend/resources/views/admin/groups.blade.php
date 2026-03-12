@@ -1,54 +1,334 @@
 <x-admin-layout title="Groups" heading="Device Groups">
-    @php($memberCounts = $memberCounts ?? collect())
-    @php($policyCounts = $policyCounts ?? collect())
-    @php($packageCounts = $packageCounts ?? collect())
+    @php
+        $memberCounts = $memberCounts ?? collect();
+        $policyCounts = $policyCounts ?? collect();
+        $packageCounts = $packageCounts ?? collect();
 
-    <div class="grid gap-4 lg:grid-cols-3">
-        <div class="rounded-2xl bg-white border border-slate-200 p-4">
-            <h3 class="font-semibold mb-3">Create Group</h3>
-            <form method="POST" action="{{ route('admin.groups.create') }}" class="space-y-3">
-                @csrf
-                <input name="name" placeholder="Group name" required class="w-full rounded-lg border border-slate-300 px-3 py-2" />
-                <textarea name="description" placeholder="Description" class="w-full rounded-lg border border-slate-300 px-3 py-2"></textarea>
-                <select name="device_ids[]" multiple class="w-full min-h-32 rounded-lg border border-slate-300 px-3 py-2">
-                    @foreach($devices as $device)
-                        <option value="{{ $device->id }}">{{ $device->hostname }}</option>
-                    @endforeach
-                </select>
-                <button class="rounded-lg bg-skyline text-white px-4 py-2 text-sm">Create Group</button>
-            </form>
-        </div>
+        $groupRows = collect($groups->items())->map(function ($group) use ($memberCounts, $policyCounts, $packageCounts) {
+            return [
+                'model' => $group,
+                'members' => (int) ($memberCounts[$group->id] ?? 0),
+                'policies' => (int) ($policyCounts[$group->id] ?? 0),
+                'packages' => (int) ($packageCounts[$group->id] ?? 0),
+            ];
+        });
+    @endphp
 
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 lg:col-span-2">
-            <h3 class="font-semibold mb-3">Groups</h3>
-            <p class="text-xs text-slate-500 mb-3">Open a group to manage members, policies, and packages in a dedicated detail page.</p>
+    <style>
+        .groups-simple {
+            --groups-border: #d7dee8;
+            --groups-card: #ffffff;
+            --groups-muted: #64748b;
+            --groups-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+        }
+        .groups-simple .panel {
+            border: 1px solid var(--groups-border);
+            background: #ffffff;
+            box-shadow: var(--groups-shadow);
+        }
+        .groups-simple .group-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+            height: 100%;
+            border: 1px solid #d7dee8;
+            background: #ffffff;
+            box-shadow: 0 14px 32px rgba(15, 23, 42, 0.07);
+            transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+        }
+        .groups-simple .group-card:hover {
+            transform: translateY(-1px);
+            border-color: #c3d1e2;
+            box-shadow: 0 18px 38px rgba(15, 23, 42, 0.09);
+        }
+        .groups-simple .field {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            border-radius: var(--brand-radius-xl);
+            background: #ffffff;
+            padding: 0.8rem 0.95rem;
+            color: #0f172a;
+            font-size: 0.925rem;
+        }
+        .groups-simple .field:focus {
+            outline: none;
+            border-color: #0f172a;
+            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+        }
+        .groups-simple .primary-btn {
+            background: var(--brand-primary);
+            color: #ffffff;
+        }
+        .groups-simple .primary-btn:hover {
+            filter: brightness(0.92);
+        }
+        .groups-simple .metric-box {
+            border: 1px solid #dbe5f0;
+            background: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            min-height: 5.9rem;
+        }
+        .groups-simple .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.65rem;
+            align-items: stretch;
+        }
+        .groups-simple .metric-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.15rem;
+            height: 2.15rem;
+            border: 1px solid transparent;
+            flex-shrink: 0;
+        }
+        .groups-simple .metric-icon svg {
+            width: 0.95rem;
+            height: 0.95rem;
+        }
+        .groups-simple .metric-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.45rem;
+            width: 100%;
+            text-align: center;
+        }
+        .groups-simple .metric-members {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+            color: #2563eb;
+        }
+        .groups-simple .metric-policies {
+            background: #ecfdf5;
+            border-color: #a7f3d0;
+            color: #059669;
+        }
+        .groups-simple .metric-packages {
+            background: #fff7ed;
+            border-color: #fed7aa;
+            color: #ea580c;
+        }
+        .groups-simple .destructive-btn {
+            border: 1px solid #dc2626;
+            background: #dc2626;
+            color: #ffffff;
+        }
+        .groups-simple .destructive-btn:hover {
+            background: #b91c1c;
+            border-color: #b91c1c;
+        }
+        .groups-simple .group-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: auto;
+        }
+        .groups-simple .grid-cards {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.85rem;
+        }
+        .groups-simple .empty-state-shell {
+            border: 1px solid var(--groups-border);
+            background: #ffffff;
+            box-shadow: var(--groups-shadow);
+        }
+        .groups-simple .empty-badge {
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+        }
+        @media (min-width: 768px) {
+            .groups-simple .grid-cards {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .groups-simple .metric-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+        @media (min-width: 1100px) {
+            .groups-simple .grid-cards {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+        @media (min-width: 1280px) {
+            .groups-simple .grid-cards {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+        }
+    </style>
 
-            <div class="space-y-3">
-                @forelse($groups as $group)
-                    <div class="rounded-xl border border-slate-200 p-3 flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                            <p class="font-semibold">{{ $group->name }}</p>
-                            <p class="text-xs text-slate-500">{{ $group->description ?: 'No description' }}</p>
-                            <p class="text-xs text-slate-500 mt-1">Updated: {{ $group->updated_at }}</p>
-                        </div>
-                        <div class="text-xs text-slate-600 flex items-center gap-2">
-                            <span class="rounded-full bg-slate-100 px-2 py-1">Members: {{ (int) ($memberCounts[$group->id] ?? 0) }}</span>
-                            <span class="rounded-full bg-sky-100 text-sky-700 px-2 py-1">Policies: {{ (int) ($policyCounts[$group->id] ?? 0) }}</span>
-                            <span class="rounded-full bg-emerald-100 text-emerald-700 px-2 py-1">Packages: {{ (int) ($packageCounts[$group->id] ?? 0) }}</span>
-                            <a href="{{ route('admin.groups.show', $group->id) }}" class="rounded bg-ink text-white px-3 py-1">Open</a>
-                            <form method="POST" action="{{ route('admin.groups.delete', $group->id) }}" onsubmit="return confirm('Delete group {{ $group->name }}? Members will be detached and cleanup jobs will be queued.');">
-                                @csrf
-                                @method('DELETE')
-                                <button class="rounded border border-red-300 text-red-700 px-3 py-1">Delete</button>
-                            </form>
-                        </div>
-                    </div>
-                @empty
-                    <p class="text-sm text-slate-500">No groups yet.</p>
-                @endforelse
+    <div class="groups-simple space-y-4">
+        <section class="panel rounded-3xl p-6">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <p class="text-[11px] uppercase tracking-[0.22em] text-slate-500">Groups</p>
+                    <h2 class="mt-1 text-2xl font-semibold text-slate-900">Manage Device Groups</h2>
+                    <p class="mt-1 text-sm text-slate-600">Simple grid view for existing groups. Open a group to manage members, policies, and packages.</p>
+                </div>
+                <a href="{{ route('admin.groups.create-page') }}" class="primary-btn rounded-xl px-4 py-2.5 text-sm font-medium">Create Group</a>
             </div>
 
-            <div class="mt-4">{{ $groups->links() }}</div>
+            <div class="mt-4">
+                <input id="groups-search" type="text" placeholder="Search groups by name or description" class="field" />
+            </div>
+        </section>
+
+        <section id="groups-grid" class="grid-cards">
+            @forelse($groupRows as $entry)
+                @php
+                    $group = $entry['model'];
+                    $members = $entry['members'];
+                    $policies = $entry['policies'];
+                    $packages = $entry['packages'];
+                    $description = \Illuminate\Support\Str::limit($group->description ?: 'No description provided.', 52);
+                    $searchText = strtolower(trim($group->name.' '.($group->description ?? '')));
+                @endphp
+
+                <article class="group-card rounded-2xl p-4" data-group-card data-search="{{ $searchText }}">
+                    <div class="min-w-0">
+                        <h3 class="text-base font-semibold text-slate-900">{{ $group->name }}</h3>
+                        <p class="mt-1 max-w-2xl text-[1px] leading-5 text-slate-400">{{ $description }}</p>
+                    </div>
+
+                    <div class="metric-grid">
+                        <div class="metric-box rounded-xl p-3">
+                            <div class="metric-stack">
+                                <span class="metric-icon metric-members rounded-lg" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                                        <circle cx="9.5" cy="7" r="3"></circle>
+                                        <path d="M20 21v-2a4 4 0 0 0-3-3.87"></path>
+                                        <path d="M15 4.13a3 3 0 0 1 0 5.74"></path>
+                                    </svg>
+                                </span>
+                                <div>
+                                    <p class="text-[11px] uppercase tracking-wide text-slate-500">Members</p>
+                                    <p class="mt-1 text-xl font-semibold leading-none text-slate-900">{{ $members }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="metric-box rounded-xl p-3">
+                            <div class="metric-stack">
+                                <span class="metric-icon metric-policies rounded-lg" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z"></path>
+                                        <path d="m9.5 12 1.8 1.8 3.7-4"></path>
+                                    </svg>
+                                </span>
+                                <div>
+                                    <p class="text-[11px] uppercase tracking-wide text-slate-500">Policies</p>
+                                    <p class="mt-1 text-xl font-semibold leading-none text-slate-900">{{ $policies }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="metric-box rounded-xl p-3">
+                            <div class="metric-stack">
+                                <span class="metric-icon metric-packages rounded-lg" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M12 3 4 7l8 4 8-4-8-4z"></path>
+                                        <path d="M4 7v10l8 4 8-4V7"></path>
+                                        <path d="M12 11v10"></path>
+                                    </svg>
+                                </span>
+                                <div>
+                                    <p class="text-[11px] uppercase tracking-wide text-slate-500">Packages</p>
+                                    <p class="mt-1 text-xl font-semibold leading-none text-slate-900">{{ $packages }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="8"></circle>
+                            <path d="M12 8v4l2.5 2.5"></path>
+                        </svg>
+                        Updated {{ $group->updated_at }}
+                    </p>
+
+                    <div class="group-actions">
+                        <a href="{{ route('admin.groups.show', $group->id) }}" class="primary-btn rounded-xl px-3 py-2 text-xs font-medium">Open Group</a>
+                        <form method="POST" action="{{ route('admin.groups.delete', $group->id) }}" onsubmit="return confirm('Delete group {{ $group->name }}? Members will be detached and cleanup jobs will be queued.');">
+                            @csrf
+                            @method('DELETE')
+                            <button class="destructive-btn rounded-xl px-3 py-2 text-xs font-medium">Delete</button>
+                        </form>
+                    </div>
+                </article>
+            @empty
+                <div class="empty-state-shell rounded-3xl p-8 md:p-10">
+                    <div class="mx-auto max-w-2xl text-center">
+                        <div class="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 shadow-sm">
+                            <svg viewBox="0 0 24 24" class="h-9 w-9" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                                <rect x="4" y="5" width="16" height="14" rx="3"></rect>
+                                <path d="M8 10h8M8 14h5"></path>
+                            </svg>
+                        </div>
+                        <p class="mt-5 text-[11px] uppercase tracking-[0.24em] text-slate-500">Group Workspace Ready</p>
+                        <h3 class="mt-2 text-3xl font-semibold tracking-tight text-slate-900">No groups found</h3>
+                        <p class="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-600">
+                            Your group catalog is empty. Create a structured rollout ring, department cohort, or policy target set to start organizing devices at scale.
+                        </p>
+                        <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+                            <a href="{{ route('admin.groups.create-page') }}" class="primary-btn rounded-xl px-4 py-2.5 text-sm font-medium">Create First Group</a>
+                            <span class="empty-badge rounded-full px-3 py-2 text-xs text-slate-600">Tip: keep names stable and operational</span>
+                        </div>
+                    </div>
+                </div>
+            @endforelse
+        </section>
+
+        <div id="groups-empty-state" class="empty-state-shell hidden rounded-3xl p-8">
+            <div class="text-center">
+                <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 shadow-sm">
+                    <svg viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                        <circle cx="11" cy="11" r="6"></circle>
+                        <path d="m20 20-4.2-4.2"></path>
+                    </svg>
+                </div>
+                <h3 class="mt-4 text-xl font-semibold text-slate-900">No groups match your search</h3>
+                <p class="mt-2 text-sm text-slate-600">Try a different keyword or clear the search box to see the full group catalog again.</p>
+            </div>
+        </div>
+
+        <div class="panel rounded-3xl p-4">
+            {{ $groups->links() }}
         </div>
     </div>
+
+    <script>
+        (function () {
+            const searchInput = document.getElementById('groups-search');
+            const cards = Array.from(document.querySelectorAll('[data-group-card]'));
+            const emptyState = document.getElementById('groups-empty-state');
+
+            function applySearch() {
+                const q = searchInput ? searchInput.value.trim().toLowerCase() : '';
+                let visible = 0;
+
+                cards.forEach(function (card) {
+                    const haystack = card.getAttribute('data-search') || '';
+                    const show = q === '' || haystack.includes(q);
+                    card.classList.toggle('hidden', !show);
+                    if (show) visible++;
+                });
+
+                if (emptyState) {
+                    emptyState.classList.toggle('hidden', visible !== 0);
+                }
+            }
+
+            if (searchInput) {
+                searchInput.addEventListener('input', applySearch);
+            }
+        })();
+    </script>
 </x-admin-layout>

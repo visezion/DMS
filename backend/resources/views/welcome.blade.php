@@ -152,7 +152,7 @@
                     </div>
                 @endif
                 <div>
-                    <p class="text-lg font-bold leading-none">{{ $brandName }}</p>
+                    <!--<p class="text-lg font-bold leading-none">{{ $brandName }}</p>-->
                     <p class="mono text-[11px] uppercase tracking-[0.14em] text-slate-500">Fleet Security and Operations</p>
                 </div>
             </div>

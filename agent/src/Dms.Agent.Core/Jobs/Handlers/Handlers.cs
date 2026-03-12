@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -837,6 +839,8 @@ public sealed class PolicyApplyHandler : IJobHandler
                     applied = type.ToLowerInvariant() switch
                     {
                         "firewall" => await ApplyFirewallAsync(config, enforce, cancellationToken),
+                        "dns" => await ApplyDnsAsync(config, enforce, cancellationToken),
+                        "network_adapter" => await ApplyNetworkAdapterAsync(config, enforce, cancellationToken),
                         "registry" => ApplyRegistry(config, enforce),
                         "local_group" => await ApplyLocalGroupAsync(config, enforce, cancellationToken),
                         "windows_update" => ApplyWindowsUpdate(config, enforce),
@@ -1036,6 +1040,639 @@ public sealed class PolicyApplyHandler : IJobHandler
             ? check.StdOut.Contains("State OFF", StringComparison.OrdinalIgnoreCase)
             : check.StdOut.Contains("State ON", StringComparison.OrdinalIgnoreCase);
         return (stateMatched, stateMatched ? $"firewall state {state}" : $"firewall state not {state}");
+    }
+
+    private sealed record NetworkSelectorSpec(string? InterfaceAlias, int? InterfaceIndex, string? InterfaceDescription)
+    {
+        public string Summary
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(InterfaceAlias))
+                {
+                    return $"interface_alias={InterfaceAlias}";
+                }
+
+                if (InterfaceIndex.HasValue)
+                {
+                    return $"interface_index={InterfaceIndex.Value}";
+                }
+
+                return $"interface_description={InterfaceDescription}";
+            }
+        }
+    }
+
+    private sealed record NetworkAddressAssignment(string Address, string Subnet);
+
+    private sealed class NetworkConfigSnapshot
+    {
+        public string InterfaceAlias { get; init; } = string.Empty;
+        public int InterfaceIndex { get; init; }
+        public string InterfaceDescription { get; init; } = string.Empty;
+        public bool DhcpEnabled { get; init; }
+        public bool DnsAutomatic { get; init; }
+        public List<NetworkAddressAssignment> Ipv4Addresses { get; init; } = new();
+        public List<string> DefaultGateways { get; init; } = new();
+        public List<string> DnsServers { get; init; } = new();
+    }
+
+    private static async Task<(bool Compliant, string Message)> ApplyDnsAsync(JsonElement config, bool enforce, CancellationToken cancellationToken)
+    {
+        if (!TryReadNetworkSelector(config, out var selector, out string selectorError))
+        {
+            return (false, selectorError);
+        }
+
+        bool dryRun = SnapshotJobSupport.ReadBool(config, "dry_run");
+        string mode = SnapshotJobSupport.ReadString(config, "mode", "static").Trim().ToLowerInvariant();
+        if (mode is not ("static" or "automatic"))
+        {
+            return (false, "dns: mode must be static or automatic");
+        }
+
+        var servers = SnapshotJobSupport.ReadStringList(config, "servers")
+            .Select(ip => ip.Trim())
+            .Where(ip => !string.IsNullOrWhiteSpace(ip))
+            .ToList();
+        if (mode == "static")
+        {
+            if (servers.Count == 0)
+            {
+                return (false, "dns: servers required when mode=static");
+            }
+
+            if (servers.Any(ip => !IsValidIpv4Address(ip)))
+            {
+                return (false, "dns: servers must be valid IPv4 addresses");
+            }
+        }
+        else if (servers.Count > 0)
+        {
+            return (false, "dns: servers must be empty when mode=automatic");
+        }
+
+        if (dryRun)
+        {
+            string dryRunMessage = mode == "automatic"
+                ? $"dns dry-run automatic on {selector.Summary}"
+                : $"dns dry-run static {string.Join(", ", servers)} on {selector.Summary}";
+            return (true, dryRunMessage);
+        }
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return (false, "dns policy requires Windows endpoint");
+        }
+
+        if (enforce && !IsWindowsAdministrator(out string currentIdentity))
+        {
+            return (false, $"dns requires elevated context (Administrator/SYSTEM). current_identity={currentIdentity}");
+        }
+
+        if (enforce)
+        {
+            var apply = await ApplyDnsConfigurationAsync(selector, mode, servers, cancellationToken);
+            if (!apply.Compliant)
+            {
+                return apply;
+            }
+        }
+
+        NetworkConfigSnapshot snapshot;
+        try
+        {
+            snapshot = await ReadNetworkConfigSnapshotAsync(selector, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+
+        bool compliant = mode == "automatic"
+            ? snapshot.DnsAutomatic
+            : !snapshot.DnsAutomatic && SequenceEqualIgnoreCase(snapshot.DnsServers, servers);
+        string interfaceLabel = string.IsNullOrWhiteSpace(snapshot.InterfaceAlias) ? selector.Summary : snapshot.InterfaceAlias;
+        if (mode == "automatic")
+        {
+            return (compliant, compliant ? $"dns automatic on {interfaceLabel}" : $"dns not automatic on {interfaceLabel}");
+        }
+
+        return (compliant,
+            compliant
+                ? $"dns static {string.Join(", ", servers)} on {interfaceLabel}"
+                : $"dns servers mismatch on {interfaceLabel}");
+    }
+
+    private static async Task<(bool Compliant, string Message)> ApplyNetworkAdapterAsync(JsonElement config, bool enforce, CancellationToken cancellationToken)
+    {
+        if (!TryReadNetworkSelector(config, out var selector, out string selectorError))
+        {
+            return (false, selectorError);
+        }
+
+        bool dryRun = SnapshotJobSupport.ReadBool(config, "dry_run");
+        string mode = SnapshotJobSupport.ReadString(config, "ipv4_mode").Trim().ToLowerInvariant();
+        if (mode is not ("dhcp" or "static"))
+        {
+            return (false, "network_adapter: ipv4_mode must be dhcp or static");
+        }
+
+        string address = SnapshotJobSupport.ReadString(config, "address").Trim();
+        int? prefixLength = SnapshotJobSupport.ReadInt(config, "prefix_length");
+        string gateway = SnapshotJobSupport.ReadString(config, "gateway").Trim();
+
+        if (mode == "static")
+        {
+            if (!IsValidIpv4Address(address))
+            {
+                return (false, "network_adapter: address must be a valid IPv4 address when ipv4_mode=static");
+            }
+
+            if (!prefixLength.HasValue || prefixLength.Value < 1 || prefixLength.Value > 32)
+            {
+                return (false, "network_adapter: prefix_length must be between 1 and 32 when ipv4_mode=static");
+            }
+
+            if (!string.IsNullOrWhiteSpace(gateway) && !IsValidIpv4Address(gateway))
+            {
+                return (false, "network_adapter: gateway must be a valid IPv4 address when provided");
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(address) || prefixLength.HasValue || !string.IsNullOrWhiteSpace(gateway))
+        {
+            return (false, "network_adapter: address, prefix_length, and gateway must be omitted when ipv4_mode=dhcp");
+        }
+
+        if (dryRun)
+        {
+            string dryRunMessage = mode == "dhcp"
+                ? $"network_adapter dry-run dhcp on {selector.Summary}"
+                : $"network_adapter dry-run static {address}/{prefixLength} gateway {(string.IsNullOrWhiteSpace(gateway) ? "none" : gateway)} on {selector.Summary}";
+            return (true, dryRunMessage);
+        }
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return (false, "network_adapter policy requires Windows endpoint");
+        }
+
+        if (enforce && !IsWindowsAdministrator(out string currentIdentity))
+        {
+            return (false, $"network_adapter requires elevated context (Administrator/SYSTEM). current_identity={currentIdentity}");
+        }
+
+        if (enforce)
+        {
+            var apply = await ApplyNetworkAdapterConfigurationAsync(selector, mode, address, prefixLength, gateway, cancellationToken);
+            if (!apply.Compliant)
+            {
+                return apply;
+            }
+        }
+
+        NetworkConfigSnapshot snapshot;
+        try
+        {
+            snapshot = await ReadNetworkConfigSnapshotAsync(selector, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+
+        bool compliant = mode == "dhcp"
+            ? snapshot.DhcpEnabled
+            : !snapshot.DhcpEnabled
+                && prefixLength.HasValue
+                && HasIpv4Assignment(snapshot, address, PrefixLengthToSubnetMask(prefixLength.Value))
+                && (string.IsNullOrWhiteSpace(gateway)
+                    ? snapshot.DefaultGateways.Count == 0
+                    : snapshot.DefaultGateways.Any(current => string.Equals(current, gateway, StringComparison.OrdinalIgnoreCase)));
+        string interfaceLabel = string.IsNullOrWhiteSpace(snapshot.InterfaceAlias) ? selector.Summary : snapshot.InterfaceAlias;
+        if (mode == "dhcp")
+        {
+            return (compliant, compliant ? $"ipv4 dhcp on {interfaceLabel}" : $"ipv4 not dhcp on {interfaceLabel}");
+        }
+
+        string staticSummary = $"{address}/{prefixLength}";
+        if (!string.IsNullOrWhiteSpace(gateway))
+        {
+            staticSummary += $" gateway {gateway}";
+        }
+        return compliant
+            ? (true, $"ipv4 static {staticSummary} on {interfaceLabel}")
+            : (false, $"ipv4 configuration mismatch on {interfaceLabel}");
+    }
+
+    private static bool TryReadNetworkSelector(JsonElement config, out NetworkSelectorSpec selector, out string error)
+    {
+        string alias = SnapshotJobSupport.ReadString(config, "interface_alias").Trim();
+        string description = SnapshotJobSupport.ReadString(config, "interface_description").Trim();
+        int? interfaceIndex = null;
+        bool hasInterfaceIndex = false;
+        if (config.ValueKind == JsonValueKind.Object && config.TryGetProperty("interface_index", out var interfaceIndexNode))
+        {
+            hasInterfaceIndex = true;
+            interfaceIndex = SnapshotJobSupport.ReadInt(config, "interface_index");
+            if (!interfaceIndex.HasValue)
+            {
+                selector = new NetworkSelectorSpec(null, null, null);
+                error = "network selector interface_index must be an integer";
+                return false;
+            }
+
+            if (interfaceIndex.Value < 1)
+            {
+                selector = new NetworkSelectorSpec(null, null, null);
+                error = "network selector interface_index must be positive";
+                return false;
+            }
+        }
+
+        int selectorCount = 0;
+        if (!string.IsNullOrWhiteSpace(alias))
+        {
+            selectorCount++;
+        }
+        if (hasInterfaceIndex)
+        {
+            selectorCount++;
+        }
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            selectorCount++;
+        }
+
+        if (selectorCount == 0)
+        {
+            selector = new NetworkSelectorSpec(null, null, null);
+            error = "network selector requires one of interface_alias, interface_index, or interface_description";
+            return false;
+        }
+
+        if (selectorCount > 1)
+        {
+            selector = new NetworkSelectorSpec(null, null, null);
+            error = "network selector must specify only one of interface_alias, interface_index, or interface_description";
+            return false;
+        }
+
+        selector = new NetworkSelectorSpec(
+            string.IsNullOrWhiteSpace(alias) ? null : alias,
+            interfaceIndex,
+            string.IsNullOrWhiteSpace(description) ? null : description);
+        error = string.Empty;
+        return true;
+    }
+
+    private static bool IsValidIpv4Address(string value)
+        => IPAddress.TryParse(value, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork;
+
+    private static async Task<NetworkConfigSnapshot> ReadNetworkConfigSnapshotAsync(NetworkSelectorSpec selector, CancellationToken cancellationToken)
+    {
+        string script = BuildReadNetworkConfigScript(selector);
+        var run = await SnapshotJobSupport.RunPowerShellScriptAsync(script, cancellationToken);
+        if (run.ExitCode != 0)
+        {
+            string detail = ExtractProcessFailureDetail(run.StdErr, run.StdOut);
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+                ? $"network inspection failed exit code {run.ExitCode}"
+                : detail);
+        }
+
+        if (string.IsNullOrWhiteSpace(run.StdOut))
+        {
+            throw new InvalidOperationException("network inspection returned no output");
+        }
+
+        using var doc = JsonDocument.Parse(run.StdOut);
+        JsonElement root = doc.RootElement;
+
+        var ipv4Assignments = new List<NetworkAddressAssignment>();
+        if (root.TryGetProperty("ipv4_addresses", out var ipv4Node) && ipv4Node.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var assignment in ipv4Node.EnumerateArray())
+            {
+                string currentAddress = ReadJsonStringProperty(assignment, "address");
+                string currentSubnet = ReadJsonStringProperty(assignment, "subnet");
+                if (!string.IsNullOrWhiteSpace(currentAddress) && !string.IsNullOrWhiteSpace(currentSubnet))
+                {
+                    ipv4Assignments.Add(new NetworkAddressAssignment(currentAddress, currentSubnet));
+                }
+            }
+        }
+
+        return new NetworkConfigSnapshot
+        {
+            InterfaceAlias = ReadJsonStringProperty(root, "interface_alias"),
+            InterfaceIndex = ReadJsonIntProperty(root, "interface_index") ?? 0,
+            InterfaceDescription = ReadJsonStringProperty(root, "interface_description"),
+            DhcpEnabled = ReadJsonBoolProperty(root, "dhcp_enabled"),
+            DnsAutomatic = ReadJsonBoolProperty(root, "dns_automatic"),
+            DefaultGateways = ReadJsonStringListProperty(root, "default_gateways"),
+            DnsServers = ReadJsonStringListProperty(root, "dns_servers"),
+            Ipv4Addresses = ipv4Assignments,
+        };
+    }
+
+    private static async Task<(bool Compliant, string Message)> ApplyDnsConfigurationAsync(
+        NetworkSelectorSpec selector,
+        string mode,
+        IReadOnlyList<string> servers,
+        CancellationToken cancellationToken)
+    {
+        string script = BuildApplyDnsScript(selector, mode, servers);
+        var run = await SnapshotJobSupport.RunPowerShellScriptAsync(script, cancellationToken);
+        if (run.ExitCode != 0)
+        {
+            string detail = ExtractProcessFailureDetail(run.StdErr, run.StdOut);
+            return (false, string.IsNullOrWhiteSpace(detail)
+                ? $"dns apply failed exit code {run.ExitCode}"
+                : $"dns apply failed exit code {run.ExitCode}: {detail}");
+        }
+
+        using var doc = JsonDocument.Parse(run.StdOut);
+        int? returnValue = ReadJsonIntProperty(doc.RootElement, "return_value");
+        if (!IsSuccessfulNetworkMethodReturnValue(returnValue))
+        {
+            return (false, $"dns apply returned code {returnValue?.ToString() ?? "unknown"}");
+        }
+
+        return (true, mode == "automatic" ? "dns reset to automatic" : "dns static servers applied");
+    }
+
+    private static async Task<(bool Compliant, string Message)> ApplyNetworkAdapterConfigurationAsync(
+        NetworkSelectorSpec selector,
+        string mode,
+        string address,
+        int? prefixLength,
+        string gateway,
+        CancellationToken cancellationToken)
+    {
+        string script = BuildApplyNetworkAdapterScript(selector, mode, address, prefixLength, gateway);
+        var run = await SnapshotJobSupport.RunPowerShellScriptAsync(script, cancellationToken);
+        if (run.ExitCode != 0)
+        {
+            string detail = ExtractProcessFailureDetail(run.StdErr, run.StdOut);
+            return (false, string.IsNullOrWhiteSpace(detail)
+                ? $"network_adapter apply failed exit code {run.ExitCode}"
+                : $"network_adapter apply failed exit code {run.ExitCode}: {detail}");
+        }
+
+        using var doc = JsonDocument.Parse(run.StdOut);
+        JsonElement root = doc.RootElement;
+        if (mode == "dhcp")
+        {
+            int? enableCode = ReadJsonIntProperty(root, "enable_return_value");
+            if (!IsSuccessfulNetworkMethodReturnValue(enableCode))
+            {
+                return (false, $"network_adapter dhcp apply returned code {enableCode?.ToString() ?? "unknown"}");
+            }
+            return (true, "network_adapter switched to dhcp");
+        }
+
+        int? staticCode = ReadJsonIntProperty(root, "static_return_value");
+        int? gatewayCode = ReadJsonIntProperty(root, "gateway_return_value");
+        if (!IsSuccessfulNetworkMethodReturnValue(staticCode))
+        {
+            return (false, $"network_adapter static apply returned code {staticCode?.ToString() ?? "unknown"}");
+        }
+        if (!IsSuccessfulNetworkMethodReturnValue(gatewayCode))
+        {
+            return (false, $"network_adapter gateway apply returned code {gatewayCode?.ToString() ?? "unknown"}");
+        }
+
+        return (true, "network_adapter static configuration applied");
+    }
+
+    private static bool IsSuccessfulNetworkMethodReturnValue(int? returnValue)
+        => returnValue is 0 or 1;
+
+    private static bool SequenceEqualIgnoreCase(IReadOnlyList<string> left, IReadOnlyList<string> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (!string.Equals(left[i], right[i], StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool HasIpv4Assignment(NetworkConfigSnapshot snapshot, string address, string subnetMask)
+        => snapshot.Ipv4Addresses.Any(entry =>
+            string.Equals(entry.Address, address, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(entry.Subnet, subnetMask, StringComparison.OrdinalIgnoreCase));
+
+    private static string PrefixLengthToSubnetMask(int prefixLength)
+    {
+        uint mask = prefixLength == 0 ? 0u : uint.MaxValue << (32 - prefixLength);
+        return string.Join(".", new[]
+        {
+            ((mask >> 24) & 255).ToString(),
+            ((mask >> 16) & 255).ToString(),
+            ((mask >> 8) & 255).ToString(),
+            (mask & 255).ToString(),
+        });
+    }
+
+    private static string BuildReadNetworkConfigScript(NetworkSelectorSpec selector)
+        => BuildNetworkSelectionPreamble(selector) + Environment.NewLine + """
+$ipv4 = @()
+$ipList = @($cfg.IPAddress)
+$subnetList = @($cfg.IPSubnet)
+for ($i = 0; $i -lt [Math]::Min($ipList.Count, $subnetList.Count); $i++) {
+    $ip = [string]$ipList[$i]
+    $subnet = [string]$subnetList[$i]
+    if ($ip -match '^\d{1,3}(\.\d{1,3}){3}$' -and $subnet -match '^\d{1,3}(\.\d{1,3}){3}$') {
+        $ipv4 += [ordered]@{
+            address = $ip
+            subnet = $subnet
+        }
+    }
+}
+$rawDns = @($cfg.DNSServerSearchOrder)
+$result = [ordered]@{
+    interface_alias = [string]$adapter.Name
+    interface_index = [int]$adapter.InterfaceIndex
+    interface_description = [string]$adapter.InterfaceDescription
+    dhcp_enabled = [bool]$cfg.DHCPEnabled
+    dns_automatic = ($rawDns.Count -eq 0)
+    dns_servers = @($rawDns | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' })
+    default_gateways = @($cfg.DefaultIPGateway | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' })
+    ipv4_addresses = $ipv4
+}
+$result | ConvertTo-Json -Compress -Depth 5
+""";
+
+    private static string BuildApplyDnsScript(NetworkSelectorSpec selector, string mode, IReadOnlyList<string> servers)
+    {
+        string dnsServersLiteral = mode == "automatic"
+            ? "$null"
+            : BuildPowerShellStringArrayLiteral(servers);
+        return BuildNetworkSelectionPreamble(selector) + Environment.NewLine + $$"""
+$dnsServers = {{dnsServersLiteral}}
+$result = Invoke-CimMethod -InputObject $cfg -MethodName SetDNSServerSearchOrder -Arguments @{ DNSServerSearchOrder = $dnsServers } -ErrorAction Stop
+[ordered]@{
+    return_value = [int]$result.ReturnValue
+} | ConvertTo-Json -Compress
+""";
+    }
+
+    private static string BuildApplyNetworkAdapterScript(
+        NetworkSelectorSpec selector,
+        string mode,
+        string address,
+        int? prefixLength,
+        string gateway)
+    {
+        string escapedAddress = SnapshotJobSupport.EscapePowerShellSingleQuotedString(address);
+        string escapedGateway = SnapshotJobSupport.EscapePowerShellSingleQuotedString(gateway);
+        string escapedMask = SnapshotJobSupport.EscapePowerShellSingleQuotedString(
+            prefixLength.HasValue ? PrefixLengthToSubnetMask(prefixLength.Value) : string.Empty);
+        return BuildNetworkSelectionPreamble(selector) + Environment.NewLine + $$"""
+$mode = '{{mode}}'
+if ($mode -eq 'dhcp') {
+    $enable = Invoke-CimMethod -InputObject $cfg -MethodName EnableDHCP -ErrorAction Stop
+    try {
+        $renew = Invoke-CimMethod -InputObject $cfg -MethodName RenewDHCPLease -ErrorAction Stop
+        $renewValue = [int]$renew.ReturnValue
+    } catch {
+        $renewValue = $null
+    }
+    [ordered]@{
+        enable_return_value = [int]$enable.ReturnValue
+        renew_return_value = $renewValue
+    } | ConvertTo-Json -Compress
+} else {
+    $address = '{{escapedAddress}}'
+    $subnetMask = '{{escapedMask}}'
+    $gateway = '{{escapedGateway}}'
+    $static = Invoke-CimMethod -InputObject $cfg -MethodName EnableStatic -Arguments @{ IPAddress = @($address); SubnetMask = @($subnetMask) } -ErrorAction Stop
+    if ($gateway -ne '') {
+        $gatewayResult = Invoke-CimMethod -InputObject $cfg -MethodName SetGateways -Arguments @{ DefaultIPGateway = @($gateway); GatewayCostMetric = @(1) } -ErrorAction Stop
+    } else {
+        $gatewayResult = Invoke-CimMethod -InputObject $cfg -MethodName SetGateways -Arguments @{ DefaultIPGateway = $null; GatewayCostMetric = $null } -ErrorAction Stop
+    }
+    [ordered]@{
+        static_return_value = [int]$static.ReturnValue
+        gateway_return_value = [int]$gatewayResult.ReturnValue
+    } | ConvertTo-Json -Compress
+}
+""";
+    }
+
+    private static string BuildNetworkSelectionPreamble(NetworkSelectorSpec selector)
+    {
+        string interfaceAlias = SnapshotJobSupport.EscapePowerShellSingleQuotedString(selector.InterfaceAlias ?? string.Empty);
+        string interfaceDescription = SnapshotJobSupport.EscapePowerShellSingleQuotedString(selector.InterfaceDescription ?? string.Empty);
+        string interfaceIndex = selector.InterfaceIndex?.ToString() ?? string.Empty;
+        string selectorSummary = SnapshotJobSupport.EscapePowerShellSingleQuotedString(selector.Summary);
+        return $$"""
+$ErrorActionPreference = 'Stop'
+$selectorSummary = '{{selectorSummary}}'
+$interfaceAlias = '{{interfaceAlias}}'
+$interfaceDescription = '{{interfaceDescription}}'
+$interfaceIndexRaw = '{{interfaceIndex}}'
+$adapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop)
+if ($interfaceAlias -ne '') {
+    $matched = @($adapters | Where-Object { $_.Name -eq $interfaceAlias })
+} elseif ($interfaceIndexRaw -ne '') {
+    $interfaceIndex = [int]$interfaceIndexRaw
+    $matched = @($adapters | Where-Object { $_.InterfaceIndex -eq $interfaceIndex })
+} else {
+    $matched = @($adapters | Where-Object { $_.InterfaceDescription -eq $interfaceDescription })
+}
+if ($matched.Count -eq 0) { throw "network interface not found for selector $selectorSummary" }
+if ($matched.Count -gt 1) { throw "network interface selector matched multiple adapters for selector $selectorSummary" }
+$adapter = $matched[0]
+$cfg = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "InterfaceIndex = $($adapter.InterfaceIndex) AND IPEnabled = True" | Select-Object -First 1
+if ($null -eq $cfg) { throw "network interface configuration unavailable for selector $selectorSummary" }
+""";
+    }
+
+    private static string BuildPowerShellStringArrayLiteral(IReadOnlyList<string> values)
+        => "@(" + string.Join(", ", values.Select(value => $"'{SnapshotJobSupport.EscapePowerShellSingleQuotedString(value)}'")) + ")";
+
+    private static string ReadJsonStringProperty(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(propertyName, out var node)
+            && node.ValueKind == JsonValueKind.String)
+        {
+            return node.GetString() ?? string.Empty;
+        }
+
+        return string.Empty;
+    }
+
+    private static bool ReadJsonBoolProperty(JsonElement element, string propertyName, bool fallback = false)
+    {
+        if (element.ValueKind == JsonValueKind.Object && element.TryGetProperty(propertyName, out var node))
+        {
+            if (node.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                return node.GetBoolean();
+            }
+
+            if (node.ValueKind == JsonValueKind.String && bool.TryParse(node.GetString(), out bool parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return fallback;
+    }
+
+    private static int? ReadJsonIntProperty(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(propertyName, out var node))
+        {
+            return null;
+        }
+
+        if (node.ValueKind == JsonValueKind.Number && node.TryGetInt32(out int value))
+        {
+            return value;
+        }
+
+        if (node.ValueKind == JsonValueKind.String && int.TryParse(node.GetString(), out value))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
+    private static List<string> ReadJsonStringListProperty(JsonElement element, string propertyName)
+    {
+        var values = new List<string>();
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(propertyName, out var node) || node.ValueKind != JsonValueKind.Array)
+        {
+            return values;
+        }
+
+        foreach (var item in node.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                string value = item.GetString() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    values.Add(value);
+                }
+            }
+        }
+
+        return values;
     }
 
     private static (bool Compliant, string Message) ApplyRegistry(JsonElement config, bool enforce)

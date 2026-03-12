@@ -1,12 +1,15 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\AuditAdminController;
+use App\Http\Controllers\Api\V1\Admin\BehaviorPolicyReviewController;
 use App\Http\Controllers\Api\V1\Admin\DeviceAdminController;
 use App\Http\Controllers\Api\V1\Admin\GroupAdminController;
 use App\Http\Controllers\Api\V1\Admin\JobAdminController;
 use App\Http\Controllers\Api\V1\Admin\PackageAdminController;
 use App\Http\Controllers\Api\V1\Admin\PolicyAdminController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\BehaviorEventStreamController;
+use App\Http\Controllers\Api\V1\DeviceBehaviorLogController;
 use App\Http\Controllers\Api\V1\DeviceCheckinController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
 use App\Http\Controllers\Api\V1\KeysetController;
@@ -24,6 +27,8 @@ Route::prefix('v1')->group(function () {
     Route::post('/device/job-ack', [DeviceCheckinController::class, 'jobAck']);
     Route::post('/device/job-result', [DeviceCheckinController::class, 'jobResult']);
     Route::post('/device/compliance-report', [DeviceCheckinController::class, 'complianceReport']);
+    Route::post('/device/behavior-log', [DeviceBehaviorLogController::class, 'store']);
+    Route::post('/device/behavior-stream', [BehaviorEventStreamController::class, 'store']);
     Route::get('/device/packages/{packageVersionId}/download-meta', [PackageController::class, 'downloadMeta']);
 
     Route::middleware('auth:sanctum')->group(function () {
@@ -51,6 +56,8 @@ Route::prefix('v1')->group(function () {
             Route::post('/jobs', [JobAdminController::class, 'store'])->middleware('permission:jobs.write');
 
             Route::get('/audit-logs', [AuditAdminController::class, 'index'])->middleware('permission:audit.read');
+            Route::get('/behavior/recommendations', [BehaviorPolicyReviewController::class, 'index'])->middleware('permission:policies.read');
+            Route::post('/behavior/recommendations/{recommendationId}/review', [BehaviorPolicyReviewController::class, 'review'])->middleware('permission:policies.write');
         });
     });
 });

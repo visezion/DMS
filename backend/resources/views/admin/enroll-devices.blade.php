@@ -1,15 +1,8 @@
 <x-admin-layout title="Enroll Devices" heading="Enroll Devices">
     @php
         $status = (string) session('status', '');
-        $currentToken = '';
-        if (preg_match('/Enrollment token created:\s*([A-Za-z0-9]+)/', $status, $m)) {
-            $currentToken = $m[1];
-        }
-        if ($currentToken === '' && !empty($generated['token'])) {
-            $currentToken = (string) $generated['token'];
-        }
-        $enrollUrl = url('/api/v1/device/enroll');
         $agentPage = route('admin.agent');
+        $generateInstallJsonUrl = route('admin.agent.releases.generate-json');
     @endphp
 
     <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -43,17 +36,47 @@
         </div>
 
         <div class="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs italic text-amber-900">
-            Note: This flow supports Windows endpoints managed by the DMS agent.
+            Browser Based Enrollment now posts directly to the device enrollment API. Use Agent Based Enrollment for the install-script workflow.
         </div>
 
         <div class="grid gap-0 p-5 lg:grid-cols-12">
             <div class="lg:col-span-7 lg:pr-5">
                 <div class="mb-3 flex items-center gap-2 border-b border-slate-200 text-sm">
-                    <button type="button" class="rounded-t-lg border border-b-0 border-slate-300 bg-white px-3 py-2 text-slate-500">Browser Based Enrollment</button>
-                    <button type="button" class="rounded-t-lg border border-b-0 border-slate-300 bg-sky-50 px-3 py-2 font-medium text-sky-700">Agent Based Enrollment</button>
+                    <button type="button" data-enroll-tab-btn="browser" class="rounded-t-lg border border-b-0 border-slate-300 bg-sky-50 px-3 py-2 font-medium text-sky-700">Browser Based Enrollment</button>
+                    <button type="button" data-enroll-tab-btn="agent" class="rounded-t-lg border border-b-0 border-slate-300 bg-white px-3 py-2 text-slate-500">Agent Based Enrollment</button>
                 </div>
 
-                <div class="rounded-xl border border-slate-200 bg-slate-50/40 p-5">
+                <div data-enroll-tab-panel="browser" class="rounded-xl border border-slate-200 bg-slate-50/40 p-5">
+                    <div class="mb-4">
+                        <p class="font-semibold text-slate-900">Browser Based Enrollment</p>
+                        <p class="mt-1 text-sm text-slate-700">Just click the button below. The system will generate a fresh token and installer bundle automatically, then open the install script.</p>
+                    </div>
+
+                    <div class="rounded-lg border border-slate-200 bg-white px-4 py-4 text-sm text-slate-700">
+                        <p class="font-medium text-slate-900">Install agent with one click</p>
+                        <p class="mt-1 text-xs text-slate-600">This prepares a fresh token and downloads a Windows launcher. Open the downloaded file on the target PC and Windows will request administrator approval.</p>
+                        <div class="mt-3 flex flex-wrap gap-2">
+                            @if($activeRelease)
+                                <button
+                                    type="button"
+                                    id="browser-one-click-install"
+                                    data-release-id="{{ $activeRelease->id }}"
+                                    data-api-base-url="{{ $defaultApiBase }}"
+                                    data-public-base-url="{{ $defaultPublicBase }}"
+                                    class="rounded-lg bg-skyline px-4 py-2 text-sm font-medium text-white"
+                                >
+                                    One-Click Install Agent
+                                </button>
+                            @else
+                                <span class="text-xs text-amber-700">No active release found. Activate a release in Agent Delivery first.</span>
+                            @endif
+                            <a href="{{ $agentPage }}" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700">Open Agent Delivery</a>
+                        </div>
+                        <div id="browser-one-click-status" class="mt-3 hidden rounded-lg border px-3 py-2 text-xs"></div>
+                    </div>
+                </div>
+
+                <div data-enroll-tab-panel="agent" class="hidden rounded-xl border border-slate-200 bg-slate-50/40 p-5">
                     <p class="mb-3 font-semibold text-slate-900">Windows 10 & above, Windows 7 & 8.1</p>
                     <ol class="list-decimal space-y-2 pl-5 text-sm text-slate-700">
                         <li>Open <a href="{{ $agentPage }}" class="text-sky-700 underline">Agent Delivery</a> and prepare or activate an agent release.</li>
@@ -104,32 +127,46 @@
                             <button class="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Generate Install Script</button>
                         </form>
                     </div>
-
                 </div>
             </div>
         </div>
     </section>
 
     @if($generated)
-        <section class="mt-5 rounded-2xl border border-skyline/30 bg-skyline/10 p-5 shadow-sm">
-            <h3 class="font-semibold">Generated Installer Bundle (expires: {{ $generated['expires_at'] }})</h3>
-            <div class="mt-3 space-y-3">
+        <section class="mt-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-5 shadow-sm">
+            <h3 class="font-semibold text-emerald-900">Installer Ready</h3>
+            <p class="mt-1 text-sm text-emerald-800">The install bundle has been prepared. Paste the PowerShell command into the target PC, or use the CMD launcher if you need Command Prompt.</p>
+            <div class="mt-4 space-y-4">
                 <div>
-                    <p class="text-xs uppercase text-slate-500">Script URL</p>
-                    <textarea readonly class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono min-h-14">{{ $generated['script_url'] }}</textarea>
-                </div>
-                <div>
-                    <p class="text-xs uppercase text-slate-500">Download URL</p>
-                    <textarea readonly class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono min-h-14">{{ $generated['download_url'] }}</textarea>
-                </div>
-                <div>
-                    <p class="text-xs uppercase text-slate-500">Client One-Liner</p>
-                    <textarea id="client-one-liner" readonly class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono min-h-20">{{ $generated['copy_command'] }}</textarea>
-                    <div class="mt-2 flex items-center gap-2">
-                        <button type="button" data-copy-target="client-one-liner" class="rounded bg-skyline px-3 py-1 text-xs font-medium text-white">Copy One-Liner</button>
-                        <a href="{{ $generated['script_url'] }}" target="_blank" class="rounded bg-ink px-3 py-1 text-xs font-medium text-white">Open Script URL</a>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-emerald-900">PowerShell Script To Paste</p>
+                    <textarea id="agent-enrollment-powershell" readonly class="mt-1 min-h-24 w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-mono text-slate-800">{{ $generated['copy_command'] ?? $generated['script_url'] }}</textarea>
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <button type="button" data-copy-target="agent-enrollment-powershell" class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white">Copy PowerShell</button>
+                        @if(!empty($generated['script_url']))
+                            <a href="{{ $generated['script_url'] }}" target="_blank" rel="noopener" class="rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-medium text-emerald-800">Open `.ps1` Script</a>
+                        @endif
                     </div>
                 </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-emerald-900">Command Prompt Launcher</p>
+                    <div class="mt-1 flex flex-wrap items-center gap-2">
+                        @if(!empty($generated['launcher_url']))
+                            <a href="{{ $generated['launcher_url'] }}" class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">Download `install-dms-agent.cmd`</a>
+                        @endif
+                        @if(!empty($generated['download_url']))
+                            <a href="{{ $generated['download_url'] }}" class="rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-medium text-emerald-800">Download Agent Package</a>
+                        @endif
+                    </div>
+                    @if(!empty($generated['cmd_script']))
+                        <textarea id="agent-enrollment-cmd" readonly class="mt-3 min-h-28 w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-mono text-slate-800">{{ $generated['cmd_script'] }}</textarea>
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                            <button type="button" data-copy-target="agent-enrollment-cmd" class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">Copy CMD Script</button>
+                        </div>
+                    @endif
+                </div>
+            </div>
+            <div class="mt-4 rounded-lg border border-emerald-200 bg-white px-4 py-3 text-xs text-emerald-900">
+                Run the PowerShell command in an elevated PowerShell window, or download the `.cmd` file and run it as Administrator on the target Windows device.
             </div>
         </section>
     @endif
@@ -183,32 +220,99 @@
 
     <script>
         (function () {
-            document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
+            const tabButtons = Array.from(document.querySelectorAll('[data-enroll-tab-btn]'));
+            const tabPanels = Array.from(document.querySelectorAll('[data-enroll-tab-panel]'));
+            function activateTab(name) {
+                tabButtons.forEach(function (btn) {
+                    const active = btn.getAttribute('data-enroll-tab-btn') === name;
+                    btn.classList.toggle('bg-sky-50', active);
+                    btn.classList.toggle('text-sky-700', active);
+                    btn.classList.toggle('font-medium', active);
+                    btn.classList.toggle('bg-white', !active);
+                    btn.classList.toggle('text-slate-500', !active);
+                });
+                tabPanels.forEach(function (panel) {
+                    panel.classList.toggle('hidden', panel.getAttribute('data-enroll-tab-panel') !== name);
+                });
+            }
+            tabButtons.forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    activateTab(btn.getAttribute('data-enroll-tab-btn'));
+                });
+            });
+            activateTab('browser');
+
+            const oneClickBtn = document.getElementById('browser-one-click-install');
+            const oneClickStatus = document.getElementById('browser-one-click-status');
+            if (oneClickBtn && oneClickStatus) {
+                oneClickBtn.addEventListener('click', async function () {
+                    oneClickBtn.disabled = true;
+                    oneClickBtn.textContent = 'Preparing...';
+                    oneClickStatus.className = 'mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700';
+                    oneClickStatus.textContent = 'Preparing token and installer bundle...';
+                    oneClickStatus.classList.remove('hidden');
+
+                    try {
+                        const response = await fetch(@json($generateInstallJsonUrl), {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': @json(csrf_token())
+                            },
+                            body: JSON.stringify({
+                                release_id: oneClickBtn.getAttribute('data-release-id'),
+                                expires_hours: 24,
+                                api_base_url: oneClickBtn.getAttribute('data-api-base-url'),
+                                public_base_url: oneClickBtn.getAttribute('data-public-base-url')
+                            })
+                        });
+                        const data = await response.json().catch(function () { return {}; });
+
+                        if (!response.ok) {
+                            oneClickStatus.className = 'mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700';
+                            oneClickStatus.textContent = data.message || 'Unable to prepare installer.';
+                            return;
+                        }
+
+                        const bundle = data.bundle || {};
+                        oneClickStatus.className = 'mt-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800';
+                        oneClickStatus.textContent = 'Installer ready. Downloading Windows launcher...';
+                        if (bundle.launcher_url || bundle.script_url) {
+                            window.open(bundle.launcher_url || bundle.script_url, '_blank', 'noopener');
+                        }
+                    } catch (err) {
+                        oneClickStatus.className = 'mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700';
+                        oneClickStatus.textContent = 'Request failed while preparing the installer.';
+                    } finally {
+                        oneClickBtn.disabled = false;
+                        oneClickBtn.textContent = 'One-Click Install Agent';
+                    }
+                });
+            }
+
+            Array.from(document.querySelectorAll('[data-copy-target]')).forEach(function (btn) {
                 btn.addEventListener('click', async function () {
                     const targetId = btn.getAttribute('data-copy-target');
                     const target = targetId ? document.getElementById(targetId) : null;
-                    if (!target) return;
+                    if (!target) {
+                        return;
+                    }
+
                     try {
-                        await navigator.clipboard.writeText(target.value);
-                        const prev = btn.textContent;
+                        await navigator.clipboard.writeText(target.value || target.textContent || '');
+                        const original = btn.textContent;
                         btn.textContent = 'Copied';
-                        setTimeout(function () { btn.textContent = prev; }, 1200);
-                    } catch (e) {
+                        setTimeout(function () {
+                            btn.textContent = original;
+                        }, 1500);
+                    } catch (err) {
+                        target.focus();
                         target.select();
-                        document.execCommand('copy');
                     }
                 });
             });
-            document.querySelectorAll('[data-copy]').forEach(function (btn) {
-                btn.addEventListener('click', function () {
-                    const text = btn.getAttribute('data-copy') || '';
-                    if (!text) return;
-                    navigator.clipboard.writeText(text);
-                    const original = btn.textContent;
-                    btn.textContent = 'Copied';
-                    setTimeout(function () { btn.textContent = original; }, 1000);
-                });
-            });
+
         })();
     </script>
 </x-admin-layout>

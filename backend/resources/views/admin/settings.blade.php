@@ -183,6 +183,20 @@
                     </select>
                     <p class="mt-1 text-xs text-slate-500">External source URLs always use their original URL.</p>
                 </div>
+                <div class="md:col-span-2">
+                    <label class="text-xs uppercase text-slate-500">Behavior Detection Mode</label>
+                    <input type="text" readonly value="AI-only (Rule-based disabled)" class="mt-1 w-full rounded border border-slate-300 bg-slate-100 px-2 py-2 text-sm font-medium text-slate-700" />
+                    <p class="mt-1 text-xs text-slate-500">Detection is locked to AI-based scoring across all behavior events.</p>
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">AI Anomaly Threshold</label>
+                    <input name="behavior_ai_threshold" type="number" min="0.10" max="0.99" step="0.01" value="{{ $ops['behavior_ai_threshold'] ?? '0.82' }}" class="mt-1 w-full rounded border border-slate-300 px-2 py-2" />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">AI Model Path</label>
+                    <input type="text" readonly value="{{ $ops['behavior_ai_model_path'] ?? 'behavior_models/current-model.json' }}" class="mt-1 w-full rounded border border-slate-300 bg-slate-100 px-2 py-2 text-xs font-mono" />
+                    <p class="mt-1 text-xs text-slate-500">Trained at: {{ $ops['behavior_ai_model_trained_at'] ?? 'not-trained' }}</p>
+                </div>
                 <div class="md:col-span-2 flex justify-end">
                     <button class="rounded bg-skyline px-4 py-2 text-sm text-white">Save Ops Settings</button>
                 </div>

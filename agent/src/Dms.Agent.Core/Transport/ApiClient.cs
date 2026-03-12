@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using Dms.Agent.Core.Protocol;
+using Dms.Agent.Core.Telemetry;
 
 namespace Dms.Agent.Core.Transport;
 
@@ -110,6 +111,31 @@ public sealed class ApiClient
             exit_code = exitCode,
             result_payload = resultPayload,
         }, cancellationToken);
+    }
+
+    public async Task PostBehaviorEventsAsync(IReadOnlyList<BehaviorEventDto> events, CancellationToken cancellationToken)
+    {
+        if (events.Count == 0)
+        {
+            return;
+        }
+
+        string deviceId = await EnsureEnrolledAsync(cancellationToken);
+        HttpResponseMessage response = await _httpClient.PostAsJsonAsync("device/behavior-log", new
+        {
+            device_id = deviceId,
+            events = events.Select(e => new
+            {
+                event_type = e.EventType,
+                occurred_at = e.OccurredAt.ToUniversalTime().ToString("O"),
+                user_name = e.UserName,
+                process_name = e.ProcessName,
+                file_path = e.FilePath,
+                metadata = e.Metadata,
+            }),
+        }, cancellationToken);
+
+        response.EnsureSuccessStatusCode();
     }
 
     private async Task<string> EnsureEnrolledAsync(CancellationToken cancellationToken)
