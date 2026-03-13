@@ -256,6 +256,12 @@ One-command Docker bootstrap example:
 bash <(curl -fsSL https://raw.githubusercontent.com/visezion/DMS/main/deploy/scripts/bootstrap-docker-from-github.sh) https://github.com/visezion/DMS.git main /opt/dms
 ```
 
+SQLite automation example:
+
+```bash
+LARAVEL_DB_CONNECTION=sqlite bash <(curl -fsSL https://raw.githubusercontent.com/visezion/DMS/main/deploy/scripts/bootstrap-docker-from-github.sh) https://github.com/visezion/DMS.git main /opt/dms
+```
+
 On Debian/Ubuntu servers, this bootstrap script auto-installs Docker Engine, Docker Compose plugin, Git, Curl/GnuPG, Apache2 reverse proxy, and .NET SDK (8.0 default; 10.0 optional), then starts required services.
 
 ## GitHub Actions CI/CD

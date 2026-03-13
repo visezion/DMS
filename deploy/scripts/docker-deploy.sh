@@ -8,6 +8,8 @@ BRANCH="${BRANCH:-main}"
 GITHUB_REPO="${GITHUB_REPO:-}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 DOCKER_ENV_FILE="${DOCKER_ENV_FILE:-$SHARED_DIR/docker.env}"
+LARAVEL_DB_CONNECTION="${LARAVEL_DB_CONNECTION:-}"
+LARAVEL_SQLITE_PATH="${LARAVEL_SQLITE_PATH:-/var/www/html/storage/database/database.sqlite}"
 DOCKER_CMD=()
 
 COMPOSE_FILE_REL="deploy/docker/docker-compose.prod.yml"
@@ -35,6 +37,20 @@ ensure_env_kv() {
   else
     printf "%s=%s\n" "$key" "$value" >> "$file"
   fi
+}
+
+read_env_kv() {
+  local file="$1"
+  local key="$2"
+  local line
+
+  line="$(grep -E "^${key}=" "$file" | head -n1 || true)"
+  line="${line#${key}=}"
+  line="${line%\"}"
+  line="${line#\"}"
+  line="${line%\'}"
+  line="${line#\'}"
+  printf '%s' "$line"
 }
 
 compose() {
@@ -119,6 +135,39 @@ fi
 if [[ ! -f "$DOCKER_ENV_FILE" ]]; then
   cp "$DOCKER_ENV_TEMPLATE" "$DOCKER_ENV_FILE"
   log "Created $DOCKER_ENV_FILE with default Docker settings."
+fi
+
+if [[ -n "$LARAVEL_DB_CONNECTION" ]]; then
+  ensure_env_kv "$SHARED_LARAVEL_ENV" "DB_CONNECTION" "$LARAVEL_DB_CONNECTION"
+  if [[ "$LARAVEL_DB_CONNECTION" == "sqlite" ]]; then
+    ensure_env_kv "$SHARED_LARAVEL_ENV" "DB_DATABASE" "$LARAVEL_SQLITE_PATH"
+  fi
+fi
+
+if [[ "$(read_env_kv "$SHARED_LARAVEL_ENV" "DB_CONNECTION")" == "sqlite" ]]; then
+  SQLITE_DB_CONTAINER_PATH="$(read_env_kv "$SHARED_LARAVEL_ENV" "DB_DATABASE")"
+  if [[ -z "$SQLITE_DB_CONTAINER_PATH" ]]; then
+    SQLITE_DB_CONTAINER_PATH="$LARAVEL_SQLITE_PATH"
+    ensure_env_kv "$SHARED_LARAVEL_ENV" "DB_DATABASE" "$SQLITE_DB_CONTAINER_PATH"
+  fi
+
+  SQLITE_DB_HOST_PATH=""
+  if [[ "$SQLITE_DB_CONTAINER_PATH" == /var/www/html/storage/* ]]; then
+    SQLITE_DB_HOST_PATH="$SHARED_DIR/storage/${SQLITE_DB_CONTAINER_PATH#/var/www/html/storage/}"
+  elif [[ "$SQLITE_DB_CONTAINER_PATH" == /var/www/html/* ]]; then
+    SQLITE_DB_HOST_PATH="$BACKEND_DIR/${SQLITE_DB_CONTAINER_PATH#/var/www/html/}"
+  elif [[ "$SQLITE_DB_CONTAINER_PATH" == /* ]]; then
+    log "DB_DATABASE path '$SQLITE_DB_CONTAINER_PATH' is absolute and not under /var/www/html; skipping host auto-create."
+  else
+    SQLITE_DB_HOST_PATH="$BACKEND_DIR/$SQLITE_DB_CONTAINER_PATH"
+  fi
+
+  if [[ -n "$SQLITE_DB_HOST_PATH" ]]; then
+    mkdir -p "$(dirname "$SQLITE_DB_HOST_PATH")"
+    touch "$SQLITE_DB_HOST_PATH"
+    chmod 664 "$SQLITE_DB_HOST_PATH" || true
+    log "SQLite database prepared at $SQLITE_DB_HOST_PATH"
+  fi
 fi
 
 ensure_env_kv "$DOCKER_ENV_FILE" "BACKEND_DIR" "$BACKEND_DIR"

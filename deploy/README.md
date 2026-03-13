@@ -91,6 +91,7 @@ DOTNET_CHANNEL=8.0 \
 APACHE_SERVER_NAME=dms.example.com \
 APACHE_PUBLIC_PORT=8123 \
 APACHE_TARGET_PORT=80 \
+LARAVEL_DB_CONNECTION=sqlite \
 bash <(curl -fsSL https://raw.githubusercontent.com/visezion/DMS/main/deploy/scripts/bootstrap-docker-from-github.sh) https://github.com/visezion/DMS.git main /opt/dms
 ```
 
@@ -102,6 +103,8 @@ Optional flags:
 - `APACHE_SERVER_NAME` (default `_`)
 - `APACHE_PUBLIC_PORT` (default `8123`)
 - `APACHE_TARGET_PORT` (default `80`)
+- `LARAVEL_DB_CONNECTION` (`mysql|pgsql|sqlite`, default keeps template value)
+- `LARAVEL_SQLITE_PATH` (default `/var/www/html/storage/database/database.sqlite`)
 
 Agent note:
 
@@ -129,6 +132,17 @@ Service startup behavior:
 - Docker service is enabled and started.
 - Apache service is enabled and started when `WITH_APACHE=1`.
 - App containers are started: `nginx`, `app`, `queue`, `scheduler`, `mysql`, `redis`.
+
+## Docker Troubleshooting
+
+- `Bind for 0.0.0.0:8080 failed: port is already allocated`
+  - Ensure `/opt/dms/shared/docker.env` has `APP_PORT=80` (for Apache proxy `8123 -> 80`), then rerun deploy.
+- Use SQLite in automation (no manual `.env` edits)
+  - Add `LARAVEL_DB_CONNECTION=sqlite` to bootstrap/deploy command.
+  - Deploy script auto-creates SQLite file from `DB_DATABASE` path before migrations.
+- MySQL migration error `SQLSTATE[HY000]: 1419` while creating triggers
+  - The Docker MySQL service is configured with `--log-bin-trust-function-creators=1`.
+  - Recreate MySQL service so the option is applied, then rerun migrations.
 
 ## Rollback
 
