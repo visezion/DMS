@@ -10,7 +10,7 @@ if [[ $# -lt 1 ]]; then
   echo "  WITH_DOTNET=1|0      (default: 1)"
   echo "  DOTNET_CHANNEL=8.0|10.0 (default: 8.0)"
   echo "  APACHE_SERVER_NAME=<fqdn> (default: _)"
-  echo "  APACHE_PUBLIC_PORT=<port> (default: 80)"
+  echo "  APACHE_PUBLIC_PORT=<port> (default: 8888)"
   echo "  APACHE_TARGET_PORT=<port> (default: 8080)"
   exit 1
 fi
@@ -25,7 +25,7 @@ WITH_APACHE="${WITH_APACHE:-1}"
 WITH_DOTNET="${WITH_DOTNET:-1}"
 DOTNET_CHANNEL="${DOTNET_CHANNEL:-8.0}"
 APACHE_SERVER_NAME="${APACHE_SERVER_NAME:-_}"
-APACHE_PUBLIC_PORT="${APACHE_PUBLIC_PORT:-80}"
+APACHE_PUBLIC_PORT="${APACHE_PUBLIC_PORT:-8888}"
 APACHE_TARGET_PORT="${APACHE_TARGET_PORT:-8080}"
 APP_PORT="${APP_PORT:-}"
 
@@ -170,8 +170,11 @@ install_apache_if_requested() {
   # Enable required proxy modules.
   as_root "a2enmod proxy proxy_http headers rewrite >/dev/null"
 
-  # Ensure Apache listens on requested public port.
-  as_root "grep -qE '^Listen ${APACHE_PUBLIC_PORT}$' /etc/apache2/ports.conf || echo 'Listen ${APACHE_PUBLIC_PORT}' >> /etc/apache2/ports.conf"
+  # Ensure Apache listens on requested public port and avoid default :80 conflicts.
+  if [[ "$APACHE_PUBLIC_PORT" != "80" ]]; then
+    as_root "sed -i -E 's/^Listen[[:space:]]+80$/# Listen 80 (disabled by DMS bootstrap)/' /etc/apache2/ports.conf"
+  fi
+  as_root "grep -qE '^Listen[[:space:]]+${APACHE_PUBLIC_PORT}$' /etc/apache2/ports.conf || echo 'Listen ${APACHE_PUBLIC_PORT}' >> /etc/apache2/ports.conf"
 
   local apache_site_tmp
   apache_site_tmp="$(mktemp)"
