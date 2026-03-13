@@ -137,9 +137,16 @@ Service startup behavior:
 
 - `Bind for 0.0.0.0:8080 failed: port is already allocated`
   - Ensure `/opt/dms/shared/docker.env` has `APP_PORT=80` (for Apache proxy `8123 -> 80`), then rerun deploy.
+- `Bind for 0.0.0.0:80 failed: port is already allocated`
+  - Another host service is using port `80` (often Apache/Nginx).
+  - If using Apache public `8123`, disable host `Listen 80` and restart Apache, then recreate `nginx` container.
 - Use SQLite in automation (no manual `.env` edits)
   - Add `LARAVEL_DB_CONNECTION=sqlite` to bootstrap/deploy command.
   - Deploy script auto-creates SQLite file from `DB_DATABASE` path before migrations.
+  - If you hit HTTP 500 after switching to SQLite, fix storage ownership/permissions and clear Laravel caches.
+- `APP_KEY` empty and `php artisan key:generate` fails with read-only `.env`
+  - In Docker mode, `.env` is mounted read-only into the app container by design.
+  - Set `APP_KEY` in `/opt/dms/shared/.env` on host, then clear/cache config.
 - MySQL migration error `SQLSTATE[HY000]: 1419` while creating triggers
   - The Docker MySQL service is configured with `--log-bin-trust-function-creators=1`.
   - Recreate MySQL service so the option is applied, then rerun migrations.

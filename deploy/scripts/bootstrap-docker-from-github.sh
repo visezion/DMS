@@ -176,7 +176,8 @@ install_apache_if_requested() {
 
   # Ensure Apache listens on requested public port and avoid default :80 conflicts.
   if [[ "$APACHE_PUBLIC_PORT" != "80" ]]; then
-    as_root "sed -i -E 's/^Listen[[:space:]]+80$/# Listen 80 (disabled by DMS bootstrap)/' /etc/apache2/ports.conf"
+    as_root "sed -i -E '/^[[:space:]]*Listen[[:space:]]+80([[:space:]]*)$/ s|^|# |' /etc/apache2/ports.conf"
+    as_root "a2dissite 000-default >/dev/null 2>&1 || true"
   fi
   as_root "grep -qE '^Listen[[:space:]]+${APACHE_PUBLIC_PORT}$' /etc/apache2/ports.conf || echo 'Listen ${APACHE_PUBLIC_PORT}' >> /etc/apache2/ports.conf"
 
@@ -202,7 +203,6 @@ EOF
   as_root "install -m 0644 '$apache_site_tmp' /etc/apache2/sites-available/dms-docker.conf"
   rm -f "$apache_site_tmp"
 
-  as_root "a2dissite 000-default >/dev/null 2>&1 || true"
   as_root "a2ensite dms-docker >/dev/null"
   as_root "systemctl enable --now apache2"
 

@@ -53,6 +53,14 @@ read_env_kv() {
   printf '%s' "$line"
 }
 
+ensure_storage_permissions() {
+  local storage_dir="$1"
+  chmod -R u+rwX,g+rwX "$storage_dir" || true
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    chown -R 82:82 "$storage_dir" || true
+  fi
+}
+
 compose() {
   if "${DOCKER_CMD[@]}" compose version >/dev/null 2>&1; then
     "${DOCKER_CMD[@]}" compose "$@"
@@ -100,6 +108,7 @@ fi
 mkdir -p "$APP_BASE" "$SHARED_DIR" "$SHARED_DIR/storage"
 mkdir -p "$SHARED_DIR/storage/framework/cache" "$SHARED_DIR/storage/framework/sessions" "$SHARED_DIR/storage/framework/views"
 mkdir -p "$SHARED_DIR/storage/logs" "$SHARED_DIR/storage/app/public"
+ensure_storage_permissions "$SHARED_DIR/storage"
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then
   [[ -n "$GITHUB_REPO" ]] || fail "Repo not found at $REPO_DIR. Set GITHUB_REPO to clone."
@@ -166,6 +175,10 @@ if [[ "$(read_env_kv "$SHARED_LARAVEL_ENV" "DB_CONNECTION")" == "sqlite" ]]; the
     mkdir -p "$(dirname "$SQLITE_DB_HOST_PATH")"
     touch "$SQLITE_DB_HOST_PATH"
     chmod 664 "$SQLITE_DB_HOST_PATH" || true
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+      chown 82:82 "$SQLITE_DB_HOST_PATH" || true
+      chown 82:82 "$(dirname "$SQLITE_DB_HOST_PATH")" || true
+    fi
     log "SQLite database prepared at $SQLITE_DB_HOST_PATH"
   fi
 fi
@@ -195,8 +208,9 @@ log "Starting containers"
 compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" up -d --build
 
 if ! grep -Eq '^APP_KEY=base64:' "$SHARED_LARAVEL_ENV"; then
-  log "Generating Laravel APP_KEY"
-  compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app php artisan key:generate --force
+  log "Generating Laravel APP_KEY in shared env"
+  GENERATED_APP_KEY="base64:$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+  ensure_env_kv "$SHARED_LARAVEL_ENV" "APP_KEY" "$GENERATED_APP_KEY"
 fi
 
 log "Running migrations and cache warmup"
