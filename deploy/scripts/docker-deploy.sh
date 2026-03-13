@@ -8,6 +8,7 @@ BRANCH="${BRANCH:-main}"
 GITHUB_REPO="${GITHUB_REPO:-}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 DOCKER_ENV_FILE="${DOCKER_ENV_FILE:-$SHARED_DIR/docker.env}"
+DOCKER_CMD=()
 
 COMPOSE_FILE_REL="deploy/docker/docker-compose.prod.yml"
 LARAVEL_ENV_TEMPLATE_REL="deploy/docker/laravel.env.example"
@@ -22,20 +23,63 @@ fail() {
   exit 1
 }
 
+ensure_env_kv() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local escaped_value
+
+  escaped_value="$(printf '%s' "$value" | sed -e 's/[\/&]/\\&/g')"
+  if grep -Eq "^${key}=" "$file"; then
+    sed -i -E "s|^${key}=.*|${key}=${escaped_value}|g" "$file"
+  else
+    printf "%s=%s\n" "$key" "$value" >> "$file"
+  fi
+}
+
 compose() {
-  if "$DOCKER_BIN" compose version >/dev/null 2>&1; then
-    "$DOCKER_BIN" compose "$@"
+  if "${DOCKER_CMD[@]}" compose version >/dev/null 2>&1; then
+    "${DOCKER_CMD[@]}" compose "$@"
     return
   fi
+
   if command -v docker-compose >/dev/null 2>&1; then
-    docker-compose "$@"
-    return
+    if docker-compose version >/dev/null 2>&1; then
+      docker-compose "$@"
+      return
+    fi
+    if command -v sudo >/dev/null 2>&1 && sudo -n docker-compose version >/dev/null 2>&1; then
+      sudo -n docker-compose "$@"
+      return
+    fi
   fi
+
   fail "Docker Compose is not available."
 }
 
 command -v git >/dev/null 2>&1 || fail "git is not installed."
 command -v "$DOCKER_BIN" >/dev/null 2>&1 || fail "docker is not installed."
+
+DOCKER_CMD=("$DOCKER_BIN")
+if ! "$DOCKER_BIN" info >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1; then
+    if sudo -n "$DOCKER_BIN" info >/dev/null 2>&1; then
+      DOCKER_CMD=(sudo -n "$DOCKER_BIN")
+      log "Using passwordless sudo for Docker commands."
+    elif [[ -t 0 ]]; then
+      if sudo "$DOCKER_BIN" info >/dev/null 2>&1; then
+        DOCKER_CMD=(sudo "$DOCKER_BIN")
+        log "Using sudo for Docker commands."
+      else
+        fail "Cannot access docker daemon, even with sudo."
+      fi
+    else
+      fail "Cannot access docker daemon. Add user to docker group or allow passwordless sudo for docker."
+    fi
+  else
+    fail "Cannot access docker daemon and sudo is not available."
+  fi
+fi
 
 mkdir -p "$APP_BASE" "$SHARED_DIR" "$SHARED_DIR/storage"
 mkdir -p "$SHARED_DIR/storage/framework/cache" "$SHARED_DIR/storage/framework/sessions" "$SHARED_DIR/storage/framework/views"
@@ -74,13 +118,14 @@ fi
 
 if [[ ! -f "$DOCKER_ENV_FILE" ]]; then
   cp "$DOCKER_ENV_TEMPLATE" "$DOCKER_ENV_FILE"
-  {
-    echo ""
-    echo "# Auto-generated path overrides"
-    echo "BACKEND_DIR=$BACKEND_DIR"
-    echo "APP_SHARED_DIR=$SHARED_DIR"
-  } >> "$DOCKER_ENV_FILE"
   log "Created $DOCKER_ENV_FILE with default Docker settings."
+fi
+
+ensure_env_kv "$DOCKER_ENV_FILE" "BACKEND_DIR" "$BACKEND_DIR"
+ensure_env_kv "$DOCKER_ENV_FILE" "APP_SHARED_DIR" "$SHARED_DIR"
+
+if [[ -n "${APP_PORT:-}" ]]; then
+  ensure_env_kv "$DOCKER_ENV_FILE" "APP_PORT" "$APP_PORT"
 fi
 
 log "Building app image"
@@ -91,7 +136,7 @@ compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" run --rm app \
   composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
 
 log "Building frontend assets with Node container"
-"$DOCKER_BIN" run --rm \
+"${DOCKER_CMD[@]}" run --rm \
   -v "$BACKEND_DIR:/app" \
   -w /app \
   node:20-alpine \

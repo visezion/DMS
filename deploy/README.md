@@ -61,19 +61,60 @@ bash deploy/scripts/deploy.sh
 
 Prerequisites on server:
 
-- Docker Engine with Docker Compose plugin
+- Debian/Ubuntu Linux server
+- Root privileges or `sudo`
+- Internet access to GitHub and Docker apt repository
+
+The bootstrap script auto-installs required dependencies:
+
+- Docker Engine
+- Docker Compose plugin
 - Git
+- Curl + GnuPG + CA certificates
+- Apache2 (enabled as reverse proxy by default)
+- .NET SDK (8.0 by default, can switch to 10.0)
+
+It may prompt for your sudo password during package installation.
 
 For first-time install directly from GitHub on a clean server:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/<your-org>/<your-repo>/main/deploy/scripts/bootstrap-docker-from-github.sh) https://github.com/<your-org>/<your-repo>.git main /opt/dms
+bash <(curl -fsSL https://raw.githubusercontent.com/visezion/DMS/main/deploy/scripts/bootstrap-docker-from-github.sh) https://github.com/visezion/DMS.git main /opt/dms
 ```
+
+Customize bootstrap behavior:
+
+```bash
+WITH_APACHE=1 \
+WITH_DOTNET=1 \
+DOTNET_CHANNEL=8.0 \
+APACHE_SERVER_NAME=dms.example.com \
+APACHE_PUBLIC_PORT=80 \
+APACHE_TARGET_PORT=8080 \
+bash <(curl -fsSL https://raw.githubusercontent.com/visezion/DMS/main/deploy/scripts/bootstrap-docker-from-github.sh) https://github.com/visezion/DMS.git main /opt/dms
+```
+
+Optional flags:
+
+- `WITH_APACHE=1|0` (default `1`)
+- `WITH_DOTNET=1|0` (default `1`)
+- `DOTNET_CHANNEL=8.0|10.0` (default `8.0`)
+- `APACHE_SERVER_NAME` (default `_`)
+- `APACHE_PUBLIC_PORT` (default `80`)
+- `APACHE_TARGET_PORT` (default `8080`)
+
+Agent note:
+
+- The DMS Windows agent targets `net8.0-windows`; Linux server .NET install is for tooling/build tasks, not for running the Windows service itself.
+
+Script source:
+
+- `https://github.com/visezion/DMS/blob/main/deploy/scripts/bootstrap-docker-from-github.sh`
 
 For updates after first install:
 
 ```bash
-GITHUB_REPO=https://github.com/<your-org>/<your-repo>.git BRANCH=main APP_BASE=/opt/dms bash /opt/dms/repo/deploy/scripts/docker-deploy.sh
+GITHUB_REPO=https://github.com/visezion/DMS.git BRANCH=main APP_BASE=/opt/dms bash /opt/dms/repo/deploy/scripts/docker-deploy.sh
 ```
 
 Docker mode files created on first run:
@@ -82,6 +123,12 @@ Docker mode files created on first run:
 - `/opt/dms/shared/docker.env` (Docker compose env)
 
 Edit both files for production secrets and ports, then re-run the same deploy command.
+
+Service startup behavior:
+
+- Docker service is enabled and started.
+- Apache service is enabled and started when `WITH_APACHE=1`.
+- App containers are started: `nginx`, `app`, `queue`, `scheduler`, `mysql`, `redis`.
 
 ## Rollback
 
