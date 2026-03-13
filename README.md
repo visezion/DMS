@@ -1,6 +1,6 @@
 # DMS
 
-Centralized Windows Device Management System (agent-based, Option A).
+Centralized Windows Device Management System (agent-based).
 
 ## Table of Contents
 - [Workspace Layout](#workspace-layout)
