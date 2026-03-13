@@ -8,6 +8,7 @@ RUN apk add --no-cache \
     libzip-dev \
     postgresql-dev \
     mysql-client \
+    $PHPIZE_DEPS \
     && docker-php-ext-install pdo pdo_mysql pdo_pgsql intl bcmath opcache \
     && pecl install redis \
     && docker-php-ext-enable redis
