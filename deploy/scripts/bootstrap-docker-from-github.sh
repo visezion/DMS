@@ -14,6 +14,10 @@ if [[ $# -lt 1 ]]; then
   echo "  APACHE_TARGET_PORT=<port> (default: 80)"
   echo "  LARAVEL_DB_CONNECTION=<mysql|pgsql|sqlite> (default: keep template)"
   echo "  LARAVEL_SQLITE_PATH=<path> (default: /var/www/html/storage/database/database.sqlite)"
+  echo "  AGENT_BACKEND_WORKDIR=<path> (optional)"
+  echo "  AGENT_BACKEND_START_COMMAND=<command> (optional)"
+  echo "  AGENT_BACKEND_HOST=<host> (optional)"
+  echo "  AGENT_BACKEND_PORT=<port> (optional)"
   exit 1
 fi
 
@@ -31,6 +35,10 @@ APACHE_PUBLIC_PORT="${APACHE_PUBLIC_PORT:-8123}"
 APACHE_TARGET_PORT="${APACHE_TARGET_PORT:-80}"
 LARAVEL_DB_CONNECTION="${LARAVEL_DB_CONNECTION:-}"
 LARAVEL_SQLITE_PATH="${LARAVEL_SQLITE_PATH:-/var/www/html/storage/database/database.sqlite}"
+AGENT_BACKEND_WORKDIR="${AGENT_BACKEND_WORKDIR:-}"
+AGENT_BACKEND_START_COMMAND="${AGENT_BACKEND_START_COMMAND:-}"
+AGENT_BACKEND_HOST="${AGENT_BACKEND_HOST:-}"
+AGENT_BACKEND_PORT="${AGENT_BACKEND_PORT:-}"
 APP_PORT="${APP_PORT:-}"
 
 OS_ID=""
@@ -255,6 +263,8 @@ cd "$REPO_DIR"
 log "Running docker deployment from branch: $BRANCH"
 GITHUB_REPO="$GITHUB_REPO" BRANCH="$BRANCH" APP_BASE="$APP_BASE" APP_PORT="$APP_PORT" \
 LARAVEL_DB_CONNECTION="$LARAVEL_DB_CONNECTION" LARAVEL_SQLITE_PATH="$LARAVEL_SQLITE_PATH" \
+AGENT_BACKEND_WORKDIR="$AGENT_BACKEND_WORKDIR" AGENT_BACKEND_START_COMMAND="$AGENT_BACKEND_START_COMMAND" \
+AGENT_BACKEND_HOST="$AGENT_BACKEND_HOST" AGENT_BACKEND_PORT="$AGENT_BACKEND_PORT" \
 bash deploy/scripts/docker-deploy.sh
 
 print_runtime_status

@@ -4990,7 +4990,12 @@ POWERSHELL;
             return back()->with('status', 'Agent backend server is already running.');
         }
 
-        $workdir = (string) env('AGENT_BACKEND_WORKDIR', base_path('..'));
+        $configuredWorkdir = trim((string) env('AGENT_BACKEND_WORKDIR', ''));
+        $workdir = $configuredWorkdir !== '' ? $configuredWorkdir : base_path('..');
+        $resolvedWorkdir = realpath($workdir);
+        if ($resolvedWorkdir !== false) {
+            $workdir = $resolvedWorkdir;
+        }
         $command = (string) env('AGENT_BACKEND_START_COMMAND', 'python -m uvicorn app.main:app --host 127.0.0.1 --port 8000');
         $logPath = storage_path('logs'.DIRECTORY_SEPARATOR.'agent-backend.log');
         if (! is_dir(dirname($logPath))) {
@@ -5006,8 +5011,11 @@ POWERSHELL;
         if (str_contains($command, 'app.main:app')) {
             $expectedModule = $workdir.DIRECTORY_SEPARATOR.'app'.DIRECTORY_SEPARATOR.'main.py';
             if (! is_file($expectedModule)) {
+                $hint = $configuredWorkdir === ''
+                    ? 'No AGENT_BACKEND_WORKDIR is set, and DMS does not bundle a Python API by default. Set AGENT_BACKEND_WORKDIR to a Python project folder that contains app/main.py.'
+                    : 'Configured workdir does not contain app/main.py. Set AGENT_BACKEND_WORKDIR to your Python API project folder.';
                 return back()->withErrors([
-                    'agent_backend' => 'Backend start command expects app/main.py, but not found in workdir: '.$expectedModule.' | Set AGENT_BACKEND_WORKDIR to your Python API project folder.',
+                    'agent_backend' => 'Backend start command expects app/main.py, but not found in workdir: '.$expectedModule.' | '.$hint,
                 ]);
             }
         }
