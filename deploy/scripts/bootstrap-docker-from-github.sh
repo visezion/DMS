@@ -10,8 +10,8 @@ if [[ $# -lt 1 ]]; then
   echo "  WITH_DOTNET=1|0      (default: 1)"
   echo "  DOTNET_CHANNEL=8.0|10.0 (default: 8.0)"
   echo "  APACHE_SERVER_NAME=<fqdn> (default: _)"
-  echo "  APACHE_PUBLIC_PORT=<port> (default: 8888)"
-  echo "  APACHE_TARGET_PORT=<port> (default: 8080)"
+  echo "  APACHE_PUBLIC_PORT=<port> (default: 8123)"
+  echo "  APACHE_TARGET_PORT=<port> (default: 80)"
   exit 1
 fi
 
@@ -25,8 +25,8 @@ WITH_APACHE="${WITH_APACHE:-1}"
 WITH_DOTNET="${WITH_DOTNET:-1}"
 DOTNET_CHANNEL="${DOTNET_CHANNEL:-8.0}"
 APACHE_SERVER_NAME="${APACHE_SERVER_NAME:-_}"
-APACHE_PUBLIC_PORT="${APACHE_PUBLIC_PORT:-8888}"
-APACHE_TARGET_PORT="${APACHE_TARGET_PORT:-8080}"
+APACHE_PUBLIC_PORT="${APACHE_PUBLIC_PORT:-8123}"
+APACHE_TARGET_PORT="${APACHE_TARGET_PORT:-80}"
 APP_PORT="${APP_PORT:-}"
 
 OS_ID=""

@@ -89,8 +89,8 @@ WITH_APACHE=1 \
 WITH_DOTNET=1 \
 DOTNET_CHANNEL=8.0 \
 APACHE_SERVER_NAME=dms.example.com \
-APACHE_PUBLIC_PORT=8888 \
-APACHE_TARGET_PORT=8080 \
+APACHE_PUBLIC_PORT=8123 \
+APACHE_TARGET_PORT=80 \
 bash <(curl -fsSL https://raw.githubusercontent.com/visezion/DMS/main/deploy/scripts/bootstrap-docker-from-github.sh) https://github.com/visezion/DMS.git main /opt/dms
 ```
 
@@ -100,8 +100,8 @@ Optional flags:
 - `WITH_DOTNET=1|0` (default `1`)
 - `DOTNET_CHANNEL=8.0|10.0` (default `8.0`)
 - `APACHE_SERVER_NAME` (default `_`)
-- `APACHE_PUBLIC_PORT` (default `8888`)
-- `APACHE_TARGET_PORT` (default `8080`)
+- `APACHE_PUBLIC_PORT` (default `8123`)
+- `APACHE_TARGET_PORT` (default `80`)
 
 Agent note:
 
