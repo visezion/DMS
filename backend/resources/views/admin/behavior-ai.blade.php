@@ -95,7 +95,7 @@
         }
     </style>
 
-    <div class="ai-shell space-y-4">
+    <div class="ai-shell space-y-4" data-live-stats-url="{{ route('admin.behavior-ai.live-status') }}">
         <section class="ai-panel rounded-2xl p-5 ai-reveal">
             <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
@@ -104,10 +104,10 @@
                     <p class="mt-1 text-sm text-slate-600">Stream ingestion, anomaly intelligence, and policy automation in one operational control surface.</p>
                 </div>
                 <div class="flex flex-wrap gap-2 text-xs">
-                    <span class="ai-chip rounded-full px-3 py-1">Anomaly threshold: {{ $threshold }}</span>
-                    <span class="ai-chip rounded-full px-3 py-1">Last retrain: {{ $lastRetrainedAt }}</span>
-                    <span class="rounded-full border px-3 py-1 {{ $approvalTone }}">
-                        30d approval: {{ $approvalRatio !== null ? $approvalRatio.'%' : 'N/A' }}
+                    <span id="ai-threshold-chip" class="ai-chip rounded-full px-3 py-1">Anomaly threshold: <span id="ai-threshold-value">{{ $threshold }}</span></span>
+                    <span id="ai-last-retrain-chip" class="ai-chip rounded-full px-3 py-1">Last retrain: <span id="ai-last-retrain-value">{{ $lastRetrainedAt }}</span></span>
+                    <span id="ai-approval-chip" class="rounded-full border px-3 py-1 {{ $approvalTone }}">
+                        30d approval: <span id="ai-approval-value">{{ $approvalRatio !== null ? $approvalRatio.'%' : 'N/A' }}</span>
                     </span>
                 </div>
             </div>
@@ -125,13 +125,13 @@
                 <span id="ai-auto-refresh-last-sync" class="text-slate-500"></span>
             </div>
             <div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
-                <span class="rounded-full px-2.5 py-1 {{ $runtimeHealthy ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700' }}">
+                <span id="ai-runtime-chip" class="rounded-full px-2.5 py-1 {{ $runtimeHealthy ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700' }}">
                     Runtime {{ $runtimeHealthy ? 'healthy' : 'degraded' }}
                 </span>
-                <span class="rounded-full px-2.5 py-1 {{ $operationsBacklog <= 25 ? 'bg-emerald-100 text-emerald-700' : ($operationsBacklog <= 200 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700') }}">
+                <span id="ai-backlog-chip" class="rounded-full px-2.5 py-1 {{ $operationsBacklog <= 25 ? 'bg-emerald-100 text-emerald-700' : ($operationsBacklog <= 200 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700') }}">
                     Backlog {{ $operationsBacklog }}
                 </span>
-                <span class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                <span id="ai-feedback-chip" class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
                     Feedback records {{ $stats['feedback_total'] }}
                 </span>
             </div>
@@ -140,36 +140,36 @@
         <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 ai-reveal">
             <article class="ai-metric rounded-xl p-4">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Queued Stream Events</p>
-                <p class="mt-1 text-3xl font-bold ai-metric-number text-slate-900">{{ $stats['stream_queued'] }}</p>
-                <div class="mt-2 ai-streamline"><span class="bg-sky-500" style="width: {{ min(100, max(4, $stats['stream_queued'])) }}%"></span></div>
+                <p id="ai-stat-stream-queued" class="mt-1 text-3xl font-bold ai-metric-number text-slate-900">{{ $stats['stream_queued'] }}</p>
+                <div class="mt-2 ai-streamline"><span id="ai-bar-stream-queued" class="bg-sky-500" style="width: {{ min(100, max(4, $stats['stream_queued'])) }}%"></span></div>
                 <p class="mt-2 text-xs text-slate-500">Waiting to be processed by detection workers.</p>
             </article>
             <article class="ai-metric rounded-xl p-4">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Failed Stream Events</p>
-                <p class="mt-1 text-3xl font-bold ai-metric-number text-rose-700">{{ $stats['stream_failed'] }}</p>
-                <div class="mt-2 ai-streamline"><span class="bg-rose-500" style="width: {{ min(100, max(4, $stats['stream_failed'])) }}%"></span></div>
+                <p id="ai-stat-stream-failed" class="mt-1 text-3xl font-bold ai-metric-number text-rose-700">{{ $stats['stream_failed'] }}</p>
+                <div class="mt-2 ai-streamline"><span id="ai-bar-stream-failed" class="bg-rose-500" style="width: {{ min(100, max(4, $stats['stream_failed'])) }}%"></span></div>
                 <p class="mt-2 text-xs text-slate-500">Need replay or parser inspection.</p>
             </article>
             <article class="ai-metric rounded-xl p-4">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Pending AI Cases</p>
-                <p class="mt-1 text-3xl font-bold ai-metric-number text-amber-700">{{ $stats['cases_pending'] }}</p>
-                <div class="mt-2 ai-streamline"><span class="bg-amber-500" style="width: {{ min(100, max(4, $stats['cases_pending'])) }}%"></span></div>
+                <p id="ai-stat-cases-pending" class="mt-1 text-3xl font-bold ai-metric-number text-amber-700">{{ $stats['cases_pending'] }}</p>
+                <div class="mt-2 ai-streamline"><span id="ai-bar-cases-pending" class="bg-amber-500" style="width: {{ min(100, max(4, $stats['cases_pending'])) }}%"></span></div>
                 <p class="mt-2 text-xs text-slate-500">Cases waiting for analyst decision.</p>
             </article>
             <article class="ai-metric rounded-xl p-4">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Applied Recommendations</p>
-                <p class="mt-1 text-3xl font-bold ai-metric-number text-emerald-700">{{ $stats['recommendations_applied'] }}</p>
-                <div class="mt-2 ai-streamline"><span class="bg-emerald-500" style="width: {{ min(100, max(4, $stats['recommendations_applied'])) }}%"></span></div>
+                <p id="ai-stat-recommendations-applied" class="mt-1 text-3xl font-bold ai-metric-number text-emerald-700">{{ $stats['recommendations_applied'] }}</p>
+                <div class="mt-2 ai-streamline"><span id="ai-bar-recommendations-applied" class="bg-emerald-500" style="width: {{ min(100, max(4, $stats['recommendations_applied'])) }}%"></span></div>
                 <p class="mt-2 text-xs text-slate-500">Policy actions executed successfully.</p>
             </article>
             <article class="ai-metric rounded-xl p-4">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Queue Worker</p>
-                <p class="mt-1 text-3xl font-bold ai-metric-number {{ $queueRunning ? 'text-emerald-700' : 'text-rose-700' }}">{{ $queueRunning ? 'UP' : 'DOWN' }}</p>
+                <p id="ai-runtime-queue-card" class="mt-1 text-3xl font-bold ai-metric-number {{ $queueRunning ? 'text-emerald-700' : 'text-rose-700' }}">{{ $queueRunning ? 'UP' : 'DOWN' }}</p>
                 <p class="mt-2 text-xs text-slate-500">`queue:work --queue=horizon` runtime state.</p>
             </article>
             <article class="ai-metric rounded-xl p-4">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Scheduler</p>
-                <p class="mt-1 text-3xl font-bold ai-metric-number {{ $schedulerRunning ? 'text-emerald-700' : 'text-rose-700' }}">{{ $schedulerRunning ? 'UP' : 'DOWN' }}</p>
+                <p id="ai-runtime-scheduler-card" class="mt-1 text-3xl font-bold ai-metric-number {{ $schedulerRunning ? 'text-emerald-700' : 'text-rose-700' }}">{{ $schedulerRunning ? 'UP' : 'DOWN' }}</p>
                 <p class="mt-2 text-xs text-slate-500">`schedule:work` runtime state.</p>
             </article>
         </section>
@@ -429,6 +429,7 @@
                 return;
             }
 
+            const liveStatsUrl = root.getAttribute('data-live-stats-url') || '';
             const keyPrefix = 'behavior.ai.autorefresh.';
             const keyEnabled = keyPrefix + 'enabled';
             const keyInterval = keyPrefix + 'interval';
@@ -442,7 +443,30 @@
             }
             let dirtyForm = false;
             let nextRefreshAt = Date.now() + intervalSec * 1000;
+            let syncInFlight = false;
             intervalEl.value = String(intervalSec);
+
+            const ui = {
+                thresholdValue: document.getElementById('ai-threshold-value'),
+                lastRetrainValue: document.getElementById('ai-last-retrain-value'),
+                approvalChip: document.getElementById('ai-approval-chip'),
+                approvalValue: document.getElementById('ai-approval-value'),
+                runtimeChip: document.getElementById('ai-runtime-chip'),
+                backlogChip: document.getElementById('ai-backlog-chip'),
+                feedbackChip: document.getElementById('ai-feedback-chip'),
+                streamQueued: document.getElementById('ai-stat-stream-queued'),
+                streamFailed: document.getElementById('ai-stat-stream-failed'),
+                casesPending: document.getElementById('ai-stat-cases-pending'),
+                recommendationsApplied: document.getElementById('ai-stat-recommendations-applied'),
+                barQueued: document.getElementById('ai-bar-stream-queued'),
+                barFailed: document.getElementById('ai-bar-stream-failed'),
+                barPending: document.getElementById('ai-bar-cases-pending'),
+                barApplied: document.getElementById('ai-bar-recommendations-applied'),
+                queueCard: document.getElementById('ai-runtime-queue-card'),
+                schedulerCard: document.getElementById('ai-runtime-scheduler-card'),
+                queueLine: document.getElementById('behavior-runtime-queue-line'),
+                schedulerLine: document.getElementById('behavior-runtime-scheduler-line'),
+            };
 
             const forms = Array.from(root.querySelectorAll('form'));
             forms.forEach(function (form) {
@@ -466,6 +490,28 @@
                 return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             }
 
+            function toInt(value) {
+                const parsed = Number(value);
+                if (!Number.isFinite(parsed)) {
+                    return 0;
+                }
+                return Math.max(0, Math.round(parsed));
+            }
+
+            function percentLabel(value) {
+                const parsed = Number(value);
+                if (!Number.isFinite(parsed)) {
+                    return 'N/A';
+                }
+                const rounded = Math.round(parsed * 10) / 10;
+                const fixed = rounded.toFixed(1);
+                return (fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed) + '%';
+            }
+
+            function meterWidth(count) {
+                return String(Math.min(100, Math.max(4, toInt(count)))) + '%';
+            }
+
             function renderState(remainingSec, pausedReason) {
                 if (!enabled) {
                     stateEl.textContent = 'Auto-update: paused';
@@ -486,10 +532,147 @@
                 toggleEl.textContent = 'Pause';
             }
 
+            function applyLiveStats(payload) {
+                if (!payload || typeof payload !== 'object') {
+                    return;
+                }
+
+                const stats = payload.stats && typeof payload.stats === 'object' ? payload.stats : {};
+                const runtime = payload.runtime && typeof payload.runtime === 'object' ? payload.runtime : {};
+                const approval = payload.approval && typeof payload.approval === 'object' ? payload.approval : {};
+                const runtimeHealthy = Boolean(payload.runtime_healthy);
+                const operationsBacklog = toInt(payload.operations_backlog);
+                const feedbackTotal = toInt(stats.feedback_total);
+                const approvalRatio = approval.ratio;
+                const queueRunning = Boolean(runtime.queue_running);
+                const schedulerRunning = Boolean(runtime.scheduler_running);
+
+                if (ui.thresholdValue) {
+                    ui.thresholdValue.textContent = String(payload.threshold ?? '');
+                }
+                if (ui.lastRetrainValue) {
+                    ui.lastRetrainValue.textContent = String(payload.last_retrained_at ?? 'never');
+                }
+                if (ui.approvalValue) {
+                    ui.approvalValue.textContent = percentLabel(approvalRatio);
+                }
+                if (ui.approvalChip) {
+                    const approvalTone = approvalRatio === null || approvalRatio === undefined
+                        ? 'text-slate-700 bg-slate-100 border-slate-200'
+                        : (Number(approvalRatio) >= 70
+                            ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                            : (Number(approvalRatio) >= 45
+                                ? 'text-amber-700 bg-amber-50 border-amber-200'
+                                : 'text-rose-700 bg-rose-50 border-rose-200'));
+                    ui.approvalChip.className = 'rounded-full border px-3 py-1 ' + approvalTone;
+                }
+                if (ui.runtimeChip) {
+                    ui.runtimeChip.textContent = 'Runtime ' + (runtimeHealthy ? 'healthy' : 'degraded');
+                    ui.runtimeChip.className = 'rounded-full px-2.5 py-1 ' + (runtimeHealthy ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700');
+                }
+                if (ui.backlogChip) {
+                    const backlogTone = operationsBacklog <= 25
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : (operationsBacklog <= 200 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700');
+                    ui.backlogChip.textContent = 'Backlog ' + String(operationsBacklog);
+                    ui.backlogChip.className = 'rounded-full px-2.5 py-1 ' + backlogTone;
+                }
+                if (ui.feedbackChip) {
+                    ui.feedbackChip.textContent = 'Feedback records ' + String(feedbackTotal);
+                }
+
+                if (ui.streamQueued) {
+                    ui.streamQueued.textContent = String(toInt(stats.stream_queued));
+                }
+                if (ui.streamFailed) {
+                    ui.streamFailed.textContent = String(toInt(stats.stream_failed));
+                }
+                if (ui.casesPending) {
+                    ui.casesPending.textContent = String(toInt(stats.cases_pending));
+                }
+                if (ui.recommendationsApplied) {
+                    ui.recommendationsApplied.textContent = String(toInt(stats.recommendations_applied));
+                }
+                if (ui.barQueued) {
+                    ui.barQueued.style.width = meterWidth(stats.stream_queued);
+                }
+                if (ui.barFailed) {
+                    ui.barFailed.style.width = meterWidth(stats.stream_failed);
+                }
+                if (ui.barPending) {
+                    ui.barPending.style.width = meterWidth(stats.cases_pending);
+                }
+                if (ui.barApplied) {
+                    ui.barApplied.style.width = meterWidth(stats.recommendations_applied);
+                }
+
+                if (ui.queueCard) {
+                    ui.queueCard.textContent = queueRunning ? 'UP' : 'DOWN';
+                    ui.queueCard.className = 'mt-1 text-3xl font-bold ai-metric-number ' + (queueRunning ? 'text-emerald-700' : 'text-rose-700');
+                }
+                if (ui.schedulerCard) {
+                    ui.schedulerCard.textContent = schedulerRunning ? 'UP' : 'DOWN';
+                    ui.schedulerCard.className = 'mt-1 text-3xl font-bold ai-metric-number ' + (schedulerRunning ? 'text-emerald-700' : 'text-rose-700');
+                }
+                if (ui.queueLine) {
+                    ui.queueLine.textContent = queueRunning ? 'running' : 'not running';
+                    ui.queueLine.className = 'rounded-full px-2 py-0.5 ' + (queueRunning ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700');
+                }
+                if (ui.schedulerLine) {
+                    ui.schedulerLine.textContent = schedulerRunning ? 'running' : 'not running';
+                    ui.schedulerLine.className = 'rounded-full px-2 py-0.5 ' + (schedulerRunning ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700');
+                }
+            }
+
+            async function syncNow(allowHardReloadFallback) {
+                if (syncInFlight) {
+                    return false;
+                }
+
+                if (!liveStatsUrl) {
+                    if (allowHardReloadFallback) {
+                        window.location.reload();
+                    }
+                    return false;
+                }
+
+                syncInFlight = true;
+                try {
+                    const response = await fetch(liveStatsUrl, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        cache: 'no-store',
+                        credentials: 'same-origin',
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch Behavior AI live stats: ' + response.status);
+                    }
+
+                    const payload = await response.json();
+                    applyLiveStats(payload);
+                    syncEl.textContent = 'Last sync: ' + formatTime(new Date());
+                    return true;
+                } catch (_error) {
+                    stateEl.textContent = 'Auto-update: sync failed';
+                    stateEl.className = 'ai-live-chip rounded-full px-3 py-1 text-rose-700';
+                    if (allowHardReloadFallback) {
+                        window.location.reload();
+                    }
+                    return false;
+                } finally {
+                    syncInFlight = false;
+                }
+            }
+
             function refreshNow() {
                 localStorage.setItem(keyEnabled, enabled ? '1' : '0');
                 localStorage.setItem(keyInterval, String(intervalSec));
-                window.location.reload();
+                nextRefreshAt = Date.now() + intervalSec * 1000;
+                syncNow(true);
             }
 
             intervalEl.addEventListener('change', function () {
@@ -509,6 +692,7 @@
 
             nowEl.addEventListener('click', refreshNow);
             syncEl.textContent = 'Last sync: ' + formatTime(new Date());
+            syncNow(false);
 
             setInterval(function () {
                 const pausedByEditing = isEditing() || dirtyForm;
@@ -525,7 +709,8 @@
                         nextRefreshAt = Date.now() + 10 * 1000;
                         return;
                     }
-                    refreshNow();
+                    nextRefreshAt = Date.now() + intervalSec * 1000;
+                    syncNow(false);
                 }
             }, 1000);
         })();

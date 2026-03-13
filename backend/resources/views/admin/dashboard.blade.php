@@ -17,21 +17,49 @@
         $jobSuccessRate = (float) ($metrics['job_success_rate'] ?? 0);
         $pendingRate = round((((int) ($metrics['jobs_pending'] ?? 0)) / $deviceTotal) * 100, 1);
         $failureRate = round((((int) ($metrics['jobs_failed'] ?? 0)) / $deviceTotal) * 100, 1);
+        $baselineEnabled = (bool) ($metrics['behavior_baseline_enabled'] ?? false);
+        $baselineRiskContribution = (float) ($metrics['behavior_baseline_risk'] ?? 0.0);
+        $remediationEnabled = (bool) ($metrics['behavior_remediation_enabled'] ?? false);
+        $remediationRiskContribution = (float) ($metrics['behavior_remediation_risk'] ?? 0.0);
 
-        $riskScore = max(0, min(100,
-            (100 - $onlineRate) * 0.34
-            + (100 - $complianceRate) * 0.36
-            + (100 - $jobSuccessRate) * 0.30
-        ));
+        if ($baselineEnabled && $remediationEnabled) {
+            $riskScore = max(0, min(100,
+                (100 - $onlineRate) * 0.26
+                + (100 - $complianceRate) * 0.28
+                + (100 - $jobSuccessRate) * 0.22
+                + ($baselineRiskContribution * 0.12)
+                + ($remediationRiskContribution * 0.12)
+            ));
+        } elseif ($baselineEnabled) {
+            $riskScore = max(0, min(100,
+                (100 - $onlineRate) * 0.30
+                + (100 - $complianceRate) * 0.32
+                + (100 - $jobSuccessRate) * 0.26
+                + ($baselineRiskContribution * 0.12)
+            ));
+        } elseif ($remediationEnabled) {
+            $riskScore = max(0, min(100,
+                (100 - $onlineRate) * 0.30
+                + (100 - $complianceRate) * 0.33
+                + (100 - $jobSuccessRate) * 0.25
+                + ($remediationRiskContribution * 0.12)
+            ));
+        } else {
+            $riskScore = max(0, min(100,
+                (100 - $onlineRate) * 0.34
+                + (100 - $complianceRate) * 0.36
+                + (100 - $jobSuccessRate) * 0.30
+            ));
+        }
         $riskLabel = $riskScore >= 60 ? 'Needs Attention' : ($riskScore >= 35 ? 'Watch Closely' : 'Healthy');
-        $riskTone = $riskScore >= 60 ? 'text-rose-700 bg-rose-50 border-rose-200' : ($riskScore >= 35 ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200');
+        $riskTone = $riskScore >= 60 ? 'text-amber-800 bg-amber-100 border-amber-300' : ($riskScore >= 35 ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200');
 
         $opsPressure = min(100, round(
             ($pendingRate * 0.58)
             + (((int) ($metrics['retrying_runs'] ?? 0) / max(1, (int) ($metrics['jobs_pending'] ?? 1))) * 42),
             1
         ));
-        $opsTone = $opsPressure >= 70 ? 'text-rose-700' : ($opsPressure >= 40 ? 'text-amber-700' : 'text-emerald-700');
+        $opsTone = $opsPressure >= 70 ? 'text-amber-800' : ($opsPressure >= 40 ? 'text-amber-700' : 'text-emerald-700');
 
         $policyDensity = round((((int) ($metrics['policies_total'] ?? 0)) / $deviceTotal) * 100, 1);
         $packageDensity = round((((int) ($metrics['packages_total'] ?? 0)) / $deviceTotal) * 100, 1);
@@ -40,7 +68,7 @@
         $deviceRingTotal = max(1, $deviceOnlineCount + $deviceOfflineCount + $devicePendingCount);
         $deviceOnlineDeg = round(($deviceOnlineCount / $deviceRingTotal) * 360, 1);
         $deviceOfflineDeg = round(($deviceOfflineCount / $deviceRingTotal) * 360, 1);
-        $deviceRing = 'background: conic-gradient(#14b8a6 0deg '.$deviceOnlineDeg.'deg, #fb7185 '.$deviceOnlineDeg.'deg '.($deviceOnlineDeg + $deviceOfflineDeg).'deg, #cbd5e1 '.($deviceOnlineDeg + $deviceOfflineDeg).'deg 360deg);';
+        $deviceRing = 'background: conic-gradient(#14b8a6 0deg '.$deviceOnlineDeg.'deg, #f59e0b '.$deviceOnlineDeg.'deg '.($deviceOnlineDeg + $deviceOfflineDeg).'deg, #cbd5e1 '.($deviceOnlineDeg + $deviceOfflineDeg).'deg 360deg);';
 
         $complianceRingTotal = max(1, array_sum($complianceStatus));
         $compliantDeg = round((($complianceStatus['compliant'] ?? 0) / $complianceRingTotal) * 360, 1);
@@ -50,7 +78,7 @@
         $jobRingTotal = max(1, array_sum($jobStatus));
         $jobSuccessDeg = round((($jobStatus['success'] ?? 0) / $jobRingTotal) * 360, 1);
         $jobFailedDeg = round((($jobStatus['failed'] ?? 0) / $jobRingTotal) * 360, 1);
-        $jobRing = 'background: conic-gradient(#6366f1 0deg '.$jobSuccessDeg.'deg, #ef4444 '.$jobSuccessDeg.'deg '.($jobSuccessDeg + $jobFailedDeg).'deg, #fbbf24 '.($jobSuccessDeg + $jobFailedDeg).'deg 360deg);';
+        $jobRing = 'background: conic-gradient(#6366f1 0deg '.$jobSuccessDeg.'deg, #f59e0b '.$jobSuccessDeg.'deg '.($jobSuccessDeg + $jobFailedDeg).'deg, #94a3b8 '.($jobSuccessDeg + $jobFailedDeg).'deg 360deg);';
 
         $jobTrendMax = max(1, (int) $jobTrend->map(fn ($point) => (int) ($point['success'] + $point['failed'] + $point['active']))->max());
         $oversightMax = max(1, (int) max(
@@ -155,6 +183,9 @@
             overflow: hidden;
             background: rgba(226, 232, 240, 0.92);
         }
+        body.ui-modal-open #admin-dashboard-root {
+            visibility: hidden;
+        }
         @media (min-width: 1024px) {
             .chart-layout {
                 grid-template-columns: 9.5rem minmax(0, 1fr);
@@ -163,7 +194,7 @@
         }
     </style>
 
-    <div class="mx-auto max-w-[1320px] space-y-4">
+    <div id="admin-dashboard-root" class="mx-auto max-w-[1320px] space-y-4">
         <section class="hero-surface rounded-[1.5rem] p-4 lg:p-5">
             <div class="relative z-10 grid gap-4 xl:grid-cols-[1.55fr,0.95fr]">
                 <div>
@@ -275,8 +306,8 @@
                         <h3 class="mt-1 text-xl font-semibold text-slate-900">Job run activity</h3>
                         <div class="mt-3 space-y-1.5 text-xs text-slate-500">
                             <p class="inline-flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-indigo-500"></span>Success</p>
-                            <p class="inline-flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-rose-500"></span>Failed</p>
-                            <p class="inline-flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-amber-400"></span>Active</p>
+                            <p class="inline-flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>Failed</p>
+                            <p class="inline-flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-slate-400"></span>Active</p>
                         </div>
                     </div>
                     <div class="overflow-x-auto pb-2">
@@ -290,10 +321,10 @@
                                                 <div class="bg-indigo-500" style="height: {{ max(6, (($point['success'] ?? 0) / $jobTrendMax) * 100) }}%"></div>
                                             @endif
                                             @if($point['failed'] > 0)
-                                                <div class="bg-rose-500" style="height: {{ max(6, (($point['failed'] ?? 0) / $jobTrendMax) * 100) }}%"></div>
+                                                <div class="bg-amber-500" style="height: {{ max(6, (($point['failed'] ?? 0) / $jobTrendMax) * 100) }}%"></div>
                                             @endif
                                             @if($point['active'] > 0)
-                                                <div class="bg-amber-400" style="height: {{ max(6, (($point['active'] ?? 0) / $jobTrendMax) * 100) }}%"></div>
+                                                <div class="bg-slate-400" style="height: {{ max(6, (($point['active'] ?? 0) / $jobTrendMax) * 100) }}%"></div>
                                             @endif
                                         </div>
                                     </div>
@@ -382,7 +413,7 @@
                         <div class="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4">
                             <div class="flex items-center justify-between gap-3">
                                 <p class="font-mono text-xs text-slate-700 break-all">{{ $job->id }}</p>
-                                <span class="rounded-full px-3 py-1 text-xs font-medium {{ $job->status === 'success' ? 'bg-indigo-100 text-indigo-700' : ($job->status === 'failed' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700') }}">
+                                <span class="rounded-full px-3 py-1 text-xs font-medium {{ $job->status === 'success' ? 'bg-indigo-100 text-indigo-700' : ($job->status === 'failed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700') }}">
                                     {{ $job->status }}
                                 </span>
                             </div>

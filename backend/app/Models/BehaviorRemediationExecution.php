@@ -6,9 +6,8 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class BehaviorAnomalyCase extends Model
+class BehaviorRemediationExecution extends Model
 {
     use HasFactory;
     use HasUuids;
@@ -21,26 +20,21 @@ class BehaviorAnomalyCase extends Model
     {
         return [
             'risk_score' => 'float',
-            'context' => 'array',
-            'detector_weights' => 'array',
+            'trigger_score' => 'float',
+            'payload' => 'array',
             'detected_at' => 'datetime',
-            'reviewed_at' => 'datetime',
+            'executed_at' => 'datetime',
         ];
     }
 
-    public function signals(): HasMany
+    public function anomalyCase(): BelongsTo
     {
-        return $this->hasMany(BehaviorAnomalySignal::class, 'anomaly_case_id');
+        return $this->belongsTo(BehaviorAnomalyCase::class, 'anomaly_case_id');
     }
 
-    public function recommendations(): HasMany
+    public function job(): BelongsTo
     {
-        return $this->hasMany(BehaviorPolicyRecommendation::class, 'anomaly_case_id');
-    }
-
-    public function remediationExecutions(): HasMany
-    {
-        return $this->hasMany(BehaviorRemediationExecution::class, 'anomaly_case_id');
+        return $this->belongsTo(DmsJob::class, 'dispatched_job_id');
     }
 
     public function device(): BelongsTo
@@ -48,3 +42,4 @@ class BehaviorAnomalyCase extends Model
         return $this->belongsTo(Device::class, 'device_id');
     }
 }
+

@@ -7,6 +7,8 @@ use App\Models\AgentRelease;
 use App\Models\AdminNote;
 use App\Models\AuditLog;
 use App\Models\BehaviorAnomalyCase;
+use App\Models\BehaviorRemediationExecution;
+use App\Models\DeviceBehaviorDriftEvent;
 use App\Models\BehaviorPolicyRecommendation;
 use App\Models\ComplianceResult;
 use App\Models\ControlPlaneSetting;
@@ -39,6 +41,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
@@ -129,6 +132,69 @@ class AdminConsoleController extends Controller
             'label' => \Carbon\Carbon::parse($day)->format('M d'),
             'total' => (int) ($anomalyTrendRows[$day] ?? 0),
         ])->values();
+        $baselineEnabled = $this->settingBool('behavior.baseline.enabled', false);
+        $baselineTablesReady = $baselineEnabled && Schema::hasTable('device_behavior_drift_events');
+        $baselineDriftEvents24h = 0;
+        $baselineDriftDevices7d = 0;
+        $baselineRiskContribution = 0.0;
+        if ($baselineTablesReady) {
+            $baselineWindowStart = now()->subDays(6)->startOfDay();
+            $baselineDayStart = now()->subDay();
+            $baselineQuery7d = DeviceBehaviorDriftEvent::query()
+                ->where('detected_at', '>=', $baselineWindowStart);
+            $baselineDriftEvents24h = DeviceBehaviorDriftEvent::query()
+                ->where('detected_at', '>=', $baselineDayStart)
+                ->count();
+            $baselineDriftDevices7d = (clone $baselineQuery7d)
+                ->distinct('device_id')
+                ->count('device_id');
+            $baselineDriftHigh7d = (clone $baselineQuery7d)
+                ->where('severity', 'high')
+                ->count();
+
+            $deviceRiskRate = min(100.0, ($baselineDriftDevices7d / max(1, $devicesEnrolled)) * 100);
+            $highSeverityRate = min(100.0, ($baselineDriftHigh7d / max(1, $devicesEnrolled)) * 100);
+            $baselineRiskContribution = round(min(100.0, ($deviceRiskRate * 0.65) + ($highSeverityRate * 0.35)), 1);
+        }
+        $remediationEnabled = $this->settingBool('behavior.remediation.enabled', false);
+        $remediationTablesReady = $remediationEnabled && Schema::hasTable('behavior_remediation_executions');
+        $remediationActions24h = 0;
+        $remediationActions7d = 0;
+        $remediationFailed7d = 0;
+        $remediationActive = 0;
+        $remediationRiskContribution = 0.0;
+        if ($remediationTablesReady) {
+            $remediationWindowStart = now()->subDays(6)->startOfDay();
+            $remediationActions24h = BehaviorRemediationExecution::query()
+                ->where('created_at', '>=', now()->subDay())
+                ->count();
+            $remediationActions7d = BehaviorRemediationExecution::query()
+                ->where('created_at', '>=', $remediationWindowStart)
+                ->count();
+            $remediationHighRisk7d = BehaviorRemediationExecution::query()
+                ->where('created_at', '>=', $remediationWindowStart)
+                ->where('risk_score', '>=', 0.9000)
+                ->count();
+            $remediationActive = BehaviorRemediationExecution::query()
+                ->leftJoin('jobs', 'jobs.id', '=', 'behavior_remediation_executions.dispatched_job_id')
+                ->whereIn('jobs.status', ['queued', 'running'])
+                ->count();
+            $remediationJobFailed7d = BehaviorRemediationExecution::query()
+                ->leftJoin('jobs', 'jobs.id', '=', 'behavior_remediation_executions.dispatched_job_id')
+                ->where('behavior_remediation_executions.created_at', '>=', $remediationWindowStart)
+                ->whereIn('jobs.status', ['failed'])
+                ->count();
+            $remediationDispatchFailed7d = BehaviorRemediationExecution::query()
+                ->where('created_at', '>=', $remediationWindowStart)
+                ->where('status', 'dispatch_failed')
+                ->count();
+            $remediationFailed7d = $remediationJobFailed7d + $remediationDispatchFailed7d;
+
+            $backlogRate = min(100.0, ($remediationActive / max(1, $remediationActions7d)) * 100);
+            $failureRate = min(100.0, ($remediationFailed7d / max(1, $remediationActions7d)) * 100);
+            $highRiskRate = min(100.0, ($remediationHighRisk7d / max(1, $remediationActions7d)) * 100);
+            $remediationRiskContribution = round(min(100.0, ($failureRate * 0.50) + ($backlogRate * 0.35) + ($highRiskRate * 0.15)), 1);
+        }
 
         return view('admin.dashboard', [
             'metrics' => [
@@ -152,6 +218,16 @@ class AdminConsoleController extends Controller
                 'behavior_ai_cases_pending' => BehaviorAnomalyCase::query()->where('status', 'pending_review')->count(),
                 'behavior_ai_cases_total' => BehaviorAnomalyCase::query()->count(),
                 'behavior_ai_recommendations_pending' => BehaviorPolicyRecommendation::query()->where('status', 'pending')->count(),
+                'behavior_baseline_enabled' => $baselineTablesReady,
+                'behavior_baseline_drift_events_24h' => $baselineDriftEvents24h,
+                'behavior_baseline_drift_devices_7d' => $baselineDriftDevices7d,
+                'behavior_baseline_risk' => $baselineRiskContribution,
+                'behavior_remediation_enabled' => $remediationTablesReady,
+                'behavior_remediation_actions_24h' => $remediationActions24h,
+                'behavior_remediation_actions_7d' => $remediationActions7d,
+                'behavior_remediation_failed_7d' => $remediationFailed7d,
+                'behavior_remediation_active' => $remediationActive,
+                'behavior_remediation_risk' => $remediationRiskContribution,
             ],
             'recent_jobs' => JobRun::query()->latest('updated_at')->limit(8)->get(),
             'recent_devices' => Device::query()->latest('updated_at')->limit(8)->get(),
@@ -4389,6 +4465,7 @@ POWERSHELL;
     {
         $jobs = DmsJob::query()->latest('created_at')->paginate(20);
         $jobs = $this->reconcileJobsWithRuns($jobs);
+        $jobSummary = $this->jobSummaryCounts();
         $jobIds = $jobs->getCollection()->pluck('id')->values()->all();
 
         $skippedByJob = collect();
@@ -4408,6 +4485,7 @@ POWERSHELL;
 
         return view('admin.jobs', [
             'jobs' => $jobs,
+            'job_summary' => $jobSummary,
             'devices' => Device::query()->orderBy('hostname')->get(['id', 'hostname']),
             'groups' => DeviceGroup::query()->orderBy('name')->get(['id', 'name']),
             'packages' => PackageModel::query()->orderBy('name')->get(['id', 'name', 'package_type']),
@@ -4711,7 +4789,9 @@ POWERSHELL;
         $jobIds = $items->pluck('id')->values()->all();
         $aggregates = \DB::table('job_runs')
             ->selectRaw('job_id, count(*) as total_runs')
-            ->selectRaw("sum(case when status in ('pending','acked','running') then 1 else 0 end) as active_runs")
+            ->selectRaw("sum(case when status = 'pending' then 1 else 0 end) as pending_runs")
+            ->selectRaw("sum(case when status = 'acked' then 1 else 0 end) as acked_runs")
+            ->selectRaw("sum(case when status = 'running' then 1 else 0 end) as running_runs")
             ->selectRaw("sum(case when status = 'success' then 1 else 0 end) as success_runs")
             ->selectRaw("sum(case when status in ('failed','non_compliant') then 1 else 0 end) as failed_runs")
             ->whereIn('job_id', $jobIds)
@@ -4724,17 +4804,23 @@ POWERSHELL;
             $agg = $aggregates->get($job->id);
             $computed = 'queued';
             if ($agg) {
-                $active = (int) ($agg->active_runs ?? 0);
+                $pending = (int) ($agg->pending_runs ?? 0);
+                $acked = (int) ($agg->acked_runs ?? 0);
+                $running = (int) ($agg->running_runs ?? 0);
                 $success = (int) ($agg->success_runs ?? 0);
                 $failed = (int) ($agg->failed_runs ?? 0);
                 $total = (int) ($agg->total_runs ?? 0);
 
-                if ($active > 0) {
-                    $computed = 'queued';
+                if ($running > 0) {
+                    $computed = 'running';
+                } elseif ($acked > 0) {
+                    $computed = 'acked';
+                } elseif ($pending > 0) {
+                    $computed = 'pending';
                 } elseif ($failed > 0) {
                     $computed = 'failed';
                 } elseif ($total > 0 && $success === $total) {
-                    $computed = 'success';
+                    $computed = 'completed';
                 } else {
                     $computed = 'running';
                 }
@@ -4754,6 +4840,37 @@ POWERSHELL;
 
         $jobs->setCollection($items);
         return $jobs;
+    }
+
+    /**
+     * @return array{total:int,active:int,completed:int,failed:int}
+     */
+    private function jobSummaryCounts(): array
+    {
+        $totalJobs = (int) DmsJob::query()->count();
+        $jobRunAgg = \DB::table('job_runs')
+            ->selectRaw('job_id, count(*) as total_runs')
+            ->selectRaw("sum(case when status = 'pending' then 1 else 0 end) as pending_runs")
+            ->selectRaw("sum(case when status = 'acked' then 1 else 0 end) as acked_runs")
+            ->selectRaw("sum(case when status = 'running' then 1 else 0 end) as running_runs")
+            ->selectRaw("sum(case when status = 'success' then 1 else 0 end) as success_runs")
+            ->selectRaw("sum(case when status in ('failed','non_compliant') then 1 else 0 end) as failed_runs")
+            ->groupBy('job_id');
+
+        $summary = \DB::query()
+            ->fromSub($jobRunAgg, 'jra')
+            ->selectRaw('count(*) as jobs_with_runs')
+            ->selectRaw('sum(case when (pending_runs + acked_runs + running_runs) > 0 then 1 else 0 end) as active_jobs')
+            ->selectRaw('sum(case when failed_runs > 0 then 1 else 0 end) as failed_jobs')
+            ->selectRaw('sum(case when total_runs > 0 and success_runs = total_runs then 1 else 0 end) as completed_jobs')
+            ->first();
+
+        return [
+            'total' => $totalJobs,
+            'active' => (int) ($summary->active_jobs ?? 0),
+            'completed' => (int) ($summary->completed_jobs ?? 0),
+            'failed' => (int) ($summary->failed_jobs ?? 0),
+        ];
     }
 
     public function updateOps(Request $request, AuditLogger $auditLogger): RedirectResponse
@@ -4795,6 +4912,48 @@ POWERSHELL;
         $auditLogger->log('ops.settings.update.web', 'control_plane_settings', 'global', null, $settings, $request->user()?->id);
 
         return back()->with('status', 'Operational settings updated.');
+    }
+
+    public function toggleKillSwitch(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'admin_password' => ['required', 'string', 'max:255'],
+        ]);
+
+        $user = $request->user();
+        if (! $user || ! Hash::check((string) $data['admin_password'], (string) $user->password)) {
+            return back()->withErrors([
+                'kill_switch' => 'Admin password is incorrect.',
+            ]);
+        }
+
+        $enabled = (bool) $data['enabled'];
+        $previous = $this->settingBool('jobs.kill_switch', false);
+
+        ControlPlaneSetting::query()->updateOrCreate(
+            ['key' => 'jobs.kill_switch'],
+            ['value' => ['value' => $enabled], 'updated_by' => $user->id]
+        );
+
+        $auditLogger->log(
+            'ops.kill_switch.toggle.web',
+            'control_plane_settings',
+            'jobs.kill_switch',
+            ['value' => $previous],
+            ['value' => $enabled],
+            $user->id
+        );
+
+        if ($previous === $enabled) {
+            return back()->with('status', $enabled
+                ? 'Command dispatch remains paused. Kill switch is already enabled.'
+                : 'Command dispatch remains active. Kill switch is already disabled.');
+        }
+
+        return back()->with('status', $enabled
+            ? 'Command dispatch paused. Kill switch is now enabled.'
+            : 'Command dispatch resumed. Kill switch is now disabled.');
     }
 
     public function rotateSigningKey(Request $request, CommandEnvelopeSigner $signer, AuditLogger $auditLogger): RedirectResponse

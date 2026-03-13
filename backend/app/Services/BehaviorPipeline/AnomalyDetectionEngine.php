@@ -7,11 +7,13 @@ use App\Models\BehaviorAnomalyCase;
 use App\Models\BehaviorAnomalySignal;
 use App\Models\DeviceBehaviorLog;
 use App\Services\BehaviorPipeline\Contracts\AnomalyDetector;
+use App\Services\BehaviorPipeline\Detectors\BehavioralBaselineDriftDetector;
 use App\Services\BehaviorPipeline\Detectors\BurstFileAccessDetector;
 use App\Services\BehaviorPipeline\Detectors\MultiSignalCorrelationDetector;
 use App\Services\BehaviorPipeline\Detectors\OffHoursDetector;
 use App\Services\BehaviorPipeline\Detectors\RareProcessDetector;
 use App\Services\BehaviorPipeline\Detectors\StatisticalEnsembleDetector;
+use Illuminate\Support\Facades\Log;
 
 class AnomalyDetectionEngine
 {
@@ -26,6 +28,7 @@ class AnomalyDetectionEngine
         RareProcessDetector $rareProcessDetector,
         MultiSignalCorrelationDetector $multiSignalCorrelationDetector,
         BurstFileAccessDetector $burstFileAccessDetector,
+        BehavioralBaselineDriftDetector $behavioralBaselineDriftDetector,
     ) {
         $this->detectors = [
             $statisticalEnsembleDetector,
@@ -33,6 +36,7 @@ class AnomalyDetectionEngine
             $rareProcessDetector,
             $multiSignalCorrelationDetector,
             $burstFileAccessDetector,
+            $behavioralBaselineDriftDetector,
         ];
     }
 
@@ -46,17 +50,39 @@ class AnomalyDetectionEngine
         $weightTotal = 0.0;
 
         foreach ($this->detectors as $detector) {
-            $result = $detector->detect($event, $features);
             $key = $detector->key();
-            $weight = (float) ($weights[$key] ?? 0.0);
+            $configuredWeight = (float) ($weights[$key] ?? 0.0);
+            try {
+                $result = $detector->detect($event, $features);
+            } catch (\Throwable $e) {
+                Log::warning('Behavior detector failed and was ignored.', [
+                    'detector_key' => $key,
+                    'device_id' => (string) $event->device_id,
+                    'behavior_log_id' => (string) $event->id,
+                    'error' => mb_substr($e->getMessage(), 0, 300),
+                ]);
+                $result = [
+                    'score' => 0.0,
+                    'confidence' => 0.0,
+                    'active' => false,
+                    'details' => [
+                        'reason' => 'detector_failure',
+                    ],
+                ];
+            }
+
+            $isActive = ! array_key_exists('active', $result) || (bool) $result['active'];
+            $weight = $isActive ? $configuredWeight : 0.0;
             $score = $this->clamp((float) ($result['score'] ?? 0.0));
             $confidence = $this->clamp((float) ($result['confidence'] ?? 0.0));
             $details = (array) ($result['details'] ?? []);
+            $details['configured_weight'] = round($configuredWeight, 4);
 
             $signals[$key] = [
                 'score' => $score,
                 'confidence' => $confidence,
                 'weight' => $weight,
+                'active' => $isActive,
                 'details' => $details,
             ];
 
@@ -149,11 +175,12 @@ class AnomalyDetectionEngine
     private function resolvedDetectorWeights(): array
     {
         $defaultWeights = [
-            'statistical_ensemble' => 0.28,
-            'off_hours_profile' => 0.12,
-            'rare_process_on_device' => 0.16,
-            'multi_signal_correlation_window' => 0.20,
-            'burst_file_access' => 0.24,
+            'statistical_ensemble' => 0.24,
+            'off_hours_profile' => 0.11,
+            'rare_process_on_device' => 0.14,
+            'multi_signal_correlation_window' => 0.16,
+            'burst_file_access' => 0.20,
+            'behavioral_baseline_drift' => 0.15,
         ];
 
         $adaptiveModel = $this->settings->adaptiveModel();
@@ -164,7 +191,7 @@ class AnomalyDetectionEngine
         $weights = [];
         foreach ($defaultWeights as $key => $defaultWeight) {
             $candidate = $adaptiveWeights[$key] ?? $defaultWeight;
-            $weights[$key] = max(0.01, (float) $candidate);
+            $weights[$key] = max(0.0, (float) $candidate);
         }
 
         $sum = array_sum($weights);

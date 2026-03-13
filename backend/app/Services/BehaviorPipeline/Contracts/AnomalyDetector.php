@@ -10,7 +10,7 @@ interface AnomalyDetector
 
     /**
      * @param array<string,mixed> $features
-     * @return array{score: float, confidence: float, details: array<string,mixed>}
+     * @return array{score: float, confidence: float, details: array<string,mixed>, active?: bool}
      */
     public function detect(DeviceBehaviorLog $event, array $features): array;
 }

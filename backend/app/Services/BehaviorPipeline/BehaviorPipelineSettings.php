@@ -57,4 +57,15 @@ class BehaviorPipelineSettings
 
         return filter_var((string) $value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? $default;
     }
+
+    public function settingInt(string $key, int $default): int
+    {
+        $setting = ControlPlaneSetting::query()->find($key);
+        if (! $setting || ! is_array($setting->value)) {
+            return $default;
+        }
+
+        $value = $setting->value['value'] ?? $default;
+        return is_numeric($value) ? (int) round((float) $value) : $default;
+    }
 }

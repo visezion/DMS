@@ -5,6 +5,8 @@ namespace App\Jobs;
 use App\Models\AiEventStream;
 use App\Models\DeviceBehaviorLog;
 use App\Services\BehaviorPipeline\AnomalyDetectionEngine;
+use App\Services\BehaviorPipeline\AutonomousRemediationEngine;
+use App\Services\BehaviorPipeline\BehavioralBaselineModelingService;
 use App\Services\BehaviorPipeline\BehaviorPolicyDecisionService;
 use App\Services\BehaviorPipeline\PolicyRecommendationEngine;
 use Illuminate\Bus\Queueable;
@@ -31,6 +33,8 @@ class ProcessBehaviorEventStreamJob implements ShouldQueue
         AnomalyDetectionEngine $anomalyDetectionEngine,
         PolicyRecommendationEngine $policyRecommendationEngine,
         BehaviorPolicyDecisionService $decisionService,
+        AutonomousRemediationEngine $autonomousRemediationEngine,
+        BehavioralBaselineModelingService $baselineModelingService,
     ): void {
         $stream = AiEventStream::query()->find($this->streamId);
         if (! $stream) {
@@ -58,6 +62,20 @@ class ProcessBehaviorEventStreamJob implements ShouldQueue
                     $policyRecommendationEngine->recommend($case);
                     $decisionService->maybeAutoApply($case);
                 }
+
+                // Autonomous remediation must never block core stream processing.
+                try {
+                    $autonomousRemediationEngine->executeForCase($case);
+                } catch (\Throwable $remediationError) {
+                    report($remediationError);
+                }
+            }
+
+            // Baseline modeling must never block core stream processing.
+            try {
+                $baselineModelingService->ingestOutcome($event, $case);
+            } catch (\Throwable $baselineError) {
+                report($baselineError);
             }
 
             $stream->status = 'completed';

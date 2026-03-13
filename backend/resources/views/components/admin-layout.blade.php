@@ -49,6 +49,7 @@
         'auth.lockout_minutes',
         'scripts.auto_allow_run_command_hashes',
         'scripts.allowed_sha256',
+        'jobs.kill_switch',
         'jobs.max_retries',
         'jobs.base_backoff_seconds',
         'devices.delete_cleanup_before_uninstall',
@@ -75,6 +76,30 @@
     if (!is_array($securityAllowedHashes)) {
         $securityAllowedHashes = [];
     }
+    $topbarKillSwitchEnabled = (bool) $securityGet('jobs.kill_switch', false);
+    $topbarKillSwitchCardClass = $topbarKillSwitchEnabled
+        ? 'kill-switch-card kill-switch-card-halted'
+        : 'kill-switch-card';
+    $topbarKillSwitchIconClass = $topbarKillSwitchEnabled
+        ? 'kill-switch-icon-shell kill-switch-icon-shell-halted'
+        : 'kill-switch-icon-shell';
+    $topbarKillSwitchIconTone = $topbarKillSwitchEnabled ? 'text-rose-700' : 'text-rose-600';
+    $topbarKillSwitchActionChip = $topbarKillSwitchEnabled
+        ? 'kill-switch-chip kill-switch-chip-restore'
+        : 'kill-switch-chip kill-switch-chip-danger';
+    $topbarKillSwitchStatus = $topbarKillSwitchEnabled ? 'Dispatch Halted' : 'Dispatch Live';
+    $topbarKillSwitchCardStatus = $topbarKillSwitchEnabled ? 'Halted' : 'Active';
+    $topbarKillSwitchActionLabel = $topbarKillSwitchEnabled ? 'Restore Dispatch' : 'Engage Kill Switch';
+    $topbarKillSwitchSummary = $topbarKillSwitchEnabled
+        ? 'No new commands can leave the control plane.'
+        : 'One action halts all new command dispatch.';
+    $topbarKillSwitchModalTitle = $topbarKillSwitchEnabled ? 'Restore Command Dispatch' : 'Engage Emergency Kill Switch';
+    $topbarKillSwitchModalDescription = $topbarKillSwitchEnabled
+        ? 'Release the kill switch and allow new command dispatch to continue from the control plane.'
+        : 'Immediately stop all new command dispatch from the control plane until an administrator explicitly restores it.';
+    $topbarKillSwitchConfirmLabel = $topbarKillSwitchEnabled ? 'Restore Dispatch' : 'Engage Kill Switch';
+    $topbarKillSwitchBarClass = $topbarKillSwitchEnabled ? 'bg-rose-600' : 'bg-rose-500';
+    $topbarKillSwitchBarWidth = $topbarKillSwitchEnabled ? 100 : 42;
     $securityMaxRetries = (int) $securityGet('jobs.max_retries', 3);
     $securityBaseBackoff = (int) $securityGet('jobs.base_backoff_seconds', 30);
     $securityDeleteCleanup = (bool) $securityGet('devices.delete_cleanup_before_uninstall', false);
@@ -151,7 +176,7 @@
             ? ['text' => 'text-emerald-700', 'bg' => 'bg-emerald-50 border-emerald-200', 'bar' => 'bg-emerald-500']
             : ($topbarAiAccuracy >= 65
                 ? ['text' => 'text-amber-700', 'bg' => 'bg-amber-50 border-amber-200', 'bar' => 'bg-amber-500']
-                : ['text' => 'text-rose-700', 'bg' => 'bg-rose-50 border-rose-200', 'bar' => 'bg-rose-500']));
+                : ['text' => 'text-amber-800', 'bg' => 'bg-amber-100 border-amber-300', 'bar' => 'bg-amber-500']));
 
     $processExistsByPattern = function (string $pattern): bool {
         if (DIRECTORY_SEPARATOR === '\\') {
@@ -218,7 +243,63 @@
         body {
             background: {{ $brandBackground }};
         }
-        .glass { background: rgba(255,255,255,.78); backdrop-filter: blur(10px); }
+        .glass { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(6px); }
+        .modal-backdrop {
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(1px);
+            -webkit-backdrop-filter: blur(1px);
+        }
+        .kill-switch-card {
+            border: 1px solid rgba(239, 68, 68, 0.22);
+            background:
+                radial-gradient(circle at top right, rgba(248, 113, 113, 0.18), transparent 38%),
+                linear-gradient(135deg, #fff1f2 0%, #ffffff 62%, #fff7ed 100%);
+        }
+        .kill-switch-card-halted {
+            border-color: rgba(239, 68, 68, 0.36);
+        }
+        .kill-switch-icon-shell {
+            border: 1px solid rgba(239, 68, 68, 0.22);
+            background: rgba(254, 226, 226, 0.92);
+        }
+        .kill-switch-icon-shell-halted {
+            background: rgba(254, 205, 211, 0.96);
+        }
+        .kill-switch-chip {
+            border-radius: 9999px;
+            padding: 0.125rem 0.55rem;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+        .kill-switch-chip-danger {
+            border: 1px solid rgba(239, 68, 68, 0.22);
+            background: rgba(254, 226, 226, 0.92);
+            color: #b91c1c;
+        }
+        .kill-switch-chip-restore {
+            border: 1px solid rgba(251, 191, 36, 0.24);
+            background: rgba(254, 243, 199, 0.96);
+            color: #92400e;
+        }
+        .brand-modal-note {
+            border: 1px solid rgba(239, 68, 68, 0.22);
+            background: #fff1f2;
+            color: #b91c1c;
+        }
+        .brand-modal-input:focus {
+            outline: none;
+            border-color: rgba(248, 113, 113, 0.4);
+            box-shadow: 0 0 0 3px rgba(127, 29, 29, 0.22);
+        }
+        .brand-modal-action {
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            color: #ffffff;
+        }
+        .brand-modal-action:hover {
+            filter: brightness(1.04);
+        }
         .nav-link { transition: all .2s ease; }
         .nav-link:hover { transform: translateX(4px); }
         /* Sidebar active item style: light panel + left accent (not solid blue pill) */
@@ -289,7 +370,7 @@
     </style>
 </head>
 <body class="min-h-screen text-ink">
-<div class="flex min-h-screen">
+<div id="admin-shell" class="flex min-h-screen">
     <aside class="w-72 hidden lg:flex lg:flex-col border-r border-slate-200/60 glass" style="background: {{ $brandSidebarTint }}CC;">
         <div class="px-6 py-4 border-b border-slate-200/60">
             <div class="flex items-center gap-3">
@@ -324,8 +405,8 @@
                 </div>
             </details>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
-            <details class="pt-2 group" {{ request()->routeIs('admin.behavior-ai*') ? 'open' : '' }}>
-                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+            <details class="pt-2 group" {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'open' : '' }}>
+                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
                     <span class="flex items-center gap-2">
                         <span aria-hidden="true" class="text-current">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
@@ -335,8 +416,8 @@
                         </span>
                         <span class="flex items-center gap-2">
                             <span>Behaviour Center</span>
-                            <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] {{ request()->routeIs('admin.behavior-ai*') ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700' }}">
-                                New
+                            <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700' }}">
+                                WIP
                             </span>
                         </span>
                     </span>
@@ -351,6 +432,24 @@
                             </svg>
                         </span>
                         <span>AI Control Center</span>
+                    </a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.behavior-baseline*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-baseline.index') }}">
+                        <span aria-hidden="true" class="text-current">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
+                                <path d="M4 12h16M12 4v16"></path>
+                                <circle cx="12" cy="12" r="8"></circle>
+                            </svg>
+                        </span>
+                        <span>Behavioral Baseline</span>
+                    </a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-remediation.index') }}">
+                        <span aria-hidden="true" class="text-current">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
+                                <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4 7-9V6l-7-3Z"></path>
+                                <path d="M8 12h8M12 8v8"></path>
+                            </svg>
+                        </span>
+                        <span>Autonomous Remediation</span>
                     </a>
                 </div>
             </details>
@@ -410,14 +509,14 @@
                 </div>
             </div>
             <div class="hidden lg:flex items-center gap-2">
-                <a href="{{ route('admin.security-hardening') }}" class="flex items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm" title="Open Security Hardening">
+                <a href="{{ route('admin.security-hardening') }}" class="flex w-[198px] items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm" title="Open Security Hardening">
                     <span class="h-8 w-8 rounded-lg border {{ $topbarSecurityTone['bg'] }} flex items-center justify-center">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4 {{ $topbarSecurityTone['text'] }}">
                             <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-3Z"/>
                             <path d="m9 12 2 2 4-4"/>
                         </svg>
                     </span>
-                    <div class="leading-tight min-w-[128px]">
+                    <div class="min-w-0 flex-1 leading-tight">
                         <p class="text-[10px] uppercase tracking-wide text-slate-500">Security Score</p>
                         <div class="mt-0.5 flex items-center gap-2">
                             <p class="text-2xl font-semibold text-slate-900 leading-none">{{ $topbarSecurityScore }}%</p>
@@ -427,14 +526,40 @@
                         </div>
                     </div>
                 </a>
-                <a href="{{ route('admin.behavior-ai.index') }}" class="flex items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm" title="Open AI Control Center">
+                <button
+                    type="button"
+                    class="flex w-[198px] items-center gap-2 rounded-xl px-3 py-2 text-left {{ $topbarKillSwitchCardClass }}"
+                    title="{{ $topbarKillSwitchModalTitle }}"
+                    data-kill-switch-trigger="1"
+                    data-kill-switch-enabled="{{ $topbarKillSwitchEnabled ? '0' : '1' }}"
+                    data-kill-switch-title="{{ $topbarKillSwitchModalTitle }}"
+                    data-kill-switch-description="{{ $topbarKillSwitchModalDescription }}"
+                    data-kill-switch-confirm="{{ $topbarKillSwitchConfirmLabel }}"
+                >
+                    <span class="h-8 w-8 rounded-lg flex items-center justify-center {{ $topbarKillSwitchIconClass }}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4 {{ $topbarKillSwitchIconTone }}">
+                            <path d="M12 3v7"></path>
+                            <path d="M7.8 6.8a7 7 0 1 0 8.4 0"></path>
+                        </svg>
+                    </span>
+                    <div class="min-w-0 flex-1 leading-tight">
+                        <p class="text-[10px] uppercase tracking-wide text-rose-700">Kill Switch</p>
+                        <div class="mt-0.5 flex items-center gap-2">
+                            <p class="text-2xl font-semibold text-slate-900 leading-none">{{ $topbarKillSwitchCardStatus }}</p>
+                            <div class="h-1.5 flex-1 rounded-full bg-rose-100 overflow-hidden">
+                                <div class="h-full {{ $topbarKillSwitchBarClass }}" style="width: {{ $topbarKillSwitchBarWidth }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </button>
+                <a href="{{ route('admin.behavior-ai.index') }}" class="flex w-[198px] items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm" title="Open AI Control Center">
                     <span class="h-8 w-8 rounded-lg border {{ $topbarAiTone['bg'] }} flex items-center justify-center">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4 {{ $topbarAiTone['text'] }}">
                             <rect x="7" y="7" width="10" height="10" rx="2"></rect>
                             <path d="M10 10h4v4h-4zM9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"></path>
                         </svg>
                     </span>
-                    <div class="leading-tight min-w-[128px]">
+                    <div class="min-w-0 flex-1 leading-tight">
                         <p class="text-[10px] uppercase tracking-wide text-slate-500">AI Accuracy ({{ $aiAccuracyWindowDays }}d)</p>
                         <div class="mt-0.5 flex items-center gap-2">
                             <p class="text-2xl font-semibold text-slate-900 leading-none">{{ $topbarAiAccuracy !== null ? $topbarAiAccuracy.'%' : 'N/A' }}</p>
@@ -462,10 +587,36 @@
                     <a href="{{ route('admin.jobs') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.jobs*') ? 'text-skyline' : '' }}" title="Jobs" aria-label="Jobs">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
                     </a>
+                    <button
+                        type="button"
+                        class="hidden h-9 w-9 rounded-full items-center justify-center transition md:flex lg:hidden {{ $topbarKillSwitchEnabled ? 'text-rose-700 hover:text-rose-800' : 'text-rose-600 hover:text-rose-700' }}"
+                        title="Kill Switch: {{ $topbarKillSwitchStatus }}"
+                        aria-label="Kill Switch"
+                        data-kill-switch-trigger="1"
+                        data-kill-switch-enabled="{{ $topbarKillSwitchEnabled ? '0' : '1' }}"
+                        data-kill-switch-title="{{ $topbarKillSwitchModalTitle }}"
+                        data-kill-switch-description="{{ $topbarKillSwitchModalDescription }}"
+                        data-kill-switch-confirm="{{ $topbarKillSwitchConfirmLabel }}"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M12 3v7"/><path d="M7.8 6.8a7 7 0 1 0 8.4 0"/></svg>
+                    </button>
                     <a href="{{ route('admin.settings') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.settings*') ? 'text-skyline' : '' }}" title="Settings" aria-label="Settings">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M10.3 3h3.4l.6 2.2a7.8 7.8 0 0 1 1.8.8l2-1.1 2.4 2.4-1.1 2a7.8 7.8 0 0 1 .8 1.8l2.2.6v3.4l-2.2.6a7.8 7.8 0 0 1-.8 1.8l1.1 2-2.4 2.4-2-1.1a7.8 7.8 0 0 1-1.8.8l-.6 2.2h-3.4l-.6-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1.1-2.4-2.4 1.1-2a7.8 7.8 0 0 1-.8-1.8L3 13.7v-3.4l2.2-.6a7.8 7.8 0 0 1 .8-1.8l-1.1-2 2.4-2.4 2 1.1a7.8 7.8 0 0 1 1.8-.8l.6-2.2Z"/><circle cx="12" cy="12" r="3"/></svg>
                     </a>
                 </nav>
+                <button
+                    type="button"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-full md:hidden {{ $topbarKillSwitchEnabled ? 'text-rose-700' : 'text-rose-600' }}"
+                    title="Kill Switch: {{ $topbarKillSwitchStatus }}"
+                    aria-label="Kill Switch"
+                    data-kill-switch-trigger="1"
+                    data-kill-switch-enabled="{{ $topbarKillSwitchEnabled ? '0' : '1' }}"
+                    data-kill-switch-title="{{ $topbarKillSwitchModalTitle }}"
+                    data-kill-switch-description="{{ $topbarKillSwitchModalDescription }}"
+                    data-kill-switch-confirm="{{ $topbarKillSwitchConfirmLabel }}"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M12 3v7"/><path d="M7.8 6.8a7 7 0 1 0 8.4 0"/></svg>
+                </button>
                 <div class="relative" id="topbar-profile-root">
                     <button type="button" id="topbar-profile-btn" class="flex items-center rounded-full bg-white border border-slate-200 p-0.5 hover:bg-slate-50 shadow-sm">
                         @if($topbarUserAvatar)
@@ -530,14 +681,20 @@
 
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
 
-                    <details class="pt-1 group" {{ request()->routeIs('admin.behavior-ai*') ? 'open' : '' }}>
-                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                            <span>AI Control Center</span>
+                    <details class="pt-1 group" {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'open' : '' }}>
+                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                            <span>Behaviour Center</span>
                             <span class="expand-indicator text-xs"></span>
                         </summary>
                         <div class="mt-3 pl-2 space-y-2">
                             <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.behavior-ai*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-ai.index') }}">
                                 <span>AI Control Center</span>
+                            </a>
+                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.behavior-baseline*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-baseline.index') }}">
+                                <span>Behavioral Baseline</span>
+                            </a>
+                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-remediation.index') }}">
+                                <span>Autonomous Remediation</span>
                             </a>
                         </div>
                     </details>
@@ -592,8 +749,8 @@
             {{ $slot }}
         </section>
     </main>
-</div>
-    <div id="runtime-alert-popup" class="@if(! $showRuntimePopup) hidden @endif fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-sm">
+    </div>
+    <div id="runtime-alert-popup" class="@if(! $showRuntimePopup) hidden @endif modal-backdrop fixed inset-0 z-[110] flex items-center justify-center p-4">
         <div class="w-full max-w-lg rounded-3xl border border-amber-300 bg-amber-50 p-5 shadow-2xl">
             <div class="flex items-start justify-between gap-3">
                 <div>
@@ -636,7 +793,35 @@
             </div>
         </div>
     </div>
-<div id="confirm-modal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-slate-900/45 p-4">
+<div id="kill-switch-modal" class="modal-backdrop hidden fixed inset-0 z-[115] px-4">
+    <div class="flex min-h-full items-center justify-center">
+        <div class="w-full max-w-md rounded-2xl border border-rose-200 bg-white">
+            <div class="border-b border-slate-200 px-5 py-4">
+                <h3 id="kill-switch-modal-title" class="text-base font-semibold text-slate-900">Engage Emergency Kill Switch</h3>
+                <p class="mt-1 text-xs text-slate-600">This action requires admin password confirmation.</p>
+            </div>
+            <form id="kill-switch-modal-form" method="POST" action="{{ route('admin.ops.kill-switch') }}">
+                @csrf
+                <div class="space-y-3 px-5 py-4">
+                    <div id="kill-switch-modal-warning" class="brand-modal-note rounded-lg px-3 py-2 text-xs">
+                        Pause all new command dispatch from the control plane until you explicitly resume it.
+                    </div>
+                    <input type="hidden" name="enabled" id="kill-switch-enabled" value="">
+                    <div>
+                        <label for="kill-switch-password" class="mb-1 block text-xs font-medium text-slate-600">Enter your admin password to confirm:</label>
+                        <input id="kill-switch-password" name="admin_password" type="password" class="brand-modal-input w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" autocomplete="current-password" />
+                    </div>
+                    <p id="kill-switch-modal-error" class="brand-modal-note hidden rounded-lg px-3 py-2 text-xs">Password is required.</p>
+                </div>
+                <div class="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+                    <button id="kill-switch-cancel" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">Cancel</button>
+                    <button id="kill-switch-confirm" type="submit" class="brand-modal-action rounded-lg px-3 py-2 text-xs font-medium">Pause Dispatch</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<div id="confirm-modal" class="modal-backdrop fixed inset-0 z-[100] hidden items-center justify-center p-4">
     <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
         <div class="border-b border-slate-200 px-5 py-4">
             <p class="text-sm uppercase tracking-wide text-slate-500">Please Confirm</p>
@@ -651,6 +836,21 @@
         </div>
     </div>
 </div>
+<script>
+    (function () {
+        window.syncAdminModalState = function () {
+            const modalIds = ['runtime-alert-popup', 'kill-switch-modal', 'confirm-modal'];
+            const hasOpenModal = modalIds.some(function (id) {
+                const el = document.getElementById(id);
+                return !!el && !el.classList.contains('hidden');
+            });
+
+            document.body.classList.toggle('ui-modal-open', hasOpenModal);
+        };
+
+        window.syncAdminModalState();
+    })();
+</script>
 <script>
     (function () {
         const popup = document.getElementById('runtime-alert-popup');
@@ -671,7 +871,7 @@
 
         function setBadge(el, running) {
             if (!el) return;
-            el.className = 'rounded-full px-2 py-0.5 ' + (running ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700');
+            el.className = 'rounded-full px-2 py-0.5 ' + (running ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700');
             el.textContent = running ? 'running' : 'not running';
         }
 
@@ -684,6 +884,7 @@
             if (!hasAlert) {
                 popupDismissed = false;
             }
+            window.syncAdminModalState?.();
         }
 
         if (closeBtn) {
@@ -729,7 +930,7 @@
                 if (agentStatusLine) {
                     agentStatusLine.innerHTML = running
                         ? 'Status: <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">running</span>'
-                        : 'Status: <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">not running</span>';
+                        : 'Status: <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700">not running</span>';
                 }
 
                 if (agentCard) {
@@ -833,6 +1034,96 @@
 </script>
 <script>
     (function () {
+        const triggers = Array.from(document.querySelectorAll('[data-kill-switch-trigger]'));
+        const modal = document.getElementById('kill-switch-modal');
+        const titleNode = document.getElementById('kill-switch-modal-title');
+        const warningNode = document.getElementById('kill-switch-modal-warning');
+        const enabledField = document.getElementById('kill-switch-enabled');
+        const passwordInput = document.getElementById('kill-switch-password');
+        const errorNode = document.getElementById('kill-switch-modal-error');
+        const cancelBtn = document.getElementById('kill-switch-cancel');
+        const confirmBtn = document.getElementById('kill-switch-confirm');
+        const form = document.getElementById('kill-switch-modal-form');
+        const initialEnabled = @json(old('enabled'));
+        const initialError = @json($errors->first('kill_switch'));
+
+        if (!modal || !titleNode || !warningNode || !enabledField || !passwordInput || !errorNode || !cancelBtn || !confirmBtn || !form || triggers.length === 0) {
+            return;
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+            enabledField.value = '';
+            passwordInput.value = '';
+            errorNode.textContent = 'Password is required.';
+            errorNode.classList.add('hidden');
+            window.syncAdminModalState?.();
+        }
+
+        function openModal(options) {
+            const enableSwitch = !!options.enableSwitch;
+            titleNode.textContent = options.title || (enableSwitch ? 'Engage Emergency Kill Switch' : 'Restore Command Dispatch');
+            warningNode.textContent = options.description || (enableSwitch
+                ? 'Immediately stop all new command dispatch from the control plane until an administrator explicitly restores it.'
+                : 'Release the kill switch and allow new command dispatch to continue from the control plane.');
+            warningNode.className = 'brand-modal-note rounded-lg px-3 py-2 text-xs';
+            enabledField.value = enableSwitch ? '1' : '0';
+            confirmBtn.textContent = options.confirmLabel || (enableSwitch ? 'Engage Kill Switch' : 'Restore Dispatch');
+            confirmBtn.className = 'brand-modal-action rounded-lg px-3 py-2 text-xs font-medium';
+            errorNode.classList.add('hidden');
+            modal.classList.remove('hidden');
+            passwordInput.focus();
+            window.syncAdminModalState?.();
+        }
+
+        triggers.forEach(function (trigger) {
+            trigger.addEventListener('click', function () {
+                openModal({
+                    enableSwitch: trigger.dataset.killSwitchEnabled === '1',
+                    title: trigger.dataset.killSwitchTitle || '',
+                    description: trigger.dataset.killSwitchDescription || '',
+                    confirmLabel: trigger.dataset.killSwitchConfirm || '',
+                });
+            });
+        });
+
+        cancelBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', function (event) {
+            if (event.target === modal) {
+                closeModal();
+            }
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+                closeModal();
+            }
+        });
+        form.addEventListener('submit', function (event) {
+            if (passwordInput.value.trim() !== '') {
+                return;
+            }
+            event.preventDefault();
+            errorNode.textContent = 'Password is required.';
+            errorNode.classList.remove('hidden');
+            passwordInput.focus();
+        });
+
+        if (initialError) {
+            openModal({
+                enableSwitch: String(initialEnabled) === '1',
+                title: String(initialEnabled) === '1' ? 'Engage Emergency Kill Switch' : 'Restore Command Dispatch',
+                description: String(initialEnabled) === '1'
+                    ? 'Immediately stop all new command dispatch from the control plane until an administrator explicitly restores it.'
+                    : 'Release the kill switch and allow new command dispatch to continue from the control plane.',
+                confirmLabel: String(initialEnabled) === '1' ? 'Engage Kill Switch' : 'Restore Dispatch',
+            });
+            errorNode.textContent = initialError;
+            errorNode.classList.remove('hidden');
+        }
+    })();
+</script>
+<script>
+    (function () {
         const modal = document.getElementById('confirm-modal');
         const msg = document.getElementById('confirm-modal-message');
         const okBtn = document.getElementById('confirm-modal-ok');
@@ -860,6 +1151,7 @@
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             pendingForm = null;
+            window.syncAdminModalState?.();
         }
 
         function openModal(message, form) {
@@ -868,6 +1160,7 @@
             modal.classList.remove('hidden');
             modal.classList.add('flex');
             okBtn.focus();
+            window.syncAdminModalState?.();
         }
 
         cancelBtn.addEventListener('click', closeModal);
@@ -934,6 +1227,7 @@
             'Docs': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h5"/></svg>',
             'Audit Logs': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v3l2 2"/></svg>',
             'Policy Center': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 4 7v6c0 5 3.5 7.8 8 9 4.5-1.2 8-4 8-9V7l-8-4Z"/></svg>',
+            'Autonomous Remediation': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4 7-9V6l-7-3Z"/><path d="M8 12h8M12 8v8"/></svg>',
             'Deployment Center': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 2v20"/><path d="M5 7h14"/><path d="M7 12h10"/><path d="M9 17h6"/></svg>'
         };
 

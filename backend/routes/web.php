@@ -86,6 +86,7 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::post('/job-runs/{runId}/rerun', [AdminConsoleController::class, 'rerunJobRun'])->name('job-runs.rerun');
     Route::post('/jobs/store-clear', [AdminConsoleController::class, 'storeAndClearJobs'])->name('jobs.store-clear');
     Route::post('/ops/settings', [AdminConsoleController::class, 'updateOps'])->name('ops.update');
+    Route::post('/ops/kill-switch', [AdminConsoleController::class, 'toggleKillSwitch'])->name('ops.kill-switch');
     Route::post('/ops/rotate-signing-key', [AdminConsoleController::class, 'rotateSigningKey'])->name('ops.rotate-key');
 
     Route::get('/agent', [AdminConsoleController::class, 'agent'])->name('agent');
@@ -134,9 +135,14 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::post('/behavior-ai/recommendations/approve-all-pending', [BehaviorAiController::class, 'approveAllPendingRecommendations'])->name('behavior-ai.review.approve-all-pending');
     Route::post('/behavior-ai/runtime/start', [BehaviorAiController::class, 'startRuntime'])->name('behavior-ai.runtime.start');
     Route::get('/behavior-ai/runtime/status', [BehaviorAiController::class, 'runtimeStatus'])->name('behavior-ai.runtime.status');
+    Route::get('/behavior-ai/live-status', [BehaviorAiController::class, 'liveStatus'])->name('behavior-ai.live-status');
     Route::post('/behavior-ai/train-now', [BehaviorAiController::class, 'queueTrainNow'])->name('behavior-ai.train-now');
     Route::post('/behavior-ai/retrain', [BehaviorAiController::class, 'queueRetrain'])->name('behavior-ai.retrain');
     Route::post('/behavior-ai/replay', [BehaviorAiController::class, 'replayFailedStream'])->name('behavior-ai.replay');
+    Route::get('/behavior-baseline', [BehaviorAiController::class, 'baseline'])->name('behavior-baseline.index');
+    Route::post('/behavior-baseline/settings', [BehaviorAiController::class, 'updateBaselineSettings'])->name('behavior-baseline.settings');
+    Route::get('/behavior-remediation', [BehaviorAiController::class, 'remediation'])->name('behavior-remediation.index');
+    Route::post('/behavior-remediation/settings', [BehaviorAiController::class, 'updateRemediationSettings'])->name('behavior-remediation.settings');
 });
 
 Route::get('/agent/releases/{releaseId}/download', [AdminConsoleController::class, 'downloadAgentRelease'])

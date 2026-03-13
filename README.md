@@ -2,12 +2,27 @@
 
 Centralized Windows Device Management System (agent-based, Option A).
 
-## Repositories in this workspace
-- `backend/`: Laravel 11 API-first backend with RBAC, audit logging, enrollment, check-in, jobs, policies, packages.
-- `agent/`: .NET 8 Windows Service agent scaffold with job handlers and replay protection.
-- `docs/`: Architecture, stage-by-stage implementation plan, runbooks.
+## Table of Contents
+- [Workspace Layout](#workspace-layout)
+- [System Architecture](#system-architecture)
+- [Windows Agent Internal Architecture](#windows-agent-internal-architecture)
+- [Documentation](#documentation)
+- [Admin Console Overview (Current)](#admin-console-overview-current)
+- [Quick Start: Backend](#quick-start-backend)
+- [Quick Start: Agent](#quick-start-agent)
+- [Security Notes](#security-notes)
 
-System Architecture Diagram
+## Workspace Layout
+- `backend/`: Laravel 11 API-first backend with RBAC, audit logging, enrollment, check-in, jobs, policies, and packages.
+- `agent/`: .NET 8 Windows Service agent scaffold with job handlers and replay protection.
+- `docs/`: Architecture docs, implementation plans, and operational runbooks.
+
+## System Architecture
+
+<details>
+<summary>View diagram</summary>
+
+```text
 +-----------------------------------------------------------------------------------+
 |                                 ENDIVEX PLATFORM                                  |
 +-----------------------------------------------------------------------------------+
@@ -41,11 +56,11 @@ System Architecture Diagram
           v                    v                     v                     v
 +----------------+   +-------------------+   +------------------+   +----------------+
 | MySQL Database |   | File / Package    |   | Signing Keys     |   | AI Runtime      |
-|                |   | Storage           |   | and Rotation     |   | Behavior Models  |
-| - devices      |   | - agent releases  |   | - active key     |   | - train/retrain  |
-| - jobs         |   | - installers      |   | - previous keys  |   | - inference      |
-| - policies     |   | - packages        |   | - key history    |   | - recommendations|
-| - assignments  |   | - metadata        |   |                  |   |                  |
+|                |   | Storage           |   | and Rotation     |   | Behavior Models |
+| - devices      |   | - agent releases  |   | - active key     |   | - train/retrain |
+| - jobs         |   | - installers      |   | - previous keys  |   | - inference     |
+| - policies     |   | - packages        |   | - key history    |   | - recommendations |
+| - assignments  |   | - metadata        |   |                  |   |                 |
 | - compliance   |   +-------------------+   +------------------+   +----------------+
 | - audit logs   |
 +----------------+
@@ -82,10 +97,16 @@ System Architecture Diagram
 | - UWF                       |            | - UWF                       |
 | - DNS / IP Settings         |            | - DNS / IP Settings         |
 +-----------------------------+            +-----------------------------+
+```
 
+</details>
 
+## Windows Agent Internal Architecture
 
-Windows Agent Internal Architecture
+<details>
+<summary>View diagram</summary>
+
+```text
 +----------------------------------------------------------------------------+
 |                         ENDIVEX WINDOWS AGENT                              |
 +----------------------------------------------------------------------------+
@@ -95,11 +116,11 @@ Windows Agent Internal Architecture
         |              |                |                |               |
         v              v                v                v               v
 +---------------+ +-------------+ +--------------+ +-------------+ +---------------+
-| Enrollment    | | Check-in    | | Job Runner   | | Compliance  | | Telemetry      |
-| Module        | | Module      | |              | | Scanner     | | Collector      |
-| - token use   | | - heartbeat | | - command    | | - registry  | | - process data |
-| - device bind | | - status    | | - package    | | - firewall  | | - events       |
-| - re-enroll   | | - receive   | | - policy     | | - groups    | | - AI feed      |
+| Enrollment    | | Check-in    | | Job Runner   | | Compliance  | | Telemetry     |
+| Module        | | Module      | |              | | Scanner     | | Collector     |
+| - token use   | | - heartbeat | | - command    | | - registry  | | - process data|
+| - device bind | | - status    | | - package    | | - firewall  | | - events      |
+| - re-enroll   | | - receive   | | - policy     | | - groups    | | - AI feed     |
 +---------------+ +-------------+ +--------------+ +-------------+ +---------------+
         |                               |
         |                               v
@@ -135,50 +156,82 @@ Windows Agent Internal Architecture
 | - compliance snapshots                                                     |
 | - agent logs                                                               |
 +----------------------------------------------------------------------------+
+```
+
+</details>
+
 ## Documentation
-- Full function usage guide: `docs/FUNCTIONS_GUIDE.md`
-- Documentation update policy: `docs/DOCS_MAINTENANCE_POLICY.md`
-- Architecture: `docs/architecture/architecture.md`
-- Operations runbook: `docs/runbooks/operations.md`
+- Function usage guide: [docs/FUNCTIONS_GUIDE.md](docs/FUNCTIONS_GUIDE.md)
+- Documentation update policy: [docs/DOCS_MAINTENANCE_POLICY.md](docs/DOCS_MAINTENANCE_POLICY.md)
+- Architecture: [docs/architecture/architecture.md](docs/architecture/architecture.md)
+- Operations runbook: [docs/runbooks/operations.md](docs/runbooks/operations.md)
 
 ## Admin Console Overview (Current)
-- Main entry points:
-  - `Enroll Devices`
-  - `Overview` (operations dashboard)
-  - `Devices`, `Groups`, `Jobs`
-  - `Application Management` -> `Software Packages`
-  - `Policy Center` -> `Policies`, `Policy Catalog`, `Policy Categories`
-  - `Deployment Center` -> `Agent Delivery`, `IP Deployment`
-  - `Settings`, `Access Control`, `Docs`, `Audit Logs`
-- Enrollment flow:
-  - Generate enrollment token from enrollment/settings pages.
-  - Run installer script on target Windows endpoint (PowerShell as Administrator).
-  - Device appears in `Devices` after successful enrollment and check-in.
-- Policy workflow:
-  - Policies support both apply and remove behavior.
-  - New versions can be published with apply mode (`json`/`command`) and remove mode (`auto`/`json`/`command`).
-  - When remove mode is set to `json` or `command`, relevant inputs are shown for operator entry.
-  - Policy category fields use category dropdowns sourced from the policy category list.
-- Operations controls location:
-  - Runtime controls (`Kill Switch`, retries, backoff, allowed script hashes) are managed from `Settings`.
-  - `Kill Switch` enabled = command dispatch paused globally.
 
-## Quick start (backend)
-1. `cd backend`
-2. `copy .env.example .env`
-   - Set `APP_TIMEZONE` in `.env` (recommended: `UTC` for servers)
-3. `php artisan key:generate`
-4. `php artisan migrate --seed`
-5. `php artisan test`
-6. `php artisan serve`
+Main entry points:
+- `Enroll Devices`
+- `Overview` (operations dashboard)
+- `Devices`, `Groups`, `Jobs`
+- `Application Management` -> `Software Packages`
+- `Policy Center` -> `Policies`, `Policy Catalog`, `Policy Categories`
+- `Deployment Center` -> `Agent Delivery`, `IP Deployment`
+- `Settings`, `Access Control`, `Docs`, `Audit Logs`
 
-## Quick start (agent)
-- Requires .NET 8 SDK on Windows host.
-- `cd agent`
-- `dotnet build Dms.Agent.sln`
-- `dotnet test Dms.Agent.sln`
+Enrollment flow:
+1. Generate an enrollment token from enrollment/settings pages.
+2. Run the installer script on the target Windows endpoint (PowerShell as Administrator).
+3. Confirm the device appears under `Devices` after successful enrollment and check-in.
 
-## Security note
-- Backend now signs check-in command envelopes with Ed25519 and publishes a rotation-ready keyset at `/api/v1/device/keyset`.
+Policy workflow:
+- Policies support both apply and remove behavior.
+- New versions can be published with apply mode (`json`/`command`) and remove mode (`auto`/`json`/`command`).
+- When remove mode is `json` or `command`, operator inputs are shown.
+- Policy category fields are sourced from the policy category list.
+
+Operations controls:
+- Runtime controls (`Kill Switch`, retries, backoff, allowed script hashes) are managed from `Settings`.
+- `Kill Switch` enabled means command dispatch is paused globally.
+
+## Quick Start: Backend
+
+1. Enter backend directory:
+
+```powershell
+cd backend
+```
+
+2. Copy environment file:
+
+```powershell
+copy .env.example .env
+```
+
+```bash
+cp .env.example .env
+```
+
+3. Set `APP_TIMEZONE` in `.env` (recommended: `UTC` for servers).
+4. Run setup and start server:
+
+```powershell
+php artisan key:generate
+php artisan migrate --seed
+php artisan test
+php artisan serve
+```
+
+## Quick Start: Agent
+
+1. Install .NET 8 SDK on a Windows host.
+2. Build and test:
+
+```powershell
+cd agent
+dotnet build Dms.Agent.sln
+dotnet test Dms.Agent.sln
+```
+
+## Security Notes
+- Backend signs check-in command envelopes with Ed25519 and publishes a rotation-ready keyset at `/api/v1/device/keyset`.
 - Rotate signing keys with `php artisan dms:keys:rotate`.
-- Agent verification path is wired for Ed25519 + replay protection.
+- Agent verification path is wired for Ed25519 and replay protection.

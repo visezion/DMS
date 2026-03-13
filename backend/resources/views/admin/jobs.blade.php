@@ -1,27 +1,14 @@
 <x-admin-layout title="Jobs" heading="Job Dispatch Center">
     @php
-        $totalJobs = (int) $jobs->total();
-        $statusCounts = [
-            'pending' => 0,
-            'running' => 0,
-            'completed' => 0,
-            'failed' => 0,
-            'acked' => 0,
-            'non_compliant' => 0,
-            'cancelled' => 0,
-        ];
+        $summary = is_array($job_summary ?? null) ? $job_summary : [];
+        $totalJobs = (int) ($summary['total'] ?? $jobs->total());
+        $activeJobs = (int) ($summary['active'] ?? 0);
+        $completedJobs = (int) ($summary['completed'] ?? 0);
+        $failedJobs = (int) ($summary['failed'] ?? 0);
 
-        foreach ($jobs as $job) {
-            $status = strtolower((string) ($job->status ?? ''));
-            if (array_key_exists($status, $statusCounts)) {
-                $statusCounts[$status]++;
-            }
-        }
-
-        $activeJobs = $statusCounts['pending'] + $statusCounts['running'] + $statusCounts['acked'];
-        $healthLabel = $statusCounts['failed'] === 0 && $statusCounts['non_compliant'] === 0
+        $healthLabel = $failedJobs === 0
             ? 'stable'
-            : (($statusCounts['failed'] + $statusCounts['non_compliant']) < max(3, (int) ceil($totalJobs * 0.15)) ? 'watch' : 'degraded');
+            : ($failedJobs < max(3, (int) ceil($totalJobs * 0.15)) ? 'watch' : 'degraded');
         $healthTone = $healthLabel === 'stable'
             ? 'bg-emerald-100 text-emerald-700'
             : ($healthLabel === 'watch' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700');
@@ -99,12 +86,12 @@
             </article>
             <article class="jobs-metric rounded-xl p-4">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Completed</p>
-                <p class="mt-1 text-3xl font-bold text-emerald-700 jobs-mono">{{ $statusCounts['completed'] }}</p>
+                <p class="mt-1 text-3xl font-bold text-emerald-700 jobs-mono">{{ $completedJobs }}</p>
                 <p class="mt-1 text-xs text-slate-500">Successfully finished jobs.</p>
             </article>
             <article class="jobs-metric rounded-xl p-4">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Failed</p>
-                <p class="mt-1 text-3xl font-bold text-rose-700 jobs-mono">{{ $statusCounts['failed'] + $statusCounts['non_compliant'] }}</p>
+                <p class="mt-1 text-3xl font-bold text-rose-700 jobs-mono">{{ $failedJobs }}</p>
                 <p class="mt-1 text-xs text-slate-500">Failed and non-compliant jobs.</p>
             </article>
             <article class="jobs-metric rounded-xl p-4">
@@ -279,6 +266,11 @@
                                     };
                                     $targetId = (string) ($job->target_id ?? '');
                                     $targetType = strtolower((string) ($job->target_type ?? ''));
+                                    $resolvedTargetName = match ($targetType) {
+                                        'device' => (string) ($deviceNameMap->get($targetId, '')),
+                                        'group' => (string) ($groupNameMap->get($targetId, '')),
+                                        default => '',
+                                    };
                                 @endphp
                                 <tr
                                     class="border-t border-slate-200 jobs-row"
