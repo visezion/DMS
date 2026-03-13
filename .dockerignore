@@ -1,0 +1,16 @@
+.git
+.github
+agent
+docs
+
+backend/vendor
+backend/node_modules
+backend/storage/logs
+backend/storage/framework/cache
+backend/storage/framework/sessions
+backend/storage/framework/views
+backend/bootstrap/cache/*.php
+
+deploy/nginx
+deploy/scripts
+deploy/supervisor

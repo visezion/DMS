@@ -1,0 +1,110 @@
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/php/Dockerfile
+    image: ${COMPOSE_PROJECT_NAME:-dms}-app:latest
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ${BACKEND_DIR}:/var/www/html
+      - ${APP_SHARED_DIR}/storage:/var/www/html/storage
+      - ${APP_SHARED_DIR}/.env:/var/www/html/.env:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - dms
+
+  queue:
+    image: ${COMPOSE_PROJECT_NAME:-dms}-app:latest
+    restart: unless-stopped
+    command: php artisan queue:work redis --queue=horizon,default --sleep=1 --tries=3 --timeout=120
+    working_dir: /var/www/html
+    volumes:
+      - ${BACKEND_DIR}:/var/www/html
+      - ${APP_SHARED_DIR}/storage:/var/www/html/storage
+      - ${APP_SHARED_DIR}/.env:/var/www/html/.env:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      app:
+        condition: service_started
+    networks:
+      - dms
+
+  scheduler:
+    image: ${COMPOSE_PROJECT_NAME:-dms}-app:latest
+    restart: unless-stopped
+    command: php artisan schedule:work
+    working_dir: /var/www/html
+    volumes:
+      - ${BACKEND_DIR}:/var/www/html
+      - ${APP_SHARED_DIR}/storage:/var/www/html/storage
+      - ${APP_SHARED_DIR}/.env:/var/www/html/.env:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      app:
+        condition: service_started
+    networks:
+      - dms
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-80}:80"
+    volumes:
+      - ${BACKEND_DIR}/public:/var/www/html/public:ro
+      - ${APP_SHARED_DIR}/storage/app/public:/var/www/html/storage/app/public:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    networks:
+      - dms
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-dms}
+      MYSQL_USER: ${MYSQL_USER:-dms}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change_me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_me_root}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - dms
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - dms
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  dms:
+    driver: bridge

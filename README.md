@@ -10,6 +10,8 @@ Centralized Windows Device Management System (agent-based, Option A).
 - [Admin Console Overview (Current)](#admin-console-overview-current)
 - [Quick Start: Backend](#quick-start-backend)
 - [Quick Start: Agent](#quick-start-agent)
+- [Production Deployment](#production-deployment)
+- [GitHub Actions CI/CD](#github-actions-cicd)
 - [Security Notes](#security-notes)
 
 ## Workspace Layout
@@ -230,6 +232,56 @@ cd agent
 dotnet build Dms.Agent.sln
 dotnet test Dms.Agent.sln
 ```
+
+## Production Deployment
+
+Use the deployment kit in [`deploy/`](deploy/README.md) for both release-based and Docker deployment.
+
+- `deploy/scripts/deploy.sh`: build, migrate, cache, switch release symlink, and smoke check.
+- `deploy/scripts/rollback.sh`: fast rollback to previous release.
+- `deploy/scripts/smoke-check.sh`: health checks for DB/app endpoint/write paths.
+- `deploy/scripts/docker-deploy.sh`: one-command Docker deploy/update from GitHub.
+- `deploy/scripts/bootstrap-docker-from-github.sh`: first-time Docker bootstrap from GitHub.
+- `deploy/nginx/dms.conf`: Nginx site template.
+- `deploy/supervisor/*.conf`: queue and scheduler process templates.
+- `deploy/docker/docker-compose.prod.yml`: Docker production stack.
+
+Production env template:
+
+- [`backend/.env.production.example`](backend/.env.production.example)
+
+One-command Docker bootstrap example:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/<your-org>/<your-repo>/main/deploy/scripts/bootstrap-docker-from-github.sh) https://github.com/<your-org>/<your-repo>.git main /opt/dms
+```
+
+## GitHub Actions CI/CD
+
+Workflow file:
+
+- [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)
+
+Behavior:
+
+- On pull requests to `main`: run backend tests.
+- On push to `main`: run backend tests, then deploy through SSH if tests pass.
+  - `DEPLOY_MODE=release` (default): release/symlink deployment.
+  - `DEPLOY_MODE=docker`: Docker deployment (`deploy/scripts/docker-deploy.sh`).
+
+Required GitHub repository secrets:
+
+- `DEPLOY_HOST`: target server host or IP.
+- `DEPLOY_USER`: SSH user on target server.
+- `DEPLOY_SSH_KEY`: private key used by GitHub Actions.
+
+Optional GitHub repository secrets:
+
+- `DEPLOY_PORT` (default `22`)
+- `DEPLOY_REPO_DIR` (default `/var/www/dms/repo`)
+- `DEPLOY_APP_BASE` (default `/var/www/dms`)
+- `DEPLOY_MODE` (`release` or `docker`)
+- `DEPLOY_GITHUB_REPO` (override GitHub repo URL used by Docker deploy)
 
 ## Security Notes
 - Backend signs check-in command envelopes with Ed25519 and publishes a rotation-ready keyset at `/api/v1/device/keyset`.

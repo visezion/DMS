@@ -152,6 +152,21 @@
                 ],
             ],
             [
+                'title' => 'Behavioral Baseline Center',
+                'summary' => 'Per-device baseline modeling that learns normal behavior and flags drift with explainable categories.',
+                'paths' => ['/admin/behavior-baseline'],
+                'works' => [
+                    'Baseline profiles are built from behavior logs per device and become active after minimum sample thresholds are reached.',
+                    'Each new event is compared against that device profile for rare process, off-pattern login time, unusual network usage, abnormal CPU or memory usage, and new application usage.',
+                    'When drift score exceeds threshold, a drift record is stored and contributes to fleet-level risk visibility and response planning.',
+                ],
+                'example_title' => 'Example: warm up baseline for student lab devices',
+                'example_steps' => [
+                    'Open Behavioral Baseline, enable baseline modeling, and queue baseline backfill for the last 30 days.',
+                    'After profiles become ready, review drift feed entries and investigate high-severity records with unusual process or network patterns.',
+                ],
+            ],
+            [
                 'title' => 'Settings and Security Hardening',
                 'summary' => 'Settings control global safety rails, trust boundaries, branding, and authentication posture.',
                 'paths' => ['/admin/settings', '/admin/security-hardening', '/admin/settings/branding'],
@@ -239,6 +254,7 @@
             <div class="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <a href="#quick-start" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Quick Start</a>
                 <a href="#feature-playbooks" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Feature Guide</a>
+                <a href="#behavior-baseline-guide" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Behavior Baseline</a>
                 <a href="#admin-functions" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Admin Functions</a>
                 <a href="#agent-lifecycle" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Agent Lifecycle</a>
                 <a href="#api-reference" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">API Reference</a>
@@ -324,6 +340,175 @@ dotnet publish .\src\Dms.Agent.Service\Dms.Agent.Service.csproj -c Release -r wi
                     </div>
                 </details>
             @endforeach
+        </div>
+    </section>
+
+    <section id="behavior-baseline-guide" class="rounded-2xl bg-white border border-slate-200 p-5 space-y-4 doc-shell">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h3 class="font-semibold text-lg text-slate-900">Behavioral Baseline: Full Meaning and Examples</h3>
+                <p class="text-sm text-slate-600 mt-1">
+                    This section explains every field in <code>/admin/behavior-baseline</code>, what it means operationally,
+                    and what a normal example looks like.
+                </p>
+            </div>
+            <div class="flex flex-wrap gap-2 text-[11px]">
+                <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-slate-600">/admin/behavior-baseline</span>
+                <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-slate-600">behavior.baseline.* settings</span>
+            </div>
+        </div>
+
+        <div class="doc-card rounded-xl p-4 text-sm text-slate-700 space-y-2">
+            <p class="font-medium text-slate-900">What the module does</p>
+            <p>
+                The platform learns normal behavior per device from historical behavior logs, then scores each new event against that baseline.
+                When drift exceeds threshold, it records a baseline drift event and contributes signal to risk workflows.
+            </p>
+            <p class="text-xs text-slate-600">
+                Pipeline: <code>device_behavior_logs</code> -> baseline profile learning -> drift score -> drift event -> risk visibility.
+            </p>
+        </div>
+
+        <div class="grid gap-4 xl:grid-cols-2">
+            <div class="doc-card rounded-xl p-4">
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Baseline Settings</p>
+                <div class="overflow-x-auto mt-2">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left border-b text-slate-500">
+                                <th class="py-2">Field</th>
+                                <th class="py-2">Meaning</th>
+                                <th class="py-2">Example</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b align-top"><td class="py-2 font-mono text-xs">baseline_enabled</td><td class="py-2">Turns baseline modeling on or off.</td><td class="py-2">Enabled for production learning.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2 font-mono text-xs">min_samples</td><td class="py-2">Minimum events required before a profile is considered mature.</td><td class="py-2">30 means first 29 events are warm-up only.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2 font-mono text-xs">min_login_samples</td><td class="py-2">Minimum login events needed to evaluate abnormal login-time drift.</td><td class="py-2">12 login samples before hourly pattern checks activate.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2 font-mono text-xs">min_numeric_samples</td><td class="py-2">Minimum numeric samples for network and CPU/memory drift scoring.</td><td class="py-2">20 samples before z-score style numeric checks.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2 font-mono text-xs">max_category_bins</td><td class="py-2">Caps the stored categorical counters to control profile size.</td><td class="py-2">240 keeps top process/app bins only.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2 font-mono text-xs">category_drift_threshold</td><td class="py-2">Per-category cutoff used to mark drift categories as triggered.</td><td class="py-2">0.70 marks <code>rare_process</code> when score >= 0.70.</td></tr>
+                            <tr class="align-top"><td class="py-2 font-mono text-xs">drift_event_threshold</td><td class="py-2">Minimum final baseline drift score to persist a drift event row.</td><td class="py-2">0.68 means lower scores are not stored as drift events.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="doc-card rounded-xl p-4">
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Top Card Metrics (Behavioral Baseline page)</p>
+                <div class="overflow-x-auto mt-2">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left border-b text-slate-500">
+                                <th class="py-2">Metric</th>
+                                <th class="py-2">Meaning</th>
+                                <th class="py-2">Example</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b align-top"><td class="py-2">Profiles</td><td class="py-2">Total count of device baseline profiles.</td><td class="py-2">120 profiles for 120 enrolled active devices.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Ready</td><td class="py-2">Profiles that reached <code>min_samples</code>.</td><td class="py-2">95 ready, 25 still warming.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Coverage</td><td class="py-2">Ready / total profile percentage.</td><td class="py-2">79.2% means baseline is mostly active fleet-wide.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Drift Events (24h)</td><td class="py-2">Count of stored drift events in the last day.</td><td class="py-2">14 drift events in the last 24 hours.</td></tr>
+                            <tr class="align-top"><td class="py-2">Drift Events (7d)</td><td class="py-2">Count of drift events in the last seven days.</td><td class="py-2">63 events in weekly window.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid gap-4 xl:grid-cols-2">
+            <div class="doc-card rounded-xl p-4">
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Behavioral Drift Feed: Field Meaning</p>
+                <div class="overflow-x-auto mt-2">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left border-b text-slate-500">
+                                <th class="py-2">Field</th>
+                                <th class="py-2">Meaning</th>
+                                <th class="py-2">Example</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b align-top"><td class="py-2">Device</td><td class="py-2">Resolved hostname plus device UUID.</td><td class="py-2"><code>LAB-PC-22 | 9f...-uuid</code></td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Detected</td><td class="py-2">When drift was observed (<code>detected_at</code>).</td><td class="py-2">Detected 2 minutes ago.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Severity</td><td class="py-2">Derived from drift score bands.</td><td class="py-2"><code>high</code> when score >= 0.86.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Score</td><td class="py-2">Final baseline drift score (0..1).</td><td class="py-2">0.9132 indicates strong deviation.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Behavior log</td><td class="py-2">Source event id that triggered this drift entry.</td><td class="py-2">UUID used to trace original event payload.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Anomaly case</td><td class="py-2">Linked AI case id if one exists for the same event.</td><td class="py-2">UUID when AI case was opened; otherwise n/a.</td></tr>
+                            <tr class="align-top"><td class="py-2">Categories</td><td class="py-2">Drift dimensions that crossed category threshold.</td><td class="py-2"><code>rare_process, unusual_network_usage</code></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="doc-card rounded-xl p-4">
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Device Baseline Profiles: Field Meaning</p>
+                <div class="overflow-x-auto mt-2">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left border-b text-slate-500">
+                                <th class="py-2">Field</th>
+                                <th class="py-2">Meaning</th>
+                                <th class="py-2">Example</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b align-top"><td class="py-2">Samples</td><td class="py-2">Current sample count stored for that device baseline.</td><td class="py-2">Sample count 146 means mature profile.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">State (ready/warming)</td><td class="py-2">Whether <code>sample_count</code> reached <code>min_samples</code>.</td><td class="py-2">Warming at 18/30 samples.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Last event</td><td class="py-2">Timestamp of most recent event that updated profile.</td><td class="py-2">Last event 34 seconds ago for active device.</td></tr>
+                            <tr class="align-top"><td class="py-2">Updated</td><td class="py-2">Last model update time for that profile row.</td><td class="py-2">Updated 34 seconds ago after ingest.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid gap-4 xl:grid-cols-2">
+            <div class="doc-card rounded-xl p-4">
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Baseline Bootstrap (Backfill) Fields</p>
+                <div class="overflow-x-auto mt-2">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left border-b text-slate-500">
+                                <th class="py-2">Field</th>
+                                <th class="py-2">Meaning</th>
+                                <th class="py-2">Example</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b align-top"><td class="py-2">Days</td><td class="py-2">How far back to read behavior logs during backfill.</td><td class="py-2">30 days for normal rollout; 90 for slow fleets.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Max events</td><td class="py-2">Upper cap on processed rows in one backfill run.</td><td class="py-2">5000 for safe bootstrap, 20000 for larger tenants.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Auto-enable</td><td class="py-2">Turns baseline feature on before queueing backfill.</td><td class="py-2">Enable + Queue in one click for first activation.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Last requested</td><td class="py-2">When backfill was queued.</td><td class="py-2">Queued 1 minute ago.</td></tr>
+                            <tr class="border-b align-top"><td class="py-2">Last completed</td><td class="py-2">When last backfill finished.</td><td class="py-2">Completed 40 seconds ago.</td></tr>
+                            <tr class="align-top"><td class="py-2">Processed / Failed</td><td class="py-2">Backfill outcome counters for event processing.</td><td class="py-2">Processed 5000, failed 3.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="doc-card rounded-xl p-4">
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Drift Categories and Meanings</p>
+                <div class="mt-2 space-y-2 text-sm">
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><span class="font-mono text-xs">rare_process</span> - process is uncommon or unseen on that device baseline. Example: <code>mimikatz.exe</code> first seen.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><span class="font-mono text-xs">abnormal_login_time</span> - login occurs at rare hour for that device/user pattern. Example: 03:42 logon on classroom PC.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><span class="font-mono text-xs">unusual_network_usage</span> - network bytes or connection shape deviates strongly from baseline. Example: outbound spike to 9.5MB where baseline is 60KB.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><span class="font-mono text-xs">abnormal_cpu_memory</span> - CPU or memory metrics are far outside learned operating envelope. Example: CPU jumps from typical 12% to 92%.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><span class="font-mono text-xs">new_application</span> - app launch not present in baseline app history. Example: new unsigned utility appears on exam lab endpoint.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="doc-example-box rounded-xl p-4">
+            <p class="text-xs uppercase tracking-[0.18em] text-slate-500">End-to-End Example</p>
+            <p class="mt-2 text-sm font-semibold text-slate-900">Student Lab baseline rollout and drift response</p>
+            <div class="mt-2 grid gap-2">
+                <div class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">1. Enable baseline modeling and queue a 30-day backfill for 5000 events.</div>
+                <div class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">2. Wait until profile coverage is mostly ready (for example above 80%).</div>
+                <div class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">3. Review new high-severity drift feed entries and confirm categories match suspicious activity.</div>
+                <div class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">4. Open linked anomaly case and decide policy or remediation action based on evidence.</div>
+            </div>
         </div>
     </section>
 

@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Web;
 
+use App\Jobs\SweepAutonomousRemediationCasesJob;
 use App\Models\ControlPlaneSetting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class BehaviorAiRemediationInterfaceTest extends TestCase
@@ -71,5 +73,24 @@ class BehaviorAiRemediationInterfaceTest extends TestCase
         $this->assertSame(['value' => 'DMS Safe Point'], ControlPlaneSetting::query()->findOrFail('behavior.remediation.rollback_restore_point_description')->value);
         $this->assertSame(['value' => true], ControlPlaneSetting::query()->findOrFail('behavior.remediation.rollback_reboot_now')->value);
     }
-}
 
+    public function test_admin_can_queue_remediation_sweep_and_auto_enable_engine(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->post(route('admin.behavior-remediation.sweep'), [
+                'days' => 14,
+                'limit' => 2000,
+                'pending_only' => '1',
+                'auto_enable' => '1',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('status');
+
+        $this->assertSame(['value' => true], ControlPlaneSetting::query()->findOrFail('behavior.remediation.enabled')->value);
+        $this->assertNotNull(ControlPlaneSetting::query()->find('behavior.remediation.last_sweep_requested_at'));
+        Queue::assertPushed(SweepAutonomousRemediationCasesJob::class);
+    }
+}

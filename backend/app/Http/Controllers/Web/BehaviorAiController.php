@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\BackfillBehaviorBaselineProfilesJob;
 use App\Jobs\BackfillBehaviorDatasetJob;
 use App\Jobs\ProcessBehaviorEventStreamJob;
 use App\Jobs\RetrainAdaptiveBehaviorModelJob;
+use App\Jobs\SweepAutonomousRemediationCasesJob;
 use App\Jobs\TrainBehaviorAiModelJob;
 use App\Models\AiEventStream;
 use App\Models\BehaviorAnomalyCase;
@@ -207,6 +209,46 @@ class BehaviorAiController extends Controller
         return back()->with('status', 'Autonomous remediation settings updated.');
     }
 
+    public function queueRemediationSweep(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'limit' => ['nullable', 'integer', 'min:10', 'max:50000'],
+            'pending_only' => ['nullable', 'boolean'],
+            'auto_enable' => ['nullable', 'boolean'],
+        ]);
+
+        $days = (int) ($data['days'] ?? 14);
+        $limit = (int) ($data['limit'] ?? 2000);
+        $pendingOnly = (bool) ($data['pending_only'] ?? true);
+        $autoEnable = (bool) ($data['auto_enable'] ?? true);
+
+        if ($autoEnable && ! $this->settingBool('behavior.remediation.enabled', false)) {
+            ControlPlaneSetting::query()->updateOrCreate(
+                ['key' => 'behavior.remediation.enabled'],
+                [
+                    'value' => ['value' => true],
+                    'updated_by' => $request->user()?->id,
+                ]
+            );
+        }
+
+        ControlPlaneSetting::query()->updateOrCreate(
+            ['key' => 'behavior.remediation.last_sweep_requested_at'],
+            [
+                'value' => ['value' => now()->toIso8601String()],
+                'updated_by' => $request->user()?->id,
+            ]
+        );
+
+        SweepAutonomousRemediationCasesJob::dispatch($days, $limit, $pendingOnly)->onQueue('horizon');
+
+        return back()->with(
+            'status',
+            'Remediation sweep queued for last '.$days.' day(s), up to '.$limit.' case(s)'.($pendingOnly ? ' (pending only).' : '.')
+        );
+    }
+
     public function reviewRecommendation(Request $request, string $recommendationId, HumanFeedbackService $feedbackService): RedirectResponse
     {
         $data = $request->validate([
@@ -329,6 +371,44 @@ class BehaviorAiController extends Controller
         return back()->with('status', 'Behavioral baseline settings updated.');
     }
 
+    public function queueBaselineBackfill(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'limit' => ['nullable', 'integer', 'min:100', 'max:200000'],
+            'auto_enable' => ['nullable', 'boolean'],
+        ]);
+
+        $days = (int) ($data['days'] ?? 30);
+        $limit = (int) ($data['limit'] ?? 5000);
+        $autoEnable = (bool) ($data['auto_enable'] ?? true);
+
+        if ($autoEnable && ! $this->settingBool('behavior.baseline.enabled', false)) {
+            ControlPlaneSetting::query()->updateOrCreate(
+                ['key' => 'behavior.baseline.enabled'],
+                [
+                    'value' => ['value' => true],
+                    'updated_by' => $request->user()?->id,
+                ]
+            );
+        }
+
+        ControlPlaneSetting::query()->updateOrCreate(
+            ['key' => 'behavior.baseline.last_backfill_requested_at'],
+            [
+                'value' => ['value' => now()->toIso8601String()],
+                'updated_by' => $request->user()?->id,
+            ]
+        );
+
+        BackfillBehaviorBaselineProfilesJob::dispatch($days, $limit)->onQueue('horizon');
+
+        return back()->with(
+            'status',
+            'Baseline backfill queued for the last '.$days.' day(s) (up to '.$limit.' events).'
+        );
+    }
+
     public function replayFailedStream(Request $request): RedirectResponse
     {
         $data = $request->validate([
@@ -415,7 +495,8 @@ class BehaviorAiController extends Controller
      *   filters: array<string,string>,
      *   stats: array<string,int>,
      *   drift_events: \Illuminate\Pagination\LengthAwarePaginator,
-     *   profiles: \Illuminate\Pagination\LengthAwarePaginator
+     *   profiles: \Illuminate\Pagination\LengthAwarePaginator,
+     *   backfill: array<string,mixed>
      * }
      */
     private function buildBaselineViewData(Request $request): array
@@ -457,6 +538,11 @@ class BehaviorAiController extends Controller
             max(1, (int) $request->query('profile_page', 1)),
             ['path' => $request->url(), 'pageName' => 'profile_page']
         );
+        $baselineBackfill = [
+            'last_requested_at' => $this->settingString('behavior.baseline.last_backfill_requested_at', ''),
+            'last_completed_at' => $this->settingString('behavior.baseline.last_backfill_completed_at', ''),
+            'last_result' => $this->settingArray('behavior.baseline.last_backfill_result', []),
+        ];
 
         if ($baselineTablesReady) {
             $drift7dStart = now()->subDays(7);
@@ -529,6 +615,7 @@ class BehaviorAiController extends Controller
             'stats' => $baselineStats,
             'drift_events' => $baselineDriftEvents,
             'profiles' => $baselineProfiles,
+            'backfill' => $baselineBackfill,
         ];
     }
 
@@ -540,7 +627,8 @@ class BehaviorAiController extends Controller
      *   stats: array<string,int>,
      *   executions: \Illuminate\Pagination\LengthAwarePaginator,
      *   emergency_policies: \Illuminate\Support\Collection<int,array<string,mixed>>,
-     *   action_options: array<string,string>
+     *   action_options: array<string,string>,
+     *   sweep: array<string,mixed>
      * }
      */
     private function buildRemediationViewData(Request $request): array
@@ -595,6 +683,11 @@ class BehaviorAiController extends Controller
             'dispatch_failed_7d' => 0,
             'job_failed_7d' => 0,
             'job_active' => 0,
+        ];
+        $sweep = [
+            'last_requested_at' => $this->settingString('behavior.remediation.last_sweep_requested_at', ''),
+            'last_completed_at' => $this->settingString('behavior.remediation.last_sweep_completed_at', ''),
+            'last_result' => $this->settingArray('behavior.remediation.last_sweep_result', []),
         ];
         $executions = new LengthAwarePaginator(
             [],
@@ -699,6 +792,7 @@ class BehaviorAiController extends Controller
             'executions' => $executions,
             'emergency_policies' => $emergencyPolicies,
             'action_options' => $actionOptions,
+            'sweep' => $sweep,
         ];
     }
 
@@ -726,6 +820,21 @@ class BehaviorAiController extends Controller
         }
 
         return filter_var((string) $value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? $default;
+    }
+
+    /**
+     * @param array<string,mixed> $default
+     * @return array<string,mixed>
+     */
+    private function settingArray(string $key, array $default): array
+    {
+        $setting = ControlPlaneSetting::query()->find($key);
+        if (! $setting || ! is_array($setting->value)) {
+            return $default;
+        }
+
+        $value = $setting->value['value'] ?? $default;
+        return is_array($value) ? $value : $default;
     }
 
     private function settingFloat(string $key, float $default): float

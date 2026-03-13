@@ -10,6 +10,26 @@
         $baselineDrift24h = (int) ($baselineStats['drift_events_24h'] ?? 0);
         $baselineDrift7d = (int) ($baselineStats['drift_events_7d'] ?? 0);
         $baselineTablesReady = (bool) ($baseline['tables_ready'] ?? false);
+        $baselineBackfill = is_array($baseline['backfill'] ?? null) ? $baseline['backfill'] : [];
+        $baselineBackfillResult = is_array($baselineBackfill['last_result'] ?? null) ? $baselineBackfill['last_result'] : [];
+        $baselineBackfillRequestedAt = trim((string) ($baselineBackfill['last_requested_at'] ?? ''));
+        $baselineBackfillCompletedAt = trim((string) ($baselineBackfill['last_completed_at'] ?? ''));
+        $baselineBackfillRequestedAtHuman = '';
+        $baselineBackfillCompletedAtHuman = '';
+        if ($baselineBackfillRequestedAt !== '') {
+            try {
+                $baselineBackfillRequestedAtHuman = \Illuminate\Support\Carbon::parse($baselineBackfillRequestedAt)->diffForHumans();
+            } catch (\Throwable) {
+                $baselineBackfillRequestedAtHuman = $baselineBackfillRequestedAt;
+            }
+        }
+        if ($baselineBackfillCompletedAt !== '') {
+            try {
+                $baselineBackfillCompletedAtHuman = \Illuminate\Support\Carbon::parse($baselineBackfillCompletedAt)->diffForHumans();
+            } catch (\Throwable) {
+                $baselineBackfillCompletedAtHuman = $baselineBackfillCompletedAt;
+            }
+        }
     @endphp
 
     <div class="space-y-4">
@@ -80,6 +100,36 @@
                         </label>
                     </div>
                     <button class="rounded bg-skyline px-3 py-1.5 text-xs font-semibold text-white">Save Baseline Settings</button>
+                </form>
+                <form method="POST" action="{{ route('admin.behavior-baseline.backfill') }}" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                    @csrf
+                    <div class="flex items-center justify-between gap-2">
+                        <h4 class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-700">Baseline Bootstrap</h4>
+                        @if($baselineBackfillCompletedAt !== '')
+                            <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] text-slate-700">Last completed: {{ $baselineBackfillCompletedAtHuman }}</span>
+                        @elseif($baselineBackfillRequestedAt !== '')
+                            <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">Queued {{ $baselineBackfillRequestedAtHuman }}</span>
+                        @endif
+                    </div>
+                    <p class="text-xs text-slate-600">Backfill profiles from existing behavior logs so baseline drift becomes active quickly.</p>
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label class="text-xs text-slate-600">
+                            Days
+                            <input type="number" name="days" min="1" max="365" value="30" class="mt-1.5 w-full rounded border border-slate-300 px-2.5 py-2 text-sm" />
+                        </label>
+                        <label class="text-xs text-slate-600">
+                            Max events
+                            <input type="number" name="limit" min="100" max="200000" value="5000" class="mt-1.5 w-full rounded border border-slate-300 px-2.5 py-2 text-sm" />
+                        </label>
+                    </div>
+                    <input type="hidden" name="auto_enable" value="1" />
+                    <button class="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white">Enable + Queue Baseline Backfill</button>
+                    @if($baselineBackfillResult !== [])
+                        <p class="text-xs text-slate-600">
+                            Last run processed <span class="font-semibold text-slate-900">{{ (int) ($baselineBackfillResult['processed'] ?? 0) }}</span> events
+                            with <span class="font-semibold text-slate-900">{{ (int) ($baselineBackfillResult['failed'] ?? 0) }}</span> failures.
+                        </p>
+                    @endif
                 </form>
             </article>
 

@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Web;
 
+use App\Jobs\BackfillBehaviorBaselineProfilesJob;
 use App\Models\ControlPlaneSetting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class BehaviorAiBaselineInterfaceTest extends TestCase
@@ -58,5 +60,24 @@ class BehaviorAiBaselineInterfaceTest extends TestCase
         $this->assertSame(['value' => 0.77], ControlPlaneSetting::query()->findOrFail('behavior.baseline.drift_event_threshold')->value);
         $this->assertSame(['value' => 0.74], ControlPlaneSetting::query()->findOrFail('behavior.baseline.category_drift_threshold')->value);
         $this->assertSame(['value' => 320], ControlPlaneSetting::query()->findOrFail('behavior.baseline.max_category_bins')->value);
+    }
+
+    public function test_admin_can_queue_baseline_backfill_and_auto_enable_baseline_feature(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->post(route('admin.behavior-baseline.backfill'), [
+                'days' => 14,
+                'limit' => 2500,
+                'auto_enable' => '1',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('status');
+
+        $this->assertSame(['value' => true], ControlPlaneSetting::query()->findOrFail('behavior.baseline.enabled')->value);
+        $this->assertNotNull(ControlPlaneSetting::query()->find('behavior.baseline.last_backfill_requested_at'));
+        Queue::assertPushed(BackfillBehaviorBaselineProfilesJob::class);
     }
 }

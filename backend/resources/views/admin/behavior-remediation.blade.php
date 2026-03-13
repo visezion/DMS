@@ -4,8 +4,28 @@
         $stats = is_array($remediation['stats'] ?? null) ? $remediation['stats'] : [];
         $filters = is_array($remediation['filters'] ?? null) ? $remediation['filters'] : [];
         $actionOptions = is_array($remediation['action_options'] ?? null) ? $remediation['action_options'] : [];
+        $sweep = is_array($remediation['sweep'] ?? null) ? $remediation['sweep'] : [];
         $tablesReady = (bool) ($remediation['tables_ready'] ?? false);
         $enabled = (bool) ($settings['enabled'] ?? false);
+        $sweepResult = is_array($sweep['last_result'] ?? null) ? $sweep['last_result'] : [];
+        $sweepRequestedAt = trim((string) ($sweep['last_requested_at'] ?? ''));
+        $sweepCompletedAt = trim((string) ($sweep['last_completed_at'] ?? ''));
+        $sweepRequestedAtHuman = '';
+        $sweepCompletedAtHuman = '';
+        if ($sweepRequestedAt !== '') {
+            try {
+                $sweepRequestedAtHuman = \Illuminate\Support\Carbon::parse($sweepRequestedAt)->diffForHumans();
+            } catch (\Throwable) {
+                $sweepRequestedAtHuman = $sweepRequestedAt;
+            }
+        }
+        if ($sweepCompletedAt !== '') {
+            try {
+                $sweepCompletedAtHuman = \Illuminate\Support\Carbon::parse($sweepCompletedAt)->diffForHumans();
+            } catch (\Throwable) {
+                $sweepCompletedAtHuman = $sweepCompletedAt;
+            }
+        }
     @endphp
 
     <div class="space-y-4">
@@ -125,6 +145,43 @@
 
                     <button class="rounded bg-skyline px-3 py-1.5 text-xs font-semibold text-white">Save Remediation Settings</button>
                 </form>
+
+                <form method="POST" action="{{ route('admin.behavior-remediation.sweep') }}" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                    @csrf
+                    <div class="flex items-center justify-between gap-2">
+                        <h4 class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-700">Remediation Sweep</h4>
+                        @if($sweepCompletedAt !== '')
+                            <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] text-slate-700">Last completed: {{ $sweepCompletedAtHuman }}</span>
+                        @elseif($sweepRequestedAt !== '')
+                            <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">Queued {{ $sweepRequestedAtHuman }}</span>
+                        @endif
+                    </div>
+                    <p class="text-xs text-slate-600">Process existing anomaly cases through autonomous remediation rules without waiting for new events.</p>
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label class="text-xs text-slate-600">
+                            Days
+                            <input type="number" name="days" min="1" max="365" value="14" class="mt-1.5 w-full rounded border border-slate-300 px-2.5 py-2 text-sm" />
+                        </label>
+                        <label class="text-xs text-slate-600">
+                            Max cases
+                            <input type="number" name="limit" min="10" max="50000" value="2000" class="mt-1.5 w-full rounded border border-slate-300 px-2.5 py-2 text-sm" />
+                        </label>
+                    </div>
+                    <label class="flex items-center gap-2 text-xs text-slate-700">
+                        <input type="hidden" name="pending_only" value="0" />
+                        <input type="checkbox" name="pending_only" value="1" checked class="rounded border-slate-300 text-skyline focus:ring-skyline" />
+                        Only pending-review cases
+                    </label>
+                    <input type="hidden" name="auto_enable" value="1" />
+                    <button class="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white">Enable + Queue Remediation Sweep</button>
+                    @if($sweepResult !== [])
+                        <p class="text-xs text-slate-600">
+                            Last run scanned <span class="font-semibold text-slate-900">{{ (int) ($sweepResult['scanned'] ?? 0) }}</span> case(s),
+                            created <span class="font-semibold text-slate-900">{{ (int) ($sweepResult['executions_created'] ?? 0) }}</span> remediation action(s),
+                            and failed <span class="font-semibold text-slate-900">{{ (int) ($sweepResult['failed_cases'] ?? 0) }}</span> case(s).
+                        </p>
+                    @endif
+                </form>
             </article>
 
             <article class="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-8">
@@ -202,4 +259,3 @@
         </section>
     </div>
 </x-admin-layout>
-

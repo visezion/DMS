@@ -141,8 +141,10 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::post('/behavior-ai/replay', [BehaviorAiController::class, 'replayFailedStream'])->name('behavior-ai.replay');
     Route::get('/behavior-baseline', [BehaviorAiController::class, 'baseline'])->name('behavior-baseline.index');
     Route::post('/behavior-baseline/settings', [BehaviorAiController::class, 'updateBaselineSettings'])->name('behavior-baseline.settings');
+    Route::post('/behavior-baseline/backfill', [BehaviorAiController::class, 'queueBaselineBackfill'])->name('behavior-baseline.backfill');
     Route::get('/behavior-remediation', [BehaviorAiController::class, 'remediation'])->name('behavior-remediation.index');
     Route::post('/behavior-remediation/settings', [BehaviorAiController::class, 'updateRemediationSettings'])->name('behavior-remediation.settings');
+    Route::post('/behavior-remediation/sweep', [BehaviorAiController::class, 'queueRemediationSweep'])->name('behavior-remediation.sweep');
 });
 
 Route::get('/agent/releases/{releaseId}/download', [AdminConsoleController::class, 'downloadAgentRelease'])
