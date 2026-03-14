@@ -69,7 +69,7 @@
                             @else
                                 <p class="text-xs text-slate-500">Set <span class="font-mono">AGENT_BACKEND_WORKDIR</span> in your production <span class="font-mono">.env</span> to your Python API folder (must include <span class="font-mono">app/main.py</span>).</p>
                             @endif
-                            <p class="text-xs text-slate-500">Start command: <span class="font-mono">python -m uvicorn app.main:app --host 127.0.0.1 --port 8000</span></p>
+                            <p class="text-xs text-slate-500">Start command: <span class="font-mono">{{ $backendServer['start_command'] ?? 'python -m uvicorn app.main:app --host 127.0.0.1 --port 8000' }}</span></p>
                         </div>
                     </div>
 

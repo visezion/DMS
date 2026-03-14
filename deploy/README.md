@@ -157,6 +157,9 @@ Service startup behavior:
   - If you override `AGENT_BACKEND_WORKDIR`, ensure that folder contains `app/main.py`.
 - Agent backend not reachable after app/container recreate
   - Use the built-in `agent-backend` service in Docker compose (started automatically by deploy).
+  - Service startup now uses `scripts/runtime/agent-backend.sh`, which auto-discovers valid workdirs such as:
+    - `/var/www/html/agent-backend`
+    - `/var/www/html/backend/agent-backend`
   - Keep `AGENT_BACKEND_HOST=agent-backend` in `/opt/dms/shared/.env`.
 - AI Runtime shows offline while `queue`/`scheduler` containers are up
   - Docker queue/scheduler now write heartbeat files in `storage/runtime`.

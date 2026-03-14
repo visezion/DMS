@@ -59,8 +59,8 @@ services:
   agent-backend:
     image: ${COMPOSE_PROJECT_NAME:-dms}-app:latest
     restart: unless-stopped
-    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-    working_dir: /var/www/html/agent-backend
+    command: sh /var/www/html/scripts/runtime/agent-backend.sh
+    working_dir: /var/www/html
     volumes:
       - ${BACKEND_DIR}:/var/www/html
       - ${APP_SHARED_DIR}/storage:/var/www/html/storage

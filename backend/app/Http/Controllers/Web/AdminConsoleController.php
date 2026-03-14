@@ -4991,27 +4991,32 @@ POWERSHELL;
         }
 
         $configuredWorkdir = trim((string) env('AGENT_BACKEND_WORKDIR', ''));
-        $workdir = $this->resolveAgentBackendWorkdir();
-        if ($workdir === null) {
-            $defaultBundled = base_path('agent-backend');
-            $hint = $configuredWorkdir !== ''
-                ? 'Configured AGENT_BACKEND_WORKDIR does not exist: '.$configuredWorkdir
-                : 'No AGENT_BACKEND_WORKDIR is set and bundled backend was not found at: '.$defaultBundled;
-            return back()->withErrors([
-                'agent_backend' => $hint.' | Set AGENT_BACKEND_WORKDIR to your Python API project folder.',
-            ]);
+        $wrapperStart = $this->defaultAgentBackendWrapperStartCommand();
+        $defaultStartCommand = $wrapperStart ?? $this->defaultAgentBackendStartCommand();
+        $command = trim((string) env('AGENT_BACKEND_START_COMMAND', $defaultStartCommand));
+        if ($command === '') {
+            $command = $defaultStartCommand;
         }
 
-        $command = trim((string) env('AGENT_BACKEND_START_COMMAND', $this->defaultAgentBackendStartCommand()));
-        if ($command === '') {
-            $command = $this->defaultAgentBackendStartCommand();
-        }
+        $resolvedWorkdir = $this->resolveAgentBackendWorkdir();
+        $workdir = $resolvedWorkdir ?? base_path();
         $logPath = storage_path('logs'.DIRECTORY_SEPARATOR.'agent-backend.log');
         if (! is_dir(dirname($logPath))) {
             @mkdir(dirname($logPath), 0775, true);
         }
 
         if (str_contains($command, 'app.main:app')) {
+            if ($resolvedWorkdir === null) {
+                $candidates = $this->agentBackendWorkdirCandidates($configuredWorkdir);
+                $hint = $configuredWorkdir !== ''
+                    ? 'Configured AGENT_BACKEND_WORKDIR does not exist or is invalid: '.$configuredWorkdir
+                    : 'No AGENT_BACKEND_WORKDIR is set and bundled backend was not found in candidate paths: '.implode(', ', $candidates);
+                return back()->withErrors([
+                    'agent_backend' => $hint.' | Set AGENT_BACKEND_WORKDIR to your Python API project folder.',
+                ]);
+            }
+
+            $workdir = $resolvedWorkdir;
             $expectedModule = $workdir.DIRECTORY_SEPARATOR.'app'.DIRECTORY_SEPARATOR.'main.py';
             if (! is_file($expectedModule)) {
                 $hint = $configuredWorkdir === ''
@@ -6230,19 +6235,7 @@ CMD);
         $host = (string) env('AGENT_BACKEND_HOST', '127.0.0.1');
         $port = (int) env('AGENT_BACKEND_PORT', 8000);
         $workdir = $this->resolveAgentBackendWorkdir();
-        $configured = $workdir !== null;
-
-        if (! $configured) {
-            return [
-                'configured' => false,
-                'running' => false,
-                'host' => $host,
-                'port' => $port,
-                'workdir' => null,
-                'checked_at' => now()->toIso8601String(),
-                'error' => null,
-            ];
-        }
+        $wrapperAvailable = $this->defaultAgentBackendWrapperStartCommand() !== null;
 
         $timeout = 1.2;
         $errno = 0;
@@ -6252,29 +6245,94 @@ CMD);
         if ($running) {
             @fclose($connection);
         }
+        $configured = $workdir !== null || $wrapperAvailable || $running;
+        $error = null;
+        if (! $running) {
+            $error = trim($errstr) !== '' ? trim($errstr) : ('connect errno '.$errno);
+            if (! $configured) {
+                $error = 'No agent backend workdir discovered. Set AGENT_BACKEND_WORKDIR to a folder that contains app/main.py.';
+            }
+        }
 
         return [
-            'configured' => true,
+            'configured' => $configured,
             'running' => $running,
             'host' => $host,
             'port' => $port,
             'workdir' => $workdir,
+            'start_command' => (string) (trim((string) env('AGENT_BACKEND_START_COMMAND', '')) !== ''
+                ? trim((string) env('AGENT_BACKEND_START_COMMAND', ''))
+                : ($this->defaultAgentBackendWrapperStartCommand() ?? $this->defaultAgentBackendStartCommand())),
             'checked_at' => now()->toIso8601String(),
-            'error' => $running ? null : (trim($errstr) !== '' ? trim($errstr) : ('connect errno '.$errno)),
+            'error' => $error,
         ];
     }
 
     private function resolveAgentBackendWorkdir(): ?string
     {
         $configured = trim((string) env('AGENT_BACKEND_WORKDIR', ''));
-        $candidate = $configured !== '' ? $configured : base_path('agent-backend');
+        foreach ($this->agentBackendWorkdirCandidates($configured) as $candidate) {
+            $resolved = realpath($candidate);
+            $path = $resolved !== false ? $resolved : $candidate;
+            if (! is_dir($path)) {
+                continue;
+            }
 
-        $resolved = realpath($candidate);
-        if ($resolved !== false && is_dir($resolved)) {
-            return $resolved;
+            return $path;
         }
 
-        return is_dir($candidate) ? $candidate : null;
+        return null;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function agentBackendWorkdirCandidates(string $configured): array
+    {
+        $base = rtrim(base_path(), DIRECTORY_SEPARATOR);
+        $parent = rtrim(dirname($base), DIRECTORY_SEPARATOR);
+        $candidates = [];
+
+        if ($configured !== '') {
+            $candidates[] = $configured;
+        }
+
+        $candidates[] = $base.DIRECTORY_SEPARATOR.'agent-backend';
+        $candidates[] = $base.DIRECTORY_SEPARATOR.'backend'.DIRECTORY_SEPARATOR.'agent-backend';
+        $candidates[] = $parent.DIRECTORY_SEPARATOR.'agent-backend';
+        $candidates[] = $parent.DIRECTORY_SEPARATOR.'backend'.DIRECTORY_SEPARATOR.'agent-backend';
+
+        if (DIRECTORY_SEPARATOR !== '\\') {
+            $candidates[] = '/var/www/html/agent-backend';
+            $candidates[] = '/var/www/html/backend/agent-backend';
+            $candidates[] = '/var/www/agent-backend';
+            $candidates[] = '/var/www/backend/agent-backend';
+        }
+
+        $unique = [];
+        foreach ($candidates as $candidate) {
+            $normalized = rtrim((string) $candidate, DIRECTORY_SEPARATOR);
+            if ($normalized === '' || in_array($normalized, $unique, true)) {
+                continue;
+            }
+            $unique[] = $normalized;
+        }
+
+        return $unique;
+    }
+
+    private function defaultAgentBackendWrapperStartCommand(): ?string
+    {
+        if (DIRECTORY_SEPARATOR === '\\') {
+            return null;
+        }
+
+        $wrapper = base_path('scripts/runtime/agent-backend.sh');
+        if (! is_file($wrapper)) {
+            return null;
+        }
+
+        return 'sh '.escapeshellarg($wrapper);
     }
 
     private function defaultAgentBackendStartCommand(): string
