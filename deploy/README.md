@@ -109,7 +109,7 @@ Optional flags:
 - `APACHE_TARGET_PORT` (default `80`)
 - `LARAVEL_DB_CONNECTION` (`mysql|pgsql|sqlite`, default keeps template value)
 - `LARAVEL_SQLITE_PATH` (default `/var/www/html/storage/database/database.sqlite`)
-- `AGENT_BACKEND_WORKDIR` (optional path containing `app/main.py`)
+- `AGENT_BACKEND_WORKDIR` (optional path containing `app/main.py`; if unset, bundled `/var/www/html/agent-backend` is used when available)
 - `AGENT_BACKEND_START_COMMAND` (optional launcher command)
 - `AGENT_BACKEND_HOST` (optional health check host, default `127.0.0.1`)
 - `AGENT_BACKEND_PORT` (optional health check port, default `8000`)
@@ -156,8 +156,12 @@ Service startup behavior:
   - In Docker mode, `.env` is mounted read-only into the app container by design.
   - Set `APP_KEY` in `/opt/dms/shared/.env` on host, then clear/cache config.
 - `Backend start command expects app/main.py` in Agent Delivery
-  - DMS does not bundle a Python API app by default.
+  - DMS includes a bundled Python API at `backend/agent-backend/app/main.py` for default startup.
   - Set `AGENT_BACKEND_WORKDIR` to your Python project folder (must contain `app/main.py` for the default command), then redeploy or update `/opt/dms/shared/.env`.
+  - If you override `AGENT_BACKEND_WORKDIR`, ensure that folder contains `app/main.py`.
+- `.env` parse error for AGENT_BACKEND_START_COMMAND
+  - If you set this value manually in `.env`, wrap it in quotes:
+    `AGENT_BACKEND_START_COMMAND="python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"`.
 - MySQL migration error `SQLSTATE[HY000]: 1419` while creating triggers
   - The Docker MySQL service is configured with `--log-bin-trust-function-creators=1`.
   - Recreate MySQL service so the option is applied, then rerun migrations.

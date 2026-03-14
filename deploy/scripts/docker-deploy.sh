@@ -43,6 +43,20 @@ ensure_env_kv() {
   fi
 }
 
+ensure_env_kv_quoted() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local escaped_value
+
+  escaped_value="$(printf '%s' "$value" | sed -e 's/[\\"]/\\&/g')"
+  if grep -Eq "^${key}=" "$file"; then
+    sed -i -E "s|^${key}=.*|${key}=\"${escaped_value}\"|g" "$file"
+  else
+    printf "%s=\"%s\"\n" "$key" "$escaped_value" >> "$file"
+  fi
+}
+
 read_env_kv() {
   local file="$1"
   local key="$2"
@@ -161,7 +175,7 @@ if [[ -n "$AGENT_BACKEND_WORKDIR" ]]; then
   ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_WORKDIR" "$AGENT_BACKEND_WORKDIR"
 fi
 if [[ -n "$AGENT_BACKEND_START_COMMAND" ]]; then
-  ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_START_COMMAND" "$AGENT_BACKEND_START_COMMAND"
+  ensure_env_kv_quoted "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_START_COMMAND" "$AGENT_BACKEND_START_COMMAND"
 fi
 if [[ -n "$AGENT_BACKEND_HOST" ]]; then
   ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_HOST" "$AGENT_BACKEND_HOST"

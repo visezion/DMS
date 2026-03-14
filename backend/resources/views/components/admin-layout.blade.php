@@ -200,20 +200,29 @@
     $aiRuntimeSchedulerRunning = $processExistsByPattern('artisan schedule:work');
     $aiRuntimeRunning = $aiRuntimeQueueRunning && $aiRuntimeSchedulerRunning;
 
+    $agentBackendWorkdir = trim((string) env('AGENT_BACKEND_WORKDIR', ''));
+    if ($agentBackendWorkdir === '') {
+        $agentBackendWorkdir = base_path('agent-backend');
+    }
+    $agentBackendConfigured = is_dir($agentBackendWorkdir);
     $agentBackendHost = (string) env('AGENT_BACKEND_HOST', '127.0.0.1');
     $agentBackendPort = (int) env('AGENT_BACKEND_PORT', 8000);
-    $agentErrno = 0;
-    $agentErrstr = '';
-    $agentConnection = @fsockopen($agentBackendHost, $agentBackendPort, $agentErrno, $agentErrstr, 1.2);
-    $agentBackendRunning = is_resource($agentConnection);
-    if ($agentBackendRunning) {
-        @fclose($agentConnection);
+    $agentBackendRunning = false;
+    $agentBackendError = null;
+    if ($agentBackendConfigured) {
+        $agentErrno = 0;
+        $agentErrstr = '';
+        $agentConnection = @fsockopen($agentBackendHost, $agentBackendPort, $agentErrno, $agentErrstr, 1.2);
+        $agentBackendRunning = is_resource($agentConnection);
+        if ($agentBackendRunning) {
+            @fclose($agentConnection);
+        }
+        $agentBackendError = $agentBackendRunning
+            ? null
+            : (trim($agentErrstr) !== '' ? trim($agentErrstr) : ('connect errno '.$agentErrno));
     }
-    $agentBackendError = $agentBackendRunning
-        ? null
-        : (trim($agentErrstr) !== '' ? trim($agentErrstr) : ('connect errno '.$agentErrno));
 
-    $showRuntimePopup = ! $aiRuntimeRunning || ! $agentBackendRunning;
+    $showRuntimePopup = ! $aiRuntimeRunning || ($agentBackendConfigured && ! $agentBackendRunning);
 @endphp
 <head>
     <meta charset="UTF-8" />
@@ -775,7 +784,7 @@
                         <a href="{{ route('admin.behavior-ai.index') }}" class="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700">Open AI Control Center</a>
                     </div>
                 </div>
-                <div id="runtime-alert-agent-card" class="@if($agentBackendRunning) hidden @endif rounded-xl border border-amber-200 bg-white p-4">
+                <div id="runtime-alert-agent-card" class="@if(! $agentBackendConfigured || $agentBackendRunning) hidden @endif rounded-xl border border-amber-200 bg-white p-4">
                     <p class="text-sm font-medium text-slate-900">Agent backend server is not running</p>
                     <p class="mt-1 text-xs text-slate-600">Policy/install actions that depend on it may fail.</p>
                     <p id="global-agent-backend-meta" class="mt-2 text-[11px] font-mono text-slate-500">{{ $agentBackendHost }}:{{ $agentBackendPort }}@if($agentBackendError) | {{ $agentBackendError }}@endif</p>
@@ -922,6 +931,20 @@
                 const res = await fetch(backendStatusUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
                 if (!res.ok) return;
                 const data = await res.json();
+                const configured = data.configured !== false;
+                if (!configured) {
+                    if (agentMeta) agentMeta.textContent = 'Agent backend launcher is not configured.';
+                    if (agentEndpointLine) agentEndpointLine.textContent = `${data.host}:${data.port}`;
+                    if (agentStatusLine) {
+                        agentStatusLine.innerHTML = 'Status: <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">not configured</span>';
+                    }
+                    if (agentCard) {
+                        agentCard.classList.add('hidden');
+                    }
+                    syncPopupVisibility();
+                    return;
+                }
+
                 const running = !!data.running;
                 const meta = `${data.host}:${data.port}${data.error ? ` | ${data.error}` : ''}`;
 

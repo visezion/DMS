@@ -4991,28 +4991,31 @@ POWERSHELL;
         }
 
         $configuredWorkdir = trim((string) env('AGENT_BACKEND_WORKDIR', ''));
-        $workdir = $configuredWorkdir !== '' ? $configuredWorkdir : base_path('..');
-        $resolvedWorkdir = realpath($workdir);
-        if ($resolvedWorkdir !== false) {
-            $workdir = $resolvedWorkdir;
+        $workdir = $this->resolveAgentBackendWorkdir();
+        if ($workdir === null) {
+            $defaultBundled = base_path('agent-backend');
+            $hint = $configuredWorkdir !== ''
+                ? 'Configured AGENT_BACKEND_WORKDIR does not exist: '.$configuredWorkdir
+                : 'No AGENT_BACKEND_WORKDIR is set and bundled backend was not found at: '.$defaultBundled;
+            return back()->withErrors([
+                'agent_backend' => $hint.' | Set AGENT_BACKEND_WORKDIR to your Python API project folder.',
+            ]);
         }
-        $command = (string) env('AGENT_BACKEND_START_COMMAND', 'python -m uvicorn app.main:app --host 127.0.0.1 --port 8000');
+
+        $command = trim((string) env('AGENT_BACKEND_START_COMMAND', $this->defaultAgentBackendStartCommand()));
+        if ($command === '') {
+            $command = $this->defaultAgentBackendStartCommand();
+        }
         $logPath = storage_path('logs'.DIRECTORY_SEPARATOR.'agent-backend.log');
         if (! is_dir(dirname($logPath))) {
             @mkdir(dirname($logPath), 0775, true);
-        }
-
-        if (! is_dir($workdir)) {
-            return back()->withErrors([
-                'agent_backend' => 'Configured AGENT_BACKEND_WORKDIR does not exist: '.$workdir,
-            ]);
         }
 
         if (str_contains($command, 'app.main:app')) {
             $expectedModule = $workdir.DIRECTORY_SEPARATOR.'app'.DIRECTORY_SEPARATOR.'main.py';
             if (! is_file($expectedModule)) {
                 $hint = $configuredWorkdir === ''
-                    ? 'No AGENT_BACKEND_WORKDIR is set, and DMS does not bundle a Python API by default. Set AGENT_BACKEND_WORKDIR to a Python project folder that contains app/main.py.'
+                    ? 'Bundled backend is missing app/main.py. Restore backend/agent-backend/app/main.py or set AGENT_BACKEND_WORKDIR to your Python API project folder.'
                     : 'Configured workdir does not contain app/main.py. Set AGENT_BACKEND_WORKDIR to your Python API project folder.';
                 return back()->withErrors([
                     'agent_backend' => 'Backend start command expects app/main.py, but not found in workdir: '.$expectedModule.' | '.$hint,
@@ -6226,6 +6229,21 @@ CMD);
     {
         $host = (string) env('AGENT_BACKEND_HOST', '127.0.0.1');
         $port = (int) env('AGENT_BACKEND_PORT', 8000);
+        $workdir = $this->resolveAgentBackendWorkdir();
+        $configured = $workdir !== null;
+
+        if (! $configured) {
+            return [
+                'configured' => false,
+                'running' => false,
+                'host' => $host,
+                'port' => $port,
+                'workdir' => null,
+                'checked_at' => now()->toIso8601String(),
+                'error' => null,
+            ];
+        }
+
         $timeout = 1.2;
         $errno = 0;
         $errstr = '';
@@ -6236,12 +6254,32 @@ CMD);
         }
 
         return [
+            'configured' => true,
             'running' => $running,
             'host' => $host,
             'port' => $port,
+            'workdir' => $workdir,
             'checked_at' => now()->toIso8601String(),
             'error' => $running ? null : (trim($errstr) !== '' ? trim($errstr) : ('connect errno '.$errno)),
         ];
+    }
+
+    private function resolveAgentBackendWorkdir(): ?string
+    {
+        $configured = trim((string) env('AGENT_BACKEND_WORKDIR', ''));
+        $candidate = $configured !== '' ? $configured : base_path('agent-backend');
+
+        $resolved = realpath($candidate);
+        if ($resolved !== false && is_dir($resolved)) {
+            return $resolved;
+        }
+
+        return is_dir($candidate) ? $candidate : null;
+    }
+
+    private function defaultAgentBackendStartCommand(): string
+    {
+        return 'python -m uvicorn app.main:app --host 127.0.0.1 --port 8000';
     }
 
     public function audit(): View

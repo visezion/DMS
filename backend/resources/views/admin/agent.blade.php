@@ -49,17 +49,26 @@
                         <div class="space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3">
                             <p id="agent-backend-status-line" class="text-sm">
                                 Status:
-                                @if(($backendServer['running'] ?? false))
+                                @if(!(bool) ($backendServer['configured'] ?? false))
+                                    <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">not configured</span>
+                                @elseif(($backendServer['running'] ?? false))
                                     <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">running</span>
                                 @else
                                     <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">not running</span>
                                 @endif
                             </p>
                             <p id="agent-backend-endpoint-line" class="font-mono text-xs text-slate-500">{{ $backendServer['host'] ?? '127.0.0.1' }}:{{ $backendServer['port'] ?? 8000 }}</p>
-                            <form method="POST" action="{{ route('admin.agent.backend.start') }}">
-                                @csrf
-                                <button class="rounded-lg bg-ink px-4 py-2 text-sm text-white">Start Agent Backend</button>
-                            </form>
+                            @if((bool) ($backendServer['configured'] ?? false))
+                                <form method="POST" action="{{ route('admin.agent.backend.start') }}">
+                                    @csrf
+                                    <button class="rounded-lg bg-ink px-4 py-2 text-sm text-white">Start Agent Backend</button>
+                                </form>
+                                @if(!empty($backendServer['workdir']))
+                                    <p class="text-xs text-slate-500">Workdir: <span class="font-mono">{{ $backendServer['workdir'] }}</span></p>
+                                @endif
+                            @else
+                                <p class="text-xs text-slate-500">Set <span class="font-mono">AGENT_BACKEND_WORKDIR</span> in your production <span class="font-mono">.env</span> to your Python API folder (must include <span class="font-mono">app/main.py</span>).</p>
+                            @endif
                             <p class="text-xs text-slate-500">Start command: <span class="font-mono">python -m uvicorn app.main:app --host 127.0.0.1 --port 8000</span></p>
                         </div>
                     </div>
