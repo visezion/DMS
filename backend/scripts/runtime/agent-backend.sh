@@ -4,6 +4,7 @@ set -eu
 ROOT_DIR="/var/www/html"
 DEFAULT_PORT="8000"
 DEFAULT_HOST="0.0.0.0"
+VENV_PYTHON="/opt/agent-backend-venv/bin/python"
 
 CANDIDATES=""
 if [ -n "${AGENT_BACKEND_WORKDIR:-}" ]; then
@@ -28,4 +29,8 @@ PORT="${AGENT_BACKEND_PORT:-$DEFAULT_PORT}"
 HOST="${AGENT_BACKEND_BIND_HOST:-$DEFAULT_HOST}"
 
 cd "$WORKDIR"
+if [ -x "$VENV_PYTHON" ]; then
+  exec "$VENV_PYTHON" -m uvicorn app.main:app --host "$HOST" --port "$PORT"
+fi
+
 exec python -m uvicorn app.main:app --host "$HOST" --port "$PORT"

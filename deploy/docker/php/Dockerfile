@@ -15,7 +15,9 @@ RUN apk add --no-cache \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && ln -sf /usr/bin/python3 /usr/bin/python \
-    && pip3 install --no-cache-dir fastapi uvicorn
+    && python3 -m venv /opt/agent-backend-venv \
+    && /opt/agent-backend-venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/agent-backend-venv/bin/pip install --no-cache-dir fastapi uvicorn
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 

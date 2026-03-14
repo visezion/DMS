@@ -160,6 +160,7 @@ Service startup behavior:
   - Service startup now uses `scripts/runtime/agent-backend.sh`, which auto-discovers valid workdirs such as:
     - `/var/www/html/agent-backend`
     - `/var/www/html/backend/agent-backend`
+  - Python dependencies are installed in `/opt/agent-backend-venv` inside the app image (PEP 668 safe), and launcher uses that venv automatically.
   - Keep `AGENT_BACKEND_HOST=agent-backend` in `/opt/dms/shared/.env`.
 - AI Runtime shows offline while `queue`/`scheduler` containers are up
   - Docker queue/scheduler now write heartbeat files in `storage/runtime`.
