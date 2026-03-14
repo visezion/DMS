@@ -21,7 +21,7 @@ services:
   queue:
     image: ${COMPOSE_PROJECT_NAME:-dms}-app:latest
     restart: unless-stopped
-    command: php artisan queue:work redis --queue=horizon,default --sleep=1 --tries=3 --timeout=120
+    command: sh /var/www/html/scripts/runtime/queue-worker.sh
     working_dir: /var/www/html
     volumes:
       - ${BACKEND_DIR}:/var/www/html
@@ -40,7 +40,7 @@ services:
   scheduler:
     image: ${COMPOSE_PROJECT_NAME:-dms}-app:latest
     restart: unless-stopped
-    command: php artisan schedule:work
+    command: sh /var/www/html/scripts/runtime/scheduler-worker.sh
     working_dir: /var/www/html
     volumes:
       - ${BACKEND_DIR}:/var/www/html
@@ -51,6 +51,21 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      app:
+        condition: service_started
+    networks:
+      - dms
+
+  agent-backend:
+    image: ${COMPOSE_PROJECT_NAME:-dms}-app:latest
+    restart: unless-stopped
+    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    working_dir: /var/www/html/agent-backend
+    volumes:
+      - ${BACKEND_DIR}:/var/www/html
+      - ${APP_SHARED_DIR}/storage:/var/www/html/storage
+      - ${APP_SHARED_DIR}/.env:/var/www/html/.env:ro
+    depends_on:
       app:
         condition: service_started
     networks:

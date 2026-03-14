@@ -196,8 +196,34 @@
         return is_string($output) && trim($output) !== '';
     };
 
-    $aiRuntimeQueueRunning = $processExistsByPattern('artisan queue:work');
-    $aiRuntimeSchedulerRunning = $processExistsByPattern('artisan schedule:work');
+    $runtimeHeartbeatIsFresh = function (string $name, int $maxAgeSeconds = 90): bool {
+        $path = storage_path('runtime'.DIRECTORY_SEPARATOR.$name);
+        if (!is_file($path)) {
+            return false;
+        }
+
+        $raw = trim((string) @file_get_contents($path));
+        if ($raw === '') {
+            return false;
+        }
+
+        $timestamp = 0;
+        if (is_numeric($raw)) {
+            $timestamp = (int) $raw;
+        } else {
+            $parsed = strtotime($raw);
+            $timestamp = $parsed !== false ? (int) $parsed : 0;
+        }
+
+        if ($timestamp <= 0) {
+            return false;
+        }
+
+        return abs(time() - $timestamp) <= $maxAgeSeconds;
+    };
+
+    $aiRuntimeQueueRunning = $runtimeHeartbeatIsFresh('queue-heartbeat') || $processExistsByPattern('artisan queue:work');
+    $aiRuntimeSchedulerRunning = $runtimeHeartbeatIsFresh('scheduler-heartbeat') || $processExistsByPattern('artisan schedule:work');
     $aiRuntimeRunning = $aiRuntimeQueueRunning && $aiRuntimeSchedulerRunning;
 
     $agentBackendWorkdir = trim((string) env('AGENT_BACKEND_WORKDIR', ''));

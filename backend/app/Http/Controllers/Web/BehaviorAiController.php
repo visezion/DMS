@@ -444,9 +444,22 @@ class BehaviorAiController extends Controller
         }
 
         $started = [];
+        $queueStartCommand = 'php artisan queue:work --queue=horizon --sleep=1 --tries=3 --timeout=120';
+        $schedulerStartCommand = 'php artisan schedule:work';
+        if (DIRECTORY_SEPARATOR !== '\\') {
+            $queueWrapper = base_path('scripts/runtime/queue-worker.sh');
+            $schedulerWrapper = base_path('scripts/runtime/scheduler-worker.sh');
+            if (is_file($queueWrapper)) {
+                $queueStartCommand = 'sh '.escapeshellarg($queueWrapper);
+            }
+            if (is_file($schedulerWrapper)) {
+                $schedulerStartCommand = 'sh '.escapeshellarg($schedulerWrapper);
+            }
+        }
+
         if (! ($runtime['queue_running'] ?? false)) {
             $ok = $this->startBackgroundProcess(
-                'php artisan queue:work --queue=horizon --sleep=1 --tries=3 --timeout=120',
+                $queueStartCommand,
                 $workdir,
                 $logsDir.DIRECTORY_SEPARATOR.'ai-queue-worker.log'
             );
@@ -457,7 +470,7 @@ class BehaviorAiController extends Controller
 
         if (! ($runtime['scheduler_running'] ?? false)) {
             $ok = $this->startBackgroundProcess(
-                'php artisan schedule:work',
+                $schedulerStartCommand,
                 $workdir,
                 $logsDir.DIRECTORY_SEPARATOR.'ai-scheduler.log'
             );
@@ -926,8 +939,10 @@ class BehaviorAiController extends Controller
      */
     private function aiRuntimeStatusData(): array
     {
-        $queueRunning = $this->processExistsByPattern('artisan queue:work');
-        $schedulerRunning = $this->processExistsByPattern('artisan schedule:work');
+        $queueHeartbeatRunning = $this->runtimeHeartbeatIsFresh('queue-heartbeat');
+        $schedulerHeartbeatRunning = $this->runtimeHeartbeatIsFresh('scheduler-heartbeat');
+        $queueRunning = $queueHeartbeatRunning || $this->processExistsByPattern('artisan queue:work');
+        $schedulerRunning = $schedulerHeartbeatRunning || $this->processExistsByPattern('artisan schedule:work');
 
         return [
             'queue_running' => $queueRunning,
@@ -935,6 +950,33 @@ class BehaviorAiController extends Controller
             'runtime_running' => $queueRunning && $schedulerRunning,
             'checked_at' => now()->toIso8601String(),
         ];
+    }
+
+    private function runtimeHeartbeatIsFresh(string $name, int $maxAgeSeconds = 90): bool
+    {
+        $path = storage_path('runtime'.DIRECTORY_SEPARATOR.$name);
+        if (! is_file($path)) {
+            return false;
+        }
+
+        $raw = trim((string) @file_get_contents($path));
+        if ($raw === '') {
+            return false;
+        }
+
+        $timestamp = 0;
+        if (is_numeric($raw)) {
+            $timestamp = (int) $raw;
+        } else {
+            $parsed = strtotime($raw);
+            $timestamp = $parsed !== false ? (int) $parsed : 0;
+        }
+
+        if ($timestamp <= 0) {
+            return false;
+        }
+
+        return abs(time() - $timestamp) <= $maxAgeSeconds;
     }
 
     private function processExistsByPattern(string $pattern): bool

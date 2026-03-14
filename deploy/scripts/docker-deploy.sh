@@ -126,6 +126,7 @@ fi
 mkdir -p "$APP_BASE" "$SHARED_DIR" "$SHARED_DIR/storage"
 mkdir -p "$SHARED_DIR/storage/framework/cache" "$SHARED_DIR/storage/framework/sessions" "$SHARED_DIR/storage/framework/views"
 mkdir -p "$SHARED_DIR/storage/logs" "$SHARED_DIR/storage/app/public"
+mkdir -p "$SHARED_DIR/storage/runtime"
 ensure_storage_permissions "$SHARED_DIR/storage"
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then
@@ -169,6 +170,23 @@ if [[ -n "$LARAVEL_DB_CONNECTION" ]]; then
   if [[ "$LARAVEL_DB_CONNECTION" == "sqlite" ]]; then
     ensure_env_kv "$SHARED_LARAVEL_ENV" "DB_DATABASE" "$LARAVEL_SQLITE_PATH"
   fi
+fi
+
+# Docker-mode defaults for bundled agent backend service.
+if [[ -z "$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_WORKDIR")" ]]; then
+  ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_WORKDIR" "/var/www/html/agent-backend"
+fi
+if [[ -z "$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_HOST")" ]]; then
+  ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_HOST" "agent-backend"
+fi
+if [[ -z "$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_PORT")" ]]; then
+  ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_PORT" "8000"
+fi
+
+# Normalize existing start command to a quoted dotenv-safe value.
+EXISTING_AGENT_BACKEND_START_COMMAND="$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_START_COMMAND")"
+if [[ -n "$EXISTING_AGENT_BACKEND_START_COMMAND" ]]; then
+  ensure_env_kv_quoted "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_START_COMMAND" "$EXISTING_AGENT_BACKEND_START_COMMAND"
 fi
 
 if [[ -n "$AGENT_BACKEND_WORKDIR" ]]; then

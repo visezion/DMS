@@ -12,7 +12,7 @@ This folder provides a practical production deployment flow for the Laravel back
 - `nginx/dms.conf`: Nginx site template.
 - `supervisor/dms-queue.conf`: queue worker process template.
 - `supervisor/dms-scheduler.conf`: scheduler worker process template.
-- `docker/docker-compose.prod.yml`: Docker production stack (nginx, app, queue, scheduler, mysql, redis).
+- `docker/docker-compose.prod.yml`: Docker production stack (nginx, app, queue, scheduler, agent-backend, mysql, redis).
 - `docker/docker.env.example`: Docker compose env template.
 - `docker/laravel.env.example`: Laravel env template for Docker mode.
 
@@ -92,10 +92,6 @@ APACHE_SERVER_NAME=dms.example.com \
 APACHE_PUBLIC_PORT=8123 \
 APACHE_TARGET_PORT=80 \
 LARAVEL_DB_CONNECTION=sqlite \
-AGENT_BACKEND_WORKDIR=/opt/apps/agent-backend \
-AGENT_BACKEND_START_COMMAND='python -m uvicorn app.main:app --host 127.0.0.1 --port 8000' \
-AGENT_BACKEND_HOST=127.0.0.1 \
-AGENT_BACKEND_PORT=8000 \
 bash <(curl -fsSL https://raw.githubusercontent.com/visezion/DMS/main/deploy/scripts/bootstrap-docker-from-github.sh) https://github.com/visezion/DMS.git main /opt/dms
 ```
 
@@ -109,9 +105,9 @@ Optional flags:
 - `APACHE_TARGET_PORT` (default `80`)
 - `LARAVEL_DB_CONNECTION` (`mysql|pgsql|sqlite`, default keeps template value)
 - `LARAVEL_SQLITE_PATH` (default `/var/www/html/storage/database/database.sqlite`)
-- `AGENT_BACKEND_WORKDIR` (optional path containing `app/main.py`; if unset, bundled `/var/www/html/agent-backend` is used when available)
+- `AGENT_BACKEND_WORKDIR` (optional path containing `app/main.py`; Docker default `/var/www/html/agent-backend`)
 - `AGENT_BACKEND_START_COMMAND` (optional launcher command)
-- `AGENT_BACKEND_HOST` (optional health check host, default `127.0.0.1`)
+- `AGENT_BACKEND_HOST` (optional health check host, Docker default `agent-backend`)
 - `AGENT_BACKEND_PORT` (optional health check port, default `8000`)
 
 Agent note:
@@ -139,7 +135,7 @@ Service startup behavior:
 
 - Docker service is enabled and started.
 - Apache service is enabled and started when `WITH_APACHE=1`.
-- App containers are started: `nginx`, `app`, `queue`, `scheduler`, `mysql`, `redis`.
+- App containers are started: `nginx`, `app`, `queue`, `scheduler`, `agent-backend`, `mysql`, `redis`.
 
 ## Docker Troubleshooting
 
@@ -159,9 +155,19 @@ Service startup behavior:
   - DMS includes a bundled Python API at `backend/agent-backend/app/main.py` for default startup.
   - Set `AGENT_BACKEND_WORKDIR` to your Python project folder (must contain `app/main.py` for the default command), then redeploy or update `/opt/dms/shared/.env`.
   - If you override `AGENT_BACKEND_WORKDIR`, ensure that folder contains `app/main.py`.
+- Agent backend not reachable after app/container recreate
+  - Use the built-in `agent-backend` service in Docker compose (started automatically by deploy).
+  - Keep `AGENT_BACKEND_HOST=agent-backend` in `/opt/dms/shared/.env`.
+- AI Runtime shows offline while `queue`/`scheduler` containers are up
+  - Docker queue/scheduler now write heartbeat files in `storage/runtime`.
+  - Redeploy so compose uses `scripts/runtime/queue-worker.sh` and `scripts/runtime/scheduler-worker.sh`.
+  - Verify files exist in shared storage:
+    - `/opt/dms/shared/storage/runtime/queue-heartbeat`
+    - `/opt/dms/shared/storage/runtime/scheduler-heartbeat`
 - `.env` parse error for AGENT_BACKEND_START_COMMAND
   - If you set this value manually in `.env`, wrap it in quotes:
     `AGENT_BACKEND_START_COMMAND="python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"`.
+  - `deploy/scripts/docker-deploy.sh` now normalizes this value to a quoted dotenv-safe format on each run.
 - MySQL migration error `SQLSTATE[HY000]: 1419` while creating triggers
   - The Docker MySQL service is configured with `--log-bin-trust-function-creators=1`.
   - Recreate MySQL service so the option is applied, then rerun migrations.
