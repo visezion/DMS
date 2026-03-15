@@ -23,29 +23,41 @@ class AgentBuildService
             mkdir($outputRoot, 0775, true);
         }
 
-        $script = base_path('scripts'.DIRECTORY_SEPARATOR.'build-agent.ps1');
-        if (! is_file($script)) {
-            throw new \RuntimeException('Build script missing: '.$script);
-        }
-
+        $powerShellScript = base_path('scripts'.DIRECTORY_SEPARATOR.'build-agent.ps1');
+        $shellScript = base_path('scripts'.DIRECTORY_SEPARATOR.'build-agent.sh');
         $powerShell = $this->resolvePowerShellBinary();
-        if ($powerShell === null) {
-            throw new \RuntimeException('PowerShell runtime was not found inside the app environment. Install `pwsh`/`powershell` for auto-build, or upload a prebuilt release.');
-        }
 
-        $process = new Process([
-            $powerShell,
-            '-NoProfile',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-File',
-            $script,
-            '-AgentRoot', $agentRoot,
-            '-OutputRoot', $outputRoot,
-            '-Version', $safeVersion,
-            '-Runtime', $safeRuntime,
-            '-SelfContained', $selfContained ? 'true' : 'false',
-        ]);
+        if ($powerShell !== null) {
+            if (! is_file($powerShellScript)) {
+                throw new \RuntimeException('Build script missing: '.$powerShellScript);
+            }
+            $process = new Process([
+                $powerShell,
+                '-NoProfile',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-File',
+                $powerShellScript,
+                '-AgentRoot', $agentRoot,
+                '-OutputRoot', $outputRoot,
+                '-Version', $safeVersion,
+                '-Runtime', $safeRuntime,
+                '-SelfContained', $selfContained ? 'true' : 'false',
+            ]);
+        } else {
+            if (! is_file($shellScript)) {
+                throw new \RuntimeException('Build script missing: '.$shellScript);
+            }
+            $process = new Process([
+                'sh',
+                $shellScript,
+                '--agent-root', $agentRoot,
+                '--output-root', $outputRoot,
+                '--version', $safeVersion,
+                '--runtime', $safeRuntime,
+                '--self-contained', $selfContained ? 'true' : 'false',
+            ]);
+        }
 
         $process->setTimeout(1800);
         $process->run();

@@ -114,7 +114,8 @@ Optional flags:
 
 Agent note:
 
-- The DMS Windows agent targets `net8.0-windows`; Linux server .NET install is for tooling/build tasks, not for running the Windows service itself.
+- The DMS Windows agent targets `net8.0-windows`.
+- Agent auto-build runs inside the `app` container. The app image now installs .NET SDK (`DOTNET_CHANNEL`, default `8.0`) and uses a Linux shell build fallback when PowerShell is unavailable.
 
 Script source:
 
@@ -172,6 +173,13 @@ Service startup behavior:
   - Docker deploy now mounts host `AGENT_DIR` into app container as `/var/www/agent`.
   - Default host source is `${APP_BASE}/repo/agent`; override with `AGENT_DIR=/path/to/agent`.
   - Laravel runtime env uses `AGENT_BUILD_REPO_PATH=/var/www/agent` by default.
+- Agent auto-build fails with `PowerShell runtime was not found inside the app environment`
+  - Auto-build no longer requires PowerShell on Linux: it falls back to `backend/scripts/build-agent.sh`.
+  - Rebuild and restart the app image so .NET SDK is present in the container:
+    `docker compose --env-file /opt/dms/shared/docker.env -f /opt/dms/repo/deploy/docker/docker-compose.prod.yml up -d --build app nginx queue scheduler agent-backend`
+- Agent auto-build fails with `.NET SDK was not found in the app runtime`
+  - Ensure app image was rebuilt after pull and that `dotnet` exists in app container:
+    `docker compose --env-file /opt/dms/shared/docker.env -f /opt/dms/repo/deploy/docker/docker-compose.prod.yml exec -T app dotnet --list-sdks`
 - AI Runtime shows offline while `queue`/`scheduler` containers are up
   - Docker queue/scheduler now write heartbeat files in `storage/runtime`.
   - Redeploy so compose uses `scripts/runtime/queue-worker.sh` and `scripts/runtime/scheduler-worker.sh`.

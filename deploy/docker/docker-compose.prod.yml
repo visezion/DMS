@@ -3,6 +3,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/php/Dockerfile
+      args:
+        DOTNET_CHANNEL: ${DOTNET_CHANNEL:-8.0}
     image: ${COMPOSE_PROJECT_NAME:-dms}-app:latest
     restart: unless-stopped
     working_dir: /var/www/html

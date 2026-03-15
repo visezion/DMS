@@ -16,6 +16,7 @@ AGENT_BACKEND_START_COMMAND="${AGENT_BACKEND_START_COMMAND:-}"
 AGENT_BACKEND_HOST="${AGENT_BACKEND_HOST:-}"
 AGENT_BACKEND_PORT="${AGENT_BACKEND_PORT:-}"
 RUN_SEEDERS="${RUN_SEEDERS:-1}"
+DOTNET_CHANNEL="${DOTNET_CHANNEL:-}"
 DOCKER_CMD=()
 
 COMPOSE_FILE_REL="deploy/docker/docker-compose.prod.yml"
@@ -78,6 +79,24 @@ ensure_storage_permissions() {
   chmod -R u+rwX,g+rwX "$storage_dir" || true
   if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     chown -R 82:82 "$storage_dir" || true
+  fi
+}
+
+ensure_agent_build_permissions() {
+  local agent_dir="$1"
+  local writable_targets=()
+
+  [[ -d "$agent_dir" ]] || return 0
+  mkdir -p "$agent_dir/dist"
+
+  if [[ -d "$agent_dir/src" ]]; then
+    writable_targets+=("$agent_dir/src")
+  fi
+  writable_targets+=("$agent_dir/dist")
+
+  chmod -R u+rwX,g+rwX "${writable_targets[@]}" 2>/dev/null || true
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    chown -R 82:82 "${writable_targets[@]}" 2>/dev/null || true
   fi
 }
 
@@ -242,10 +261,18 @@ if [[ -z "$AGENT_DIR" ]]; then
   AGENT_DIR="$REPO_DIR/agent"
 fi
 ensure_env_kv "$DOCKER_ENV_FILE" "AGENT_DIR" "$AGENT_DIR"
+if [[ ! -d "$AGENT_DIR" ]]; then
+  log "Warning: AGENT_DIR does not exist on host: $AGENT_DIR. Agent auto-build will fail until this path is populated."
+else
+  ensure_agent_build_permissions "$AGENT_DIR"
+fi
 ensure_env_kv "$DOCKER_ENV_FILE" "APP_SHARED_DIR" "$SHARED_DIR"
 
 if [[ -n "${APP_PORT:-}" ]]; then
   ensure_env_kv "$DOCKER_ENV_FILE" "APP_PORT" "$APP_PORT"
+fi
+if [[ -n "$DOTNET_CHANNEL" ]]; then
+  ensure_env_kv "$DOCKER_ENV_FILE" "DOTNET_CHANNEL" "$DOTNET_CHANNEL"
 fi
 
 if [[ -n "${APP_PORT:-}" ]]; then
@@ -271,6 +298,10 @@ log "Building frontend assets with Node container"
 
 log "Starting containers"
 compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" up -d --build
+
+if ! compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app dotnet --list-sdks >/dev/null 2>&1; then
+  fail "dotnet SDK is not available inside app container. Rebuild image and verify deploy/docker/php/Dockerfile."
+fi
 
 if ! grep -Eq '^APP_KEY=base64:' "$SHARED_LARAVEL_ENV"; then
   log "Generating Laravel APP_KEY in shared env"

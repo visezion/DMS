@@ -5153,7 +5153,7 @@ POWERSHELL;
             return back()->with('status', 'Agent auto-build succeeded and release created: '.$release->file_name)
                 ->with('agent_build_log', $build['log']);
         } catch (\Throwable $e) {
-            $message = 'Auto-build failed: '.$e->getMessage().' | Verify .NET SDK and PowerShell are available to the app runtime, and ensure AGENT_BUILD_REPO_PATH (or default /var/www/agent) plus storage/app/agent-releases/builds are accessible.';
+            $message = 'Auto-build failed: '.$e->getMessage().' | Verify .NET SDK is available in the app runtime, and ensure AGENT_BUILD_REPO_PATH (or default /var/www/agent) plus storage/app/agent-releases/builds are accessible.';
             if (str_contains(strtolower($e->getMessage()), 'not enough space on the disk')) {
                 $message .= ' | Disk is full: free space on C: or disable self-contained publish to reduce artifact size.';
             }
