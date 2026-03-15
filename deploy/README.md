@@ -109,6 +109,8 @@ Optional flags:
 - `AGENT_BACKEND_START_COMMAND` (optional launcher command)
 - `AGENT_BACKEND_HOST` (optional health check host, Docker default `agent-backend`)
 - `AGENT_BACKEND_PORT` (optional health check port, default `8000`)
+- `AGENT_DIR` (optional host path for DMS agent source repository; default `${APP_BASE}/repo/agent`)
+- `RUN_SEEDERS=1|0` (default `1`, runs `php artisan db:seed --force`)
 
 Agent note:
 
@@ -136,11 +138,15 @@ Service startup behavior:
 - Docker service is enabled and started.
 - Apache service is enabled and started when `WITH_APACHE=1`.
 - App containers are started: `nginx`, `app`, `queue`, `scheduler`, `agent-backend`, `mysql`, `redis`.
+- Post-start automation runs: `migrate --force`, `db:seed --force` (default), cache warmup.
 
 ## Docker Troubleshooting
 
 - `Bind for 0.0.0.0:8080 failed: port is already allocated`
   - Ensure `/opt/dms/shared/docker.env` has `APP_PORT=80` (for Apache proxy `8123 -> 80`), then rerun deploy.
+- Health check says `http://localhost/up` failed while app is up on custom port
+  - Deploy now checks `http://127.0.0.1:${APP_PORT}/up` first, then falls back to `APP_URL`.
+  - For first-time install, if `APP_URL` is still `http://localhost`, deploy auto-sets it to `http://127.0.0.1:${APP_PORT}`.
 - `Bind for 0.0.0.0:80 failed: port is already allocated`
   - Another host service is using port `80` (often Apache/Nginx).
   - If using Apache public `8123`, disable host `Listen 80` and restart Apache, then recreate `nginx` container.
@@ -162,6 +168,10 @@ Service startup behavior:
     - `/var/www/html/backend/agent-backend`
   - Python dependencies are installed in `/opt/agent-backend-venv` inside the app image (PEP 668 safe), and launcher uses that venv automatically.
   - Keep `AGENT_BACKEND_HOST=agent-backend` in `/opt/dms/shared/.env`.
+- Agent auto-build fails with `Agent repository folder not found at: /var/www/agent`
+  - Docker deploy now mounts host `AGENT_DIR` into app container as `/var/www/agent`.
+  - Default host source is `${APP_BASE}/repo/agent`; override with `AGENT_DIR=/path/to/agent`.
+  - Laravel runtime env uses `AGENT_BUILD_REPO_PATH=/var/www/agent` by default.
 - AI Runtime shows offline while `queue`/`scheduler` containers are up
   - Docker queue/scheduler now write heartbeat files in `storage/runtime`.
   - Redeploy so compose uses `scripts/runtime/queue-worker.sh` and `scripts/runtime/scheduler-worker.sh`.

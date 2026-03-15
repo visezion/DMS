@@ -5153,7 +5153,7 @@ POWERSHELL;
             return back()->with('status', 'Agent auto-build succeeded and release created: '.$release->file_name)
                 ->with('agent_build_log', $build['log']);
         } catch (\Throwable $e) {
-            $message = 'Auto-build failed: '.$e->getMessage().' | Verify .NET SDK is installed and web server account has filesystem access to ../agent and storage/app/agent-releases/builds';
+            $message = 'Auto-build failed: '.$e->getMessage().' | Verify .NET SDK and PowerShell are available to the app runtime, and ensure AGENT_BUILD_REPO_PATH (or default /var/www/agent) plus storage/app/agent-releases/builds are accessible.';
             if (str_contains(strtolower($e->getMessage()), 'not enough space on the disk')) {
                 $message .= ' | Disk is full: free space on C: or disable self-contained publish to reduce artifact size.';
             }
@@ -5192,7 +5192,7 @@ POWERSHELL;
                 @unlink($absolutePath);
             }
 
-            // For auto-build artifacts, also remove matching folders in ../agent/dist
+            // For auto-build artifacts, also remove matching folders in agent repo dist/
             // so dashboard deletions reclaim repository disk space too.
             $removedRepoArtifacts = $this->cleanupAgentRepoArtifacts($release->file_name);
         } catch (\Throwable $e) {
@@ -5956,8 +5956,12 @@ CMD);
         $runtime = $parts[2];
         $buildId = $parts[3];
 
-        $repoRoot = realpath(base_path('..')) ?: dirname(base_path());
-        $agentDistRoot = $repoRoot.DIRECTORY_SEPARATOR.'agent'.DIRECTORY_SEPARATOR.'dist';
+        $agentRoot = $this->resolveAgentBuildRepoRoot();
+        if ($agentRoot === null) {
+            return 0;
+        }
+
+        $agentDistRoot = $agentRoot.DIRECTORY_SEPARATOR.'dist';
         if (! is_dir($agentDistRoot)) {
             return 0;
         }
@@ -5978,6 +5982,30 @@ CMD);
         }
 
         return $removed;
+    }
+
+    private function resolveAgentBuildRepoRoot(): ?string
+    {
+        $configured = trim((string) env('AGENT_BUILD_REPO_PATH', ''));
+        $candidates = [];
+        if ($configured !== '') {
+            $candidates[] = $configured;
+        }
+
+        $repoRoot = realpath(base_path('..')) ?: dirname(base_path());
+        $candidates[] = $repoRoot.DIRECTORY_SEPARATOR.'agent';
+        $candidates[] = base_path('agent');
+        $candidates[] = '/var/www/agent';
+
+        foreach ($candidates as $candidate) {
+            $resolved = realpath($candidate);
+            $path = $resolved !== false ? $resolved : $candidate;
+            if (is_dir($path)) {
+                return $path;
+            }
+        }
+
+        return null;
     }
 
     private function deleteDirectoryRecursive(string $path): void

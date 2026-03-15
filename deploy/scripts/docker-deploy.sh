@@ -8,12 +8,14 @@ BRANCH="${BRANCH:-main}"
 GITHUB_REPO="${GITHUB_REPO:-}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 DOCKER_ENV_FILE="${DOCKER_ENV_FILE:-$SHARED_DIR/docker.env}"
+AGENT_DIR="${AGENT_DIR:-}"
 LARAVEL_DB_CONNECTION="${LARAVEL_DB_CONNECTION:-}"
 LARAVEL_SQLITE_PATH="${LARAVEL_SQLITE_PATH:-/var/www/html/storage/database/database.sqlite}"
 AGENT_BACKEND_WORKDIR="${AGENT_BACKEND_WORKDIR:-}"
 AGENT_BACKEND_START_COMMAND="${AGENT_BACKEND_START_COMMAND:-}"
 AGENT_BACKEND_HOST="${AGENT_BACKEND_HOST:-}"
 AGENT_BACKEND_PORT="${AGENT_BACKEND_PORT:-}"
+RUN_SEEDERS="${RUN_SEEDERS:-1}"
 DOCKER_CMD=()
 
 COMPOSE_FILE_REL="deploy/docker/docker-compose.prod.yml"
@@ -182,6 +184,9 @@ fi
 if [[ -z "$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_PORT")" ]]; then
   ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_PORT" "8000"
 fi
+if [[ -z "$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BUILD_REPO_PATH")" ]]; then
+  ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BUILD_REPO_PATH" "/var/www/agent"
+fi
 
 # Normalize existing start command to a quoted dotenv-safe value.
 EXISTING_AGENT_BACKEND_START_COMMAND="$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_START_COMMAND")"
@@ -233,10 +238,21 @@ if [[ "$(read_env_kv "$SHARED_LARAVEL_ENV" "DB_CONNECTION")" == "sqlite" ]]; the
 fi
 
 ensure_env_kv "$DOCKER_ENV_FILE" "BACKEND_DIR" "$BACKEND_DIR"
+if [[ -z "$AGENT_DIR" ]]; then
+  AGENT_DIR="$REPO_DIR/agent"
+fi
+ensure_env_kv "$DOCKER_ENV_FILE" "AGENT_DIR" "$AGENT_DIR"
 ensure_env_kv "$DOCKER_ENV_FILE" "APP_SHARED_DIR" "$SHARED_DIR"
 
 if [[ -n "${APP_PORT:-}" ]]; then
   ensure_env_kv "$DOCKER_ENV_FILE" "APP_PORT" "$APP_PORT"
+fi
+
+if [[ -n "${APP_PORT:-}" ]]; then
+  EXISTING_APP_URL="$(read_env_kv "$SHARED_LARAVEL_ENV" "APP_URL")"
+  if [[ -z "$EXISTING_APP_URL" || "$EXISTING_APP_URL" == "http://localhost" || "$EXISTING_APP_URL" == "http://127.0.0.1" ]]; then
+    ensure_env_kv "$SHARED_LARAVEL_ENV" "APP_URL" "http://127.0.0.1:${APP_PORT}"
+  fi
 fi
 
 log "Building app image"
@@ -262,8 +278,11 @@ if ! grep -Eq '^APP_KEY=base64:' "$SHARED_LARAVEL_ENV"; then
   ensure_env_kv "$SHARED_LARAVEL_ENV" "APP_KEY" "$GENERATED_APP_KEY"
 fi
 
-log "Running migrations and cache warmup"
+log "Running migrations, seeders and cache warmup"
 compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app php artisan migrate --force
+if [[ "$RUN_SEEDERS" == "1" ]]; then
+  compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app php artisan db:seed --force
+fi
 compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app php artisan storage:link || true
 compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app php artisan optimize:clear
 compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app php artisan config:cache
@@ -271,10 +290,22 @@ compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app php artisan
 compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app php artisan view:cache
 
 APP_URL="$(grep -E '^APP_URL=' "$SHARED_LARAVEL_ENV" | head -n1 | cut -d'=' -f2- | tr -d '"' || true)"
-if [[ -n "$APP_URL" ]] && command -v curl >/dev/null 2>&1; then
-  HEALTH_URL="${APP_URL%/}/up"
-  log "Health check: $HEALTH_URL"
-  curl -fsS --max-time 10 "$HEALTH_URL" >/dev/null || log "Health endpoint check failed. Verify app URL and network."
+CHECK_PORT="$(read_env_kv "$DOCKER_ENV_FILE" "APP_PORT")"
+if [[ -z "$CHECK_PORT" ]]; then
+  CHECK_PORT="80"
+fi
+if command -v curl >/dev/null 2>&1; then
+  HEALTH_URL_LOCAL="http://127.0.0.1:${CHECK_PORT}/up"
+  log "Health check: $HEALTH_URL_LOCAL"
+  if ! curl -fsS --max-time 10 "$HEALTH_URL_LOCAL" >/dev/null; then
+    if [[ -n "$APP_URL" ]]; then
+      HEALTH_URL_APP="${APP_URL%/}/up"
+      log "Fallback health check: $HEALTH_URL_APP"
+      curl -fsS --max-time 10 "$HEALTH_URL_APP" >/dev/null || log "Health endpoint check failed. Verify app URL and network."
+    else
+      log "Health endpoint check failed. Verify app URL and network."
+    fi
+  fi
 fi
 
 log "Docker deployment completed successfully."

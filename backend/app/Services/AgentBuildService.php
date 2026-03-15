@@ -11,12 +11,12 @@ class AgentBuildService
         $safeVersion = $this->sanitizeToken($version, 'build');
         $safeRuntime = $this->sanitizeToken($runtime, 'win-x64');
 
-        $repoRoot = realpath(base_path('..')) ?: dirname(base_path());
-        $agentRoot = $repoRoot.DIRECTORY_SEPARATOR.'agent';
+        $agentRoot = $this->resolveAgentRepositoryRoot();
         $outputRoot = storage_path('app'.DIRECTORY_SEPARATOR.'agent-releases'.DIRECTORY_SEPARATOR.'builds');
 
-        if (! is_dir($agentRoot)) {
-            throw new \RuntimeException('Agent repository folder not found at: '.$agentRoot);
+        if ($agentRoot === null || ! is_dir($agentRoot)) {
+            $candidates = $this->agentRepositoryCandidates();
+            throw new \RuntimeException('Agent repository folder not found. Checked paths: '.implode(', ', $candidates));
         }
 
         if (! is_dir($outputRoot)) {
@@ -28,8 +28,13 @@ class AgentBuildService
             throw new \RuntimeException('Build script missing: '.$script);
         }
 
+        $powerShell = $this->resolvePowerShellBinary();
+        if ($powerShell === null) {
+            throw new \RuntimeException('PowerShell runtime was not found inside the app environment. Install `pwsh`/`powershell` for auto-build, or upload a prebuilt release.');
+        }
+
         $process = new Process([
-            'powershell',
+            $powerShell,
             '-NoProfile',
             '-ExecutionPolicy',
             'Bypass',
@@ -77,5 +82,63 @@ class AgentBuildService
         $sanitized = preg_replace('/[^0-9A-Za-z._-]+/', '-', trim($value)) ?? '';
         $sanitized = trim($sanitized, '-');
         return $sanitized !== '' ? $sanitized : $fallback;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function agentRepositoryCandidates(): array
+    {
+        $configured = trim((string) env('AGENT_BUILD_REPO_PATH', ''));
+        $candidates = [];
+
+        if ($configured !== '') {
+            $candidates[] = $configured;
+        }
+
+        $repoRoot = realpath(base_path('..')) ?: dirname(base_path());
+        $candidates[] = $repoRoot.DIRECTORY_SEPARATOR.'agent';
+        $candidates[] = base_path('agent');
+        $candidates[] = '/var/www/agent';
+
+        $unique = [];
+        foreach ($candidates as $candidate) {
+            $normalized = rtrim((string) $candidate, DIRECTORY_SEPARATOR);
+            if ($normalized === '' || in_array($normalized, $unique, true)) {
+                continue;
+            }
+            $unique[] = $normalized;
+        }
+
+        return $unique;
+    }
+
+    private function resolveAgentRepositoryRoot(): ?string
+    {
+        foreach ($this->agentRepositoryCandidates() as $candidate) {
+            $resolved = realpath($candidate);
+            $path = $resolved !== false ? $resolved : $candidate;
+            if (is_dir($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolvePowerShellBinary(): ?string
+    {
+        if (DIRECTORY_SEPARATOR === '\\') {
+            return 'powershell';
+        }
+
+        foreach (['pwsh', 'powershell'] as $binary) {
+            $found = trim((string) @shell_exec('command -v '.escapeshellarg($binary).' 2>/dev/null'));
+            if ($found !== '') {
+                return $binary;
+            }
+        }
+
+        return null;
     }
 }
