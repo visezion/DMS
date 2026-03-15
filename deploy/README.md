@@ -197,6 +197,7 @@ Service startup behavior:
   - Docker deploy now mounts host `AGENT_DIR` into app container as `/var/www/agent`.
   - Default host source is `${APP_BASE}/repo/agent`; override with `AGENT_DIR=/path/to/agent`.
   - Laravel runtime env is auto-corrected to `AGENT_BUILD_REPO_PATH=/var/www/agent` by default.
+  - Deploy now fails fast if `${AGENT_DIR}/src/Dms.Agent.Service/Dms.Agent.Service.csproj` is missing.
 - Agent auto-build fails with `Permission denied` under `storage/app/agent-releases/builds/.work`
   - Deploy now auto-repairs permissions inside the running `app` container and verifies writable access as uid `82` before migrations/cache warmup.
   - This removes the need for manual `chown/chmod` after one-command install/update.

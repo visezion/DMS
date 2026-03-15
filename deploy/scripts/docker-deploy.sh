@@ -135,6 +135,7 @@ verify_agent_build_paths_access() {
   compose --env-file "$docker_env_file" -f "$compose_file" exec -T --user 82:82 app sh -lc '
 set -eu
 test -d /var/www/agent
+test -f /var/www/agent/src/Dms.Agent.Service/Dms.Agent.Service.csproj
 test -d /var/www/html/storage/app/agent-releases/builds
 mkdir -p /var/www/html/storage/app/agent-releases/builds/.work
 touch /var/www/html/storage/app/agent-releases/builds/.work/.perm-check
@@ -302,10 +303,12 @@ if [[ -z "$AGENT_DIR" ]]; then
 fi
 ensure_env_kv "$DOCKER_ENV_FILE" "AGENT_DIR" "$AGENT_DIR"
 if [[ ! -d "$AGENT_DIR" ]]; then
-  log "Warning: AGENT_DIR does not exist on host: $AGENT_DIR. Agent auto-build will fail until this path is populated."
-else
-  ensure_agent_build_permissions "$AGENT_DIR"
+  fail "AGENT_DIR does not exist on host: $AGENT_DIR"
 fi
+if [[ ! -f "$AGENT_DIR/src/Dms.Agent.Service/Dms.Agent.Service.csproj" ]]; then
+  fail "Agent source project file missing at: $AGENT_DIR/src/Dms.Agent.Service/Dms.Agent.Service.csproj"
+fi
+ensure_agent_build_permissions "$AGENT_DIR"
 ensure_env_kv "$DOCKER_ENV_FILE" "APP_SHARED_DIR" "$SHARED_DIR"
 
 if [[ -n "${APP_PORT:-}" ]]; then
