@@ -16,6 +16,21 @@ class RolePermissionSeeder extends Seeder
     {
         app(CommandEnvelopeSigner::class)->ensureActiveKey();
 
+        $adminName = trim((string) env('DMS_SEED_ADMIN_NAME', 'DMS Admin'));
+        if ($adminName === '') {
+            $adminName = 'DMS Admin';
+        }
+
+        $adminEmail = strtolower(trim((string) env('DMS_SEED_ADMIN_EMAIL', 'admin@example.com')));
+        if ($adminEmail === '' || filter_var($adminEmail, FILTER_VALIDATE_EMAIL) === false) {
+            $adminEmail = 'admin@example.com';
+        }
+
+        $adminPassword = trim((string) env('DMS_SEED_ADMIN_PASSWORD', 'admin123'));
+        if ($adminPassword === '') {
+            $adminPassword = 'admin123';
+        }
+
         $permissionSlugs = [
             'devices.read', 'devices.write',
             'groups.read', 'groups.write',
@@ -46,10 +61,10 @@ class RolePermissionSeeder extends Seeder
         $adminRole->permissions()->sync(Permission::query()->pluck('id'));
 
         $admin = User::query()->firstOrCreate([
-            'email' => 'victoro@ciu.edu.tr',
+            'email' => $adminEmail,
         ], [
-            'name' => 'DMS Admin',
-            'password' => Hash::make('fm:19_CH.5@ci'),
+            'name' => $adminName,
+            'password' => Hash::make($adminPassword),
             'is_active' => true,
         ]);
 

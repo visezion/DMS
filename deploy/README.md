@@ -112,6 +112,14 @@ Optional flags:
 - `AGENT_DIR` (optional host path for DMS agent source repository; default `${APP_BASE}/repo/agent`)
 - `RUN_SEEDERS=1|0` (default `1`, runs `php artisan db:seed --force`)
 
+Seeder admin defaults:
+
+- Seeder now uses generic env-based bootstrap credentials (no personal credentials in repo):
+  - `DMS_SEED_ADMIN_EMAIL=admin@example.com`
+  - `DMS_SEED_ADMIN_PASSWORD=admin123`
+- Set these in `${APP_BASE}/shared/.env` before first deploy.
+- Seeder creates this admin user if it does not exist; reruns do not force-reset existing admin passwords.
+
 Agent note:
 
 - The DMS Windows agent targets `net8.0-windows`.
@@ -125,6 +133,22 @@ For updates after first install:
 
 ```bash
 GITHUB_REPO=https://github.com/visezion/DMS.git BRANCH=main APP_BASE=/opt/dms bash /opt/dms/repo/deploy/scripts/docker-deploy.sh
+```
+
+Common command examples:
+
+```bash
+# Fresh install on custom app port and run seeders
+WITH_APACHE=0 APP_PORT=8089 RUN_SEEDERS=1 \
+bash <(curl -fsSL https://raw.githubusercontent.com/visezion/DMS/main/deploy/scripts/bootstrap-docker-from-github.sh) \
+https://github.com/visezion/DMS.git main /opt/dms
+
+# Update existing install, set app port, and skip seeders
+APP_BASE=/opt/dms GITHUB_REPO=https://github.com/visezion/DMS.git BRANCH=main APP_PORT=8089 RUN_SEEDERS=0 \
+bash /opt/dms/repo/deploy/scripts/docker-deploy.sh
+
+# Run only seeders manually later (if needed)
+docker compose --env-file /opt/dms/shared/docker.env -f /opt/dms/repo/deploy/docker/docker-compose.prod.yml exec -T app php artisan db:seed --force
 ```
 
 Docker mode files created on first run:
