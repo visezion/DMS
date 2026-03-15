@@ -100,6 +100,48 @@ ensure_agent_build_permissions() {
   fi
 }
 
+repair_container_runtime_permissions() {
+  local compose_file="$1"
+  local docker_env_file="$2"
+
+  compose --env-file "$docker_env_file" -f "$compose_file" exec -T app sh -lc '
+set -eu
+mkdir -p /var/www/html/storage/app/agent-releases/builds
+mkdir -p /var/www/html/storage/logs
+mkdir -p /var/www/agent/dist || true
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R 82:82 /var/www/html/storage || true
+  if [ -d /var/www/agent/src ]; then
+    chown -R 82:82 /var/www/agent/src || true
+  fi
+  if [ -d /var/www/agent/dist ]; then
+    chown -R 82:82 /var/www/agent/dist || true
+  fi
+fi
+chmod -R u+rwX,g+rwX /var/www/html/storage || true
+if [ -d /var/www/agent/src ]; then
+  chmod -R u+rwX,g+rwX /var/www/agent/src || true
+fi
+if [ -d /var/www/agent/dist ]; then
+  chmod -R u+rwX,g+rwX /var/www/agent/dist || true
+fi
+'
+}
+
+verify_agent_build_paths_access() {
+  local compose_file="$1"
+  local docker_env_file="$2"
+
+  compose --env-file "$docker_env_file" -f "$compose_file" exec -T --user 82:82 app sh -lc '
+set -eu
+test -d /var/www/agent
+test -d /var/www/html/storage/app/agent-releases/builds
+mkdir -p /var/www/html/storage/app/agent-releases/builds/.work
+touch /var/www/html/storage/app/agent-releases/builds/.work/.perm-check
+rm -f /var/www/html/storage/app/agent-releases/builds/.work/.perm-check
+'
+}
+
 compose() {
   if "${DOCKER_CMD[@]}" compose version >/dev/null 2>&1; then
     "${DOCKER_CMD[@]}" compose "$@"
@@ -203,9 +245,7 @@ fi
 if [[ -z "$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_PORT")" ]]; then
   ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_PORT" "8000"
 fi
-if [[ -z "$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BUILD_REPO_PATH")" ]]; then
-  ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BUILD_REPO_PATH" "/var/www/agent"
-fi
+ensure_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BUILD_REPO_PATH" "/var/www/agent"
 
 # Normalize existing start command to a quoted dotenv-safe value.
 EXISTING_AGENT_BACKEND_START_COMMAND="$(read_env_kv "$SHARED_LARAVEL_ENV" "AGENT_BACKEND_START_COMMAND")"
@@ -298,6 +338,14 @@ log "Building frontend assets with Node container"
 
 log "Starting containers"
 compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" up -d --build
+
+log "Repairing runtime permissions for storage and agent build paths"
+repair_container_runtime_permissions "$COMPOSE_FILE" "$DOCKER_ENV_FILE"
+
+log "Verifying agent build paths are writable by app runtime user"
+if ! verify_agent_build_paths_access "$COMPOSE_FILE" "$DOCKER_ENV_FILE"; then
+  fail "Agent build paths are not writable by app runtime user. Check AGENT_DIR and shared storage permissions."
+fi
 
 if ! compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" exec -T app dotnet --list-sdks >/dev/null 2>&1; then
   fail "dotnet SDK is not available inside app container. Rebuild image and verify deploy/docker/php/Dockerfile."

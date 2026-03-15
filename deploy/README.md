@@ -172,7 +172,10 @@ Service startup behavior:
 - Agent auto-build fails with `Agent repository folder not found at: /var/www/agent`
   - Docker deploy now mounts host `AGENT_DIR` into app container as `/var/www/agent`.
   - Default host source is `${APP_BASE}/repo/agent`; override with `AGENT_DIR=/path/to/agent`.
-  - Laravel runtime env uses `AGENT_BUILD_REPO_PATH=/var/www/agent` by default.
+  - Laravel runtime env is auto-corrected to `AGENT_BUILD_REPO_PATH=/var/www/agent` by default.
+- Agent auto-build fails with `Permission denied` under `storage/app/agent-releases/builds/.work`
+  - Deploy now auto-repairs permissions inside the running `app` container and verifies writable access as uid `82` before migrations/cache warmup.
+  - This removes the need for manual `chown/chmod` after one-command install/update.
 - Agent auto-build fails with `PowerShell runtime was not found inside the app environment`
   - Auto-build no longer requires PowerShell on Linux: it falls back to `backend/scripts/build-agent.sh`.
   - Rebuild and restart the app image so .NET SDK is present in the container:
