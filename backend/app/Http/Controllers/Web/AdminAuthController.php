@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\ControlPlaneSetting;
+use App\Models\Permission;
+use App\Models\Role;
+use App\Models\Tenant;
 use App\Models\User;
 use App\Services\TotpService;
 use Illuminate\Http\JsonResponse;
@@ -12,7 +15,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class AdminAuthController extends Controller
@@ -30,7 +35,86 @@ class AdminAuthController extends Controller
             'puzzleRequired' => $puzzleRequired,
             'puzzleQuestion' => $puzzleQuestion,
             'captchaImage' => $captchaImage,
+            'signupEnabled' => $this->selfSignupEnabled(),
         ]);
+    }
+
+    public function registerForm(): View
+    {
+        abort_unless($this->selfSignupEnabled(), 404);
+
+        return view('admin.auth.register');
+    }
+
+    public function register(Request $request): RedirectResponse
+    {
+        abort_unless($this->selfSignupEnabled(), 404);
+
+        $data = $request->validate([
+            'organization_name' => ['required', 'string', 'max:255'],
+            'organization_slug' => ['nullable', 'string', 'max:255', 'regex:/^[a-z0-9._-]+$/i'],
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        $slugInput = trim((string) ($data['organization_slug'] ?? ''));
+        if ($slugInput === '') {
+            $slugInput = (string) $data['organization_name'];
+        }
+        $tenantSlug = Str::slug($slugInput);
+        if ($tenantSlug === '') {
+            return back()->withErrors(['organization_slug' => 'Organization slug is invalid.'])->withInput();
+        }
+
+        $tenantExists = Tenant::query()->where('slug', $tenantSlug)->exists();
+        if ($tenantExists) {
+            return back()->withErrors(['organization_slug' => 'Organization slug already exists.'])->withInput();
+        }
+
+        [$tenant, $user] = DB::transaction(function () use ($data, $tenantSlug) {
+            $tenant = Tenant::query()->create([
+                'id' => (string) Str::uuid(),
+                'name' => trim((string) $data['organization_name']),
+                'slug' => $tenantSlug,
+                'status' => 'active',
+                'settings' => [],
+            ]);
+
+            $this->ensureBasePermissions();
+
+            $tenantSuperAdminRole = Role::query()
+                ->withoutGlobalScope('tenant')
+                ->firstOrCreate([
+                    'slug' => 'super-admin',
+                    'tenant_id' => $tenant->id,
+                ], [
+                    'id' => (string) Str::uuid(),
+                    'name' => 'Super Admin',
+                ]);
+
+            $tenantSuperAdminRole->permissions()->sync(
+                Permission::query()->pluck('id')
+            );
+
+            $user = User::query()->create([
+                'tenant_id' => $tenant->id,
+                'name' => trim((string) $data['name']),
+                'email' => strtolower(trim((string) $data['email'])),
+                'password' => (string) $data['password'],
+                'is_active' => true,
+            ]);
+            $user->roles()->syncWithoutDetaching([$tenantSuperAdminRole->id]);
+
+            return [$tenant, $user];
+        });
+
+        Auth::login($user, true);
+        $request->session()->regenerate();
+
+        return redirect()
+            ->route('admin.dashboard')
+            ->with('status', 'Organization created: '.$tenant->name.'. Welcome!');
     }
 
     public function refreshCaptcha(Request $request): JsonResponse
@@ -211,9 +295,9 @@ class AdminAuthController extends Controller
 
     private function settingInt(string $key, int $default): int
     {
-        $raw = ControlPlaneSetting::query()->where('key', $key)->value('value');
-        if (is_array($raw) && array_key_exists('value', $raw)) {
-            return (int) $raw['value'];
+        $setting = ControlPlaneSetting::query()->find($key);
+        if ($setting && is_array($setting->value) && array_key_exists('value', $setting->value)) {
+            return (int) $setting->value['value'];
         }
 
         return $default;
@@ -221,9 +305,9 @@ class AdminAuthController extends Controller
 
     private function settingBool(string $key, bool $default): bool
     {
-        $raw = ControlPlaneSetting::query()->where('key', $key)->value('value');
-        if (is_array($raw) && array_key_exists('value', $raw)) {
-            return (bool) $raw['value'];
+        $setting = ControlPlaneSetting::query()->find($key);
+        if ($setting && is_array($setting->value) && array_key_exists('value', $setting->value)) {
+            return (bool) $setting->value['value'];
         }
 
         return $default;
@@ -348,5 +432,38 @@ class AdminAuthController extends Controller
             'admin_login_captcha_code',
             'admin_login_captcha_image',
         ]);
+    }
+
+    /**
+     * @return string[]
+     */
+    private function defaultPermissionSlugs(): array
+    {
+        return [
+            'devices.read', 'devices.write',
+            'groups.read', 'groups.write',
+            'packages.read', 'packages.write',
+            'policies.read', 'policies.write',
+            'jobs.read', 'jobs.write',
+            'audit.read',
+            'access.read', 'access.write',
+        ];
+    }
+
+    private function ensureBasePermissions(): void
+    {
+        foreach ($this->defaultPermissionSlugs() as $slug) {
+            Permission::query()->firstOrCreate([
+                'slug' => $slug,
+            ], [
+                'id' => (string) Str::uuid(),
+                'name' => $slug,
+            ]);
+        }
+    }
+
+    private function selfSignupEnabled(): bool
+    {
+        return filter_var((string) env('DMS_SELF_SIGNUP_ENABLED', 'true'), FILTER_VALIDATE_BOOL);
     }
 }

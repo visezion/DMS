@@ -18,6 +18,29 @@
     $topbarUser = auth()->user();
     $topbarUserName = trim((string) ($topbarUser?->name ?? 'User')) ?: 'User';
     $topbarInitial = strtoupper(substr($topbarUserName, 0, 1));
+    $topbarIsSuperAdmin = false;
+    $topbarCanManageSaasTenants = false;
+    if ($topbarUser) {
+        $topbarIsSuperAdmin = \Illuminate\Support\Facades\DB::table('role_user')
+            ->join('roles', 'roles.id', '=', 'role_user.role_id')
+            ->where('role_user.user_id', $topbarUser->id)
+            ->where('roles.slug', 'super-admin')
+            ->exists();
+
+        if ($topbarIsSuperAdmin) {
+            if (empty($topbarUser->tenant_id)) {
+                $topbarCanManageSaasTenants = true;
+            } else {
+                $hasPlatformSuperAdmin = \Illuminate\Support\Facades\DB::table('users')
+                    ->join('role_user', 'role_user.user_id', '=', 'users.id')
+                    ->join('roles', 'roles.id', '=', 'role_user.role_id')
+                    ->whereNull('users.tenant_id')
+                    ->where('roles.slug', 'super-admin')
+                    ->exists();
+                $topbarCanManageSaasTenants = ! $hasPlatformSuperAdmin;
+            }
+        }
+    }
     $topbarUserAvatar = null;
     if ($topbarUser) {
         $profileSetting = \App\Models\ControlPlaneSetting::query()->find('users.profile.'.$topbarUser->id);
@@ -261,150 +284,25 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --brand-primary: {{ $brandPrimary }};
-            --brand-primary-soft: {{ $brandPrimary }}1A;
-            --brand-primary-soft-2: {{ $brandPrimary }}26;
-            --brand-primary-border: {{ $brandPrimary }}66;
-            --brand-radius-base: {{ $brandRadiusPx }}px;
-            --brand-radius-sm: max(2px, calc(var(--brand-radius-base) - 4px));
-            --brand-radius-md: max(4px, calc(var(--brand-radius-base) - 2px));
-            --brand-radius-lg: var(--brand-radius-base);
-            --brand-radius-xl: calc(var(--brand-radius-base) + 2px);
-            --brand-radius-2xl: calc(var(--brand-radius-base) + 4px);
-            --brand-radius-3xl: calc(var(--brand-radius-base) + 8px);
-        }
-        body {
-            background: {{ $brandBackground }};
-        }
-        .glass { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(6px); }
-        .modal-backdrop {
-            background: rgba(15, 23, 42, 0.5);
-            backdrop-filter: blur(1px);
-            -webkit-backdrop-filter: blur(1px);
-        }
-        .kill-switch-card {
-            border: 1px solid rgba(239, 68, 68, 0.22);
-            background:
-                radial-gradient(circle at top right, rgba(248, 113, 113, 0.18), transparent 38%),
-                linear-gradient(135deg, #fff1f2 0%, #ffffff 62%, #fff7ed 100%);
-        }
-        .kill-switch-card-halted {
-            border-color: rgba(239, 68, 68, 0.36);
-        }
-        .kill-switch-icon-shell {
-            border: 1px solid rgba(239, 68, 68, 0.22);
-            background: rgba(254, 226, 226, 0.92);
-        }
-        .kill-switch-icon-shell-halted {
-            background: rgba(254, 205, 211, 0.96);
-        }
-        .kill-switch-chip {
-            border-radius: 9999px;
-            padding: 0.125rem 0.55rem;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-        }
-        .kill-switch-chip-danger {
-            border: 1px solid rgba(239, 68, 68, 0.22);
-            background: rgba(254, 226, 226, 0.92);
-            color: #b91c1c;
-        }
-        .kill-switch-chip-restore {
-            border: 1px solid rgba(251, 191, 36, 0.24);
-            background: rgba(254, 243, 199, 0.96);
-            color: #92400e;
-        }
-        .brand-modal-note {
-            border: 1px solid rgba(239, 68, 68, 0.22);
-            background: #fff1f2;
-            color: #b91c1c;
-        }
-        .brand-modal-input:focus {
-            outline: none;
-            border-color: rgba(248, 113, 113, 0.4);
-            box-shadow: 0 0 0 3px rgba(127, 29, 29, 0.22);
-        }
-        .brand-modal-action {
-            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
-            color: #ffffff;
-        }
-        .brand-modal-action:hover {
-            filter: brightness(1.04);
-        }
-        .nav-link { transition: all .2s ease; }
-        .nav-link:hover { transform: translateX(4px); }
-        /* Sidebar active item style: light panel + left accent (not solid blue pill) */
-        aside nav .bg-skyline {
-            background: var(--brand-primary-soft) !important;
-            color: #000000 !important;
-            border-left: 3px solid var(--brand-primary);
-            border-radius: 0.5rem;
-            padding: 0.875rem 0.75rem 0.875rem 0.75rem !important;
-        }
-        aside nav .bg-skyline * {
-            color: inherit !important;
-        }
-        aside nav .border-skyline {
-            border-color: var(--brand-primary-border) !important;
-        }
-
-        /* Make common Tailwind sky/blue tokens follow Branding primary color */
-        .text-sky-500, .text-sky-600, .text-sky-700,
-        .text-blue-500, .text-blue-600, .text-blue-700 {
-            color: var(--brand-primary) !important;
-        }
-        .border-sky-300, .border-sky-400, .border-sky-500,
-        .border-blue-300, .border-blue-400, .border-blue-500 {
-            border-color: var(--brand-primary-border) !important;
-        }
-        .bg-sky-50, .bg-sky-100, .bg-blue-50, .bg-blue-100 {
-            background-color: var(--brand-primary-soft) !important;
-        }
-        .bg-skyline\/10 {
-            background-color: var(--brand-primary-soft) !important;
-        }
-        .border-skyline\/30 {
-            border-color: var(--brand-primary-border) !important;
-        }
-        .hover\:text-skyline:hover {
-            color: var(--brand-primary) !important;
-        }
-        .hover\:border-sky-300:hover {
-            border-color: var(--brand-primary-border) !important;
-        }
-
-        /* Force menu text/icons to black */
-        aside nav a,
-        aside nav summary,
-        aside nav a svg,
-        aside nav summary svg,
-        .lg\:hidden nav a,
-        .lg\:hidden nav summary,
-        .lg\:hidden nav a svg,
-        .lg\:hidden nav summary svg,
-        header nav[aria-label="Top shortcuts"] a,
-        header nav[aria-label="Top shortcuts"] a svg {
-            color: #000 !important;
-        }
-
-        /* Global corner radius from Branding */
-        .rounded:not(.rounded-full) { border-radius: var(--brand-radius-sm) !important; }
-        .rounded-sm:not(.rounded-full) { border-radius: var(--brand-radius-sm) !important; }
-        .rounded-md:not(.rounded-full) { border-radius: var(--brand-radius-md) !important; }
-        .rounded-lg:not(.rounded-full) { border-radius: var(--brand-radius-lg) !important; }
-        .rounded-xl:not(.rounded-full) { border-radius: var(--brand-radius-xl) !important; }
-        .rounded-2xl:not(.rounded-full) { border-radius: var(--brand-radius-2xl) !important; }
-        .rounded-3xl:not(.rounded-full) { border-radius: var(--brand-radius-3xl) !important; }
-
-        .expand-indicator::before { content: '+'; }
-        details[open] > summary .expand-indicator::before { content: '-'; }
-    </style>
 </head>
-<body class="min-h-screen text-ink">
+<body
+    class="min-h-screen text-ink admin-layout-shell"
+    style="
+        --brand-primary: {{ $brandPrimary }};
+        --brand-primary-soft: {{ $brandPrimary }}1A;
+        --brand-primary-soft-2: {{ $brandPrimary }}26;
+        --brand-primary-border: {{ $brandPrimary }}66;
+        --brand-radius-base: {{ $brandRadiusPx }}px;
+        --brand-radius-sm: max(2px, calc(var(--brand-radius-base) - 4px));
+        --brand-radius-md: max(4px, calc(var(--brand-radius-base) - 2px));
+        --brand-radius-lg: var(--brand-radius-base);
+        --brand-radius-xl: calc(var(--brand-radius-base) + 2px);
+        --brand-radius-2xl: calc(var(--brand-radius-base) + 4px);
+        --brand-radius-3xl: calc(var(--brand-radius-base) + 8px);
+        --brand-background: {{ $brandBackground }};
+        background: var(--brand-background);
+    "
+>
 <div id="admin-shell" class="flex min-h-screen">
     <aside class="w-72 hidden lg:flex lg:flex-col border-r border-slate-200/60 glass" style="background: {{ $brandSidebarTint }}CC;">
         <div class="px-6 py-4 border-b border-slate-200/60">
@@ -510,6 +408,10 @@
                 </div>
             </details>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.access*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.access') }}">Access Control</a>
+            @if($topbarCanManageSaasTenants)
+                <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.saas.dashboard*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.saas.dashboard') }}">SaaS Dashboard</a>
+                <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.saas.tenants*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.saas.tenants') }}">SaaS Tenants</a>
+            @endif
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.docs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.docs') }}">Docs</a>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.notes*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.notes') }}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4" aria-hidden="true">
@@ -758,6 +660,10 @@
                     </details>
 
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.access*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.access') }}">Access Control</a>
+                    @if($topbarCanManageSaasTenants)
+                        <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.saas.dashboard*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.saas.dashboard') }}">SaaS Dashboard</a>
+                        <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.saas.tenants*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.saas.tenants') }}">SaaS Tenants</a>
+                    @endif
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.docs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.docs') }}">Docs</a>
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.notes*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.notes') }}">Notes</a>
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.audit*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.audit') }}">Audit Logs</a>
@@ -1273,6 +1179,8 @@
             'Enroll Devices': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 20h10"/><path d="m9 11 2 2 4-4"/></svg>',
             'Access': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
             'Access Control': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+            'SaaS Dashboard': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/></svg>',
+            'SaaS Tenants': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="18" cy="17" r="3"/></svg>',
             'Docs': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h5"/></svg>',
             'Audit Logs': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v3l2 2"/></svg>',
             'Policy Center': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 4 7v6c0 5 3.5 7.8 8 9 4.5-1.2 8-4 8-9V7l-8-4Z"/></svg>',

@@ -27,7 +27,9 @@ use App\Models\Policy;
 use App\Models\PolicyRule;
 use App\Models\PolicyVersion;
 use App\Models\Role;
+use App\Models\Tenant;
 use App\Models\User;
+use App\Support\TenantContext;
 use App\Services\AgentBuildService;
 use App\Services\AuditLogger;
 use App\Services\CommandEnvelopeSigner;
@@ -41,9 +43,11 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class AdminConsoleController extends Controller
@@ -2418,7 +2422,7 @@ class AdminConsoleController extends Controller
             ->orderByDesc('version_number')
             ->orderByDesc('created_at')
             ->get();
-        $isSuperAdmin = auth()->user()?->roles()->where('slug', 'super-admin')->exists() ?? false;
+        $isSuperAdmin = $this->isSuperAdminUser(auth()->user());
 
         return view('admin.policies', [
             'policies' => $policies,
@@ -4067,7 +4071,7 @@ POWERSHELL;
                 'status' => 'pending',
             ]);
         } else {
-            $deviceIds = \DB::table('device_group_memberships')->where('device_group_id', $job->target_id)->pluck('device_id');
+            $deviceIds = $this->groupDeviceIdsInTenant((string) $job->target_id);
             foreach ($deviceIds as $deviceId) {
                 JobRun::query()->create([
                     'id' => (string) Str::uuid(),
@@ -4447,7 +4451,7 @@ POWERSHELL;
             return $job;
         }
 
-        $deviceIds = \DB::table('device_group_memberships')->where('device_group_id', $targetId)->pluck('device_id');
+        $deviceIds = $this->groupDeviceIdsInTenant($targetId);
         foreach ($deviceIds as $deviceId) {
             JobRun::query()->create([
                 'id' => (string) Str::uuid(),
@@ -4459,6 +4463,37 @@ POWERSHELL;
         }
 
         return $job;
+    }
+
+    private function targetExistsInTenant(string $targetType, string $targetId): bool
+    {
+        if ($targetType === 'device') {
+            return Device::query()->where('id', $targetId)->exists();
+        }
+
+        if ($targetType === 'group') {
+            return DeviceGroup::query()->where('id', $targetId)->exists();
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function groupDeviceIdsInTenant(string $groupId): array
+    {
+        return Device::query()
+            ->whereIn('id', function ($query) use ($groupId): void {
+                $query
+                    ->from('device_group_memberships')
+                    ->select('device_id')
+                    ->where('device_group_id', $groupId);
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (string) $id)
+            ->values()
+            ->all();
     }
 
     public function jobs(): View
@@ -4520,6 +4555,11 @@ POWERSHELL;
         ]);
 
         $payload = json_decode($data['payload_json'], true, 512, JSON_THROW_ON_ERROR);
+        if (! $this->targetExistsInTenant((string) $data['target_type'], (string) $data['target_id'])) {
+            return back()
+                ->withErrors(['target_id' => 'Selected target is not available in your organization.'])
+                ->withInput();
+        }
         if ($data['job_type'] === 'run_command') {
             $script = (string) ($payload['script'] ?? '');
             if (trim($script) === '') {
@@ -4575,7 +4615,7 @@ POWERSHELL;
                 'next_retry_at' => null,
             ]);
         } else {
-            $deviceIds = \DB::table('device_group_memberships')->where('device_group_id', $job->target_id)->pluck('device_id');
+            $deviceIds = $this->groupDeviceIdsInTenant((string) $job->target_id);
             $staggerSeconds = (int) ($data['stagger_seconds'] ?? 0);
             $index = 0;
             foreach ($deviceIds as $deviceId) {
@@ -4681,16 +4721,20 @@ POWERSHELL;
         $storeSnapshot = (bool) ($data['store_snapshot'] ?? true);
 
         $jobIds = collect();
+        $scopedJobs = DmsJob::query()->select('id');
         if ($scope === 'all') {
-            $jobIds = DmsJob::query()->pluck('id');
+            $jobIds = (clone $scopedJobs)->pluck('id');
         } else {
-            $completedIds = \DB::table('job_runs')
-                ->select('job_id')
-                ->whereNotNull('job_id')
-                ->groupBy('job_id')
+            $completedIds = \DB::table('job_runs as jr')
+                ->joinSub((clone $scopedJobs), 'scoped_jobs', function ($join): void {
+                    $join->on('scoped_jobs.id', '=', 'jr.job_id');
+                })
+                ->select('jr.job_id')
+                ->whereNotNull('jr.job_id')
+                ->groupBy('jr.job_id')
                 ->havingRaw("sum(case when status in ('pending','acked','running') then 1 else 0 end) = 0")
                 ->pluck('job_id');
-            $jobIds = DmsJob::query()->whereIn('id', $completedIds)->pluck('id');
+            $jobIds = (clone $scopedJobs)->whereIn('id', $completedIds)->pluck('id');
         }
 
         if ($jobIds->isEmpty()) {
@@ -4847,15 +4891,20 @@ POWERSHELL;
      */
     private function jobSummaryCounts(): array
     {
-        $totalJobs = (int) DmsJob::query()->count();
-        $jobRunAgg = \DB::table('job_runs')
-            ->selectRaw('job_id, count(*) as total_runs')
+        $scopedJobs = DmsJob::query()->select('id');
+        $totalJobs = (int) (clone $scopedJobs)->count();
+
+        $jobRunAgg = \DB::table('job_runs as jr')
+            ->joinSub((clone $scopedJobs), 'scoped_jobs', function ($join): void {
+                $join->on('scoped_jobs.id', '=', 'jr.job_id');
+            })
+            ->selectRaw('jr.job_id, count(*) as total_runs')
             ->selectRaw("sum(case when status = 'pending' then 1 else 0 end) as pending_runs")
             ->selectRaw("sum(case when status = 'acked' then 1 else 0 end) as acked_runs")
             ->selectRaw("sum(case when status = 'running' then 1 else 0 end) as running_runs")
             ->selectRaw("sum(case when status = 'success' then 1 else 0 end) as success_runs")
             ->selectRaw("sum(case when status in ('failed','non_compliant') then 1 else 0 end) as failed_runs")
-            ->groupBy('job_id');
+            ->groupBy('jr.job_id');
 
         $summary = \DB::query()
             ->fromSub($jobRunAgg, 'jra')
@@ -5279,7 +5328,10 @@ POWERSHELL;
             ])->withInput();
         }
 
-        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', $expiresAt, ['releaseId' => $release->id]);
+        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', $expiresAt, [
+            'releaseId' => $release->id,
+            'tenant' => $this->releaseTenantRouteValue($release),
+        ]);
         $priority = (int) ($data['priority'] ?? 100);
         $staggerSeconds = (int) ($data['stagger_seconds'] ?? 0);
 
@@ -5523,6 +5575,7 @@ POWERSHELL;
                 'releaseId' => $release->id,
                 'token' => $rawToken,
                 'api_base_url' => $apiBaseUrl,
+                'tenant' => $this->releaseTenantRouteValue($release),
             ]);
         }
 
@@ -5685,6 +5738,7 @@ POWERSHELL;
     public function downloadAgentRelease(Request $request, string $releaseId)
     {
         $release = AgentRelease::query()->findOrFail($releaseId);
+        $this->assertSignedReleaseTenantScope($request, $release);
         $path = storage_path('app'.DIRECTORY_SEPARATOR.$release->storage_path);
         abort_unless(is_file($path), 404, 'Installer artifact not found');
 
@@ -5694,8 +5748,12 @@ POWERSHELL;
     public function agentInstallScript(Request $request, string $releaseId): Response
     {
         $release = AgentRelease::query()->findOrFail($releaseId);
+        $this->assertSignedReleaseTenantScope($request, $release);
         $publicBaseUrl = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
-        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', now()->addMinutes(30), ['releaseId' => $release->id]);
+        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', now()->addMinutes(30), [
+            'releaseId' => $release->id,
+            'tenant' => $this->releaseTenantRouteValue($release),
+        ]);
         $token = (string) $request->query('token');
         $apiBaseUrl = (string) $request->query('api_base_url', rtrim(config('app.url'), '/').'/api/v1');
 
@@ -5779,11 +5837,13 @@ PS1;
     public function agentInstallLauncher(Request $request, string $releaseId): Response
     {
         $release = AgentRelease::query()->findOrFail($releaseId);
+        $this->assertSignedReleaseTenantScope($request, $release);
         $publicBaseUrl = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
         $scriptUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.script', now()->addMinutes(30), [
             'releaseId' => $release->id,
             'token' => (string) $request->query('token'),
             'api_base_url' => (string) $request->query('api_base_url', rtrim(config('app.url'), '/').'/api/v1'),
+            'tenant' => $this->releaseTenantRouteValue($release),
         ]);
         $launcher = $this->buildAgentInstallLauncherScript($scriptUrl);
 
@@ -5810,6 +5870,27 @@ PS1;
                 URL::forceRootUrl($defaultRoot);
             }
         }
+    }
+
+    private function releaseTenantRouteValue(AgentRelease $release): string
+    {
+        $tenantId = is_string($release->tenant_id) ? trim((string) $release->tenant_id) : '';
+
+        return $tenantId !== '' ? $tenantId : 'platform';
+    }
+
+    private function assertSignedReleaseTenantScope(Request $request, AgentRelease $release): void
+    {
+        $expected = $this->releaseTenantRouteValue($release);
+        $provided = trim((string) $request->query('tenant', ''));
+
+        // Backward compatibility for existing platform links generated before tenant signing.
+        if ($provided === '') {
+            abort_if($expected !== 'platform', 403, 'Tenant-scoped release link is invalid or expired.');
+            return;
+        }
+
+        abort_unless(hash_equals($expected, $provided), 403, 'Tenant-scoped release link is invalid or expired.');
     }
 
     private function buildAgentInstallLauncherScript(string $scriptUrl): string
@@ -5867,16 +5948,21 @@ CMD);
             'created_by' => $request->user()?->id,
         ]);
 
-        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', $expiresAt, ['releaseId' => $release->id]);
+        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', $expiresAt, [
+            'releaseId' => $release->id,
+            'tenant' => $this->releaseTenantRouteValue($release),
+        ]);
         $scriptUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.script', $expiresAt, [
             'releaseId' => $release->id,
             'token' => $rawToken,
             'api_base_url' => $apiBaseUrl,
+            'tenant' => $this->releaseTenantRouteValue($release),
         ]);
         $launcherUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.launcher', $expiresAt, [
             'releaseId' => $release->id,
             'token' => $rawToken,
             'api_base_url' => $apiBaseUrl,
+            'tenant' => $this->releaseTenantRouteValue($release),
         ]);
 
         $auditLogger->log('agent.release.generate_installer.web', 'agent_release', $release->id, null, [
@@ -6386,6 +6472,279 @@ CMD);
             'permissions' => Permission::query()->orderBy('slug')->get(['id', 'slug', 'name']),
             'users' => User::query()->with('roles')->orderBy('name')->get(['id', 'name', 'email', 'is_active']),
         ]);
+    }
+
+    public function saasDashboard(Request $request): View
+    {
+        $this->ensurePlatformSuperAdminAccess();
+
+        $activeTenantId = $request->session()->get('active_tenant_id');
+        if (! is_string($activeTenantId) || trim($activeTenantId) === '') {
+            $activeTenantId = null;
+        }
+
+        $tenants = Tenant::query()
+            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
+            ->orderBy('name')
+            ->get(['id', 'name', 'slug', 'status', 'created_at']);
+
+        $onlineThreshold = now()->subMinutes(2);
+        $activeJobStates = ['queued', 'pending', 'acked', 'running'];
+
+        $usersByTenant = DB::table('users')
+            ->whereNotNull('tenant_id')
+            ->selectRaw('tenant_id, count(*) as total')
+            ->groupBy('tenant_id')
+            ->pluck('total', 'tenant_id');
+        $devicesByTenant = DB::table('devices')
+            ->whereNotNull('tenant_id')
+            ->selectRaw('tenant_id, count(*) as total')
+            ->groupBy('tenant_id')
+            ->pluck('total', 'tenant_id');
+        $onlineDevicesByTenant = DB::table('devices')
+            ->whereNotNull('tenant_id')
+            ->whereNotNull('last_seen_at')
+            ->where('last_seen_at', '>=', $onlineThreshold)
+            ->whereNotIn('status', ['pending', 'quarantined'])
+            ->selectRaw('tenant_id, count(*) as total')
+            ->groupBy('tenant_id')
+            ->pluck('total', 'tenant_id');
+        $policiesByTenant = DB::table('policies')
+            ->whereNotNull('tenant_id')
+            ->selectRaw('tenant_id, count(*) as total')
+            ->groupBy('tenant_id')
+            ->pluck('total', 'tenant_id');
+        $activeJobsByTenant = DB::table('jobs')
+            ->whereNotNull('tenant_id')
+            ->whereIn('status', $activeJobStates)
+            ->selectRaw('tenant_id, count(*) as total')
+            ->groupBy('tenant_id')
+            ->pluck('total', 'tenant_id');
+        $failedJobsByTenant = DB::table('jobs')
+            ->whereNotNull('tenant_id')
+            ->where('status', 'failed')
+            ->selectRaw('tenant_id, count(*) as total')
+            ->groupBy('tenant_id')
+            ->pluck('total', 'tenant_id');
+        $totalJobsByTenant = DB::table('jobs')
+            ->whereNotNull('tenant_id')
+            ->selectRaw('tenant_id, count(*) as total')
+            ->groupBy('tenant_id')
+            ->pluck('total', 'tenant_id');
+        $lastAuditByTenant = DB::table('audit_logs')
+            ->whereNotNull('tenant_id')
+            ->selectRaw('tenant_id, max(created_at) as last_event_at')
+            ->groupBy('tenant_id')
+            ->pluck('last_event_at', 'tenant_id');
+
+        $tenantRows = $tenants->map(function (Tenant $tenant) use (
+            $usersByTenant,
+            $devicesByTenant,
+            $onlineDevicesByTenant,
+            $policiesByTenant,
+            $activeJobsByTenant,
+            $failedJobsByTenant,
+            $totalJobsByTenant,
+            $lastAuditByTenant
+        ) {
+            $tenantId = (string) $tenant->id;
+
+            $tenant->setAttribute('users_count', (int) ($usersByTenant[$tenantId] ?? 0));
+            $tenant->setAttribute('devices_count', (int) ($devicesByTenant[$tenantId] ?? 0));
+            $tenant->setAttribute('online_devices_count', (int) ($onlineDevicesByTenant[$tenantId] ?? 0));
+            $tenant->setAttribute('policies_count', (int) ($policiesByTenant[$tenantId] ?? 0));
+            $tenant->setAttribute('jobs_total_count', (int) ($totalJobsByTenant[$tenantId] ?? 0));
+            $tenant->setAttribute('jobs_active_count', (int) ($activeJobsByTenant[$tenantId] ?? 0));
+            $tenant->setAttribute('jobs_failed_count', (int) ($failedJobsByTenant[$tenantId] ?? 0));
+            $tenant->setAttribute('last_audit_at', $lastAuditByTenant[$tenantId] ?? null);
+
+            return $tenant;
+        })->values();
+
+        $summary = [
+            'tenants_total' => (int) $tenantRows->count(),
+            'tenants_active' => (int) $tenantRows->where('status', 'active')->count(),
+            'tenants_inactive' => (int) $tenantRows->where('status', '!=', 'active')->count(),
+            'users_total' => (int) $tenantRows->sum('users_count'),
+            'platform_users' => (int) DB::table('users')->whereNull('tenant_id')->count(),
+            'devices_total' => (int) $tenantRows->sum('devices_count'),
+            'devices_online' => (int) $tenantRows->sum('online_devices_count'),
+            'jobs_total' => (int) $tenantRows->sum('jobs_total_count'),
+            'jobs_active' => (int) $tenantRows->sum('jobs_active_count'),
+            'jobs_failed' => (int) $tenantRows->sum('jobs_failed_count'),
+        ];
+
+        return view('admin.saas-dashboard', [
+            'activeTenantId' => $activeTenantId,
+            'summary' => $summary,
+            'tenants' => $tenantRows,
+        ]);
+    }
+
+    public function saasTenants(Request $request): View
+    {
+        $this->ensurePlatformSuperAdminAccess();
+
+        $activeTenantId = $request->session()->get('active_tenant_id');
+        if (! is_string($activeTenantId) || trim($activeTenantId) === '') {
+            $activeTenantId = null;
+        }
+
+        return view('admin.saas-tenants', [
+            'activeTenantId' => $activeTenantId,
+            'tenants' => Tenant::query()
+                ->withCount(['users', 'devices', 'policies', 'jobs'])
+                ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
+                ->orderBy('name')
+                ->get(),
+            'users' => User::query()
+                ->withoutGlobalScope('tenant')
+                ->orderBy('name')
+                ->get(['id', 'tenant_id', 'name', 'email', 'is_active']),
+        ]);
+    }
+
+    public function createTenant(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->ensurePlatformSuperAdminAccess();
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:255'],
+            'status' => ['required', Rule::in(['active', 'inactive'])],
+        ]);
+
+        $slugCandidate = trim((string) ($data['slug'] ?? $data['name']));
+        $slug = Str::slug($slugCandidate);
+        if ($slug === '') {
+            return back()->withErrors(['slug' => 'Tenant slug is invalid.'])->withInput();
+        }
+        if (Tenant::query()->where('slug', $slug)->exists()) {
+            return back()->withErrors(['slug' => 'Tenant slug already exists.'])->withInput();
+        }
+
+        $tenant = Tenant::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => trim((string) $data['name']),
+            'slug' => $slug,
+            'status' => $data['status'],
+            'settings' => [],
+        ]);
+
+        $auditLogger->log('tenant.create.web', 'tenant', $tenant->id, null, [
+            'name' => $tenant->name,
+            'slug' => $tenant->slug,
+            'status' => $tenant->status,
+        ], $request->user()?->id);
+
+        return back()->with('status', 'Tenant created.');
+    }
+
+    public function updateTenant(Request $request, string $tenantId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->ensurePlatformSuperAdminAccess();
+
+        $tenant = Tenant::query()->findOrFail($tenantId);
+        $before = $tenant->toArray();
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'slug' => ['required', 'string', 'max:255'],
+            'status' => ['required', Rule::in(['active', 'inactive'])],
+        ]);
+
+        $slug = Str::slug(trim((string) $data['slug']));
+        if ($slug === '') {
+            return back()->withErrors(['slug' => 'Tenant slug is invalid.'])->withInput();
+        }
+
+        $slugExists = Tenant::query()
+            ->where('slug', $slug)
+            ->where('id', '!=', $tenant->id)
+            ->exists();
+        if ($slugExists) {
+            return back()->withErrors(['slug' => 'Tenant slug already exists.'])->withInput();
+        }
+
+        $tenant->update([
+            'name' => trim((string) $data['name']),
+            'slug' => $slug,
+            'status' => $data['status'],
+        ]);
+
+        if ($tenant->status !== 'active' && $request->session()->get('active_tenant_id') === $tenant->id) {
+            $request->session()->forget('active_tenant_id');
+        }
+
+        $auditLogger->log('tenant.update.web', 'tenant', $tenant->id, $before, $tenant->fresh()?->toArray(), $request->user()?->id);
+
+        return back()->with('status', 'Tenant updated.');
+    }
+
+    public function switchTenantContext(Request $request, string $tenantId): RedirectResponse
+    {
+        $this->ensurePlatformSuperAdminAccess();
+
+        $tenant = Tenant::query()
+            ->where('id', $tenantId)
+            ->where('status', 'active')
+            ->firstOrFail();
+
+        $request->session()->put('active_tenant_id', $tenant->id);
+
+        return back()->with('status', 'Active tenant switched to '.$tenant->name.'.');
+    }
+
+    public function clearTenantContext(Request $request): RedirectResponse
+    {
+        $this->ensurePlatformSuperAdminAccess();
+        $request->session()->forget('active_tenant_id');
+
+        return back()->with('status', 'Tenant context cleared. You are now in platform scope.');
+    }
+
+    public function assignUserTenant(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->ensurePlatformSuperAdminAccess();
+
+        $data = $request->validate([
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+            'tenant_id' => ['nullable', 'uuid', Rule::exists('tenants', 'id')],
+        ]);
+
+        $user = User::query()->withoutGlobalScope('tenant')->findOrFail((int) $data['user_id']);
+        $tenantId = $data['tenant_id'] ?? null;
+
+        if ($user->id === $request->user()?->id && $tenantId !== null) {
+            return back()->withErrors(['tenant_id' => 'You cannot move your own platform account into a tenant.']);
+        }
+
+        $before = ['tenant_id' => $user->tenant_id];
+        $user->forceFill(['tenant_id' => $tenantId])->save();
+
+        $allowedRoleIdsQuery = Role::query()->withoutGlobalScope('tenant');
+        if ($tenantId === null) {
+            $allowedRoleIdsQuery->whereNull('tenant_id');
+        } else {
+            $allowedRoleIdsQuery->where('tenant_id', $tenantId);
+        }
+        $allowedRoleIds = $allowedRoleIdsQuery->pluck('id');
+
+        if ($allowedRoleIds->isEmpty()) {
+            DB::table('role_user')->where('user_id', $user->id)->delete();
+        } else {
+            DB::table('role_user')
+                ->where('user_id', $user->id)
+                ->whereNotIn('role_id', $allowedRoleIds->all())
+                ->delete();
+        }
+
+        $auditLogger->log('user.tenant.assign.web', 'user', (string) $user->id, $before, [
+            'tenant_id' => $tenantId,
+            'kept_role_ids' => $allowedRoleIds->values()->all(),
+        ], $request->user()?->id);
+
+        return back()->with('status', 'User tenant assignment updated.');
     }
 
     public function settings(): View
@@ -7110,6 +7469,7 @@ CMD);
     public function createRole(Request $request, AuditLogger $auditLogger): RedirectResponse
     {
         $this->ensureSuperAdminAccess();
+        $tenantId = app(TenantContext::class)->tenantId();
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -7119,17 +7479,20 @@ CMD);
             'permission_ids.*' => ['uuid', 'exists:permissions,id'],
         ]);
 
-        $exists = Role::query()
-            ->whereNull('tenant_id')
-            ->where('slug', $data['slug'])
-            ->exists();
+        $existsQuery = Role::query()->where('slug', $data['slug']);
+        if ($tenantId === null) {
+            $existsQuery->whereNull('tenant_id');
+        } else {
+            $existsQuery->where('tenant_id', $tenantId);
+        }
+        $exists = $existsQuery->exists();
         if ($exists) {
             return back()->withErrors(['access' => 'Role slug already exists.'])->withInput();
         }
 
         $role = Role::query()->create([
             'id' => (string) Str::uuid(),
-            'tenant_id' => null,
+            'tenant_id' => $tenantId,
             'name' => $data['name'],
             'slug' => $data['slug'],
             'description' => $data['description'] ?? null,
@@ -7214,6 +7577,7 @@ CMD);
     public function createStaffUser(Request $request, AuditLogger $auditLogger): RedirectResponse
     {
         $this->ensureSuperAdminAccess();
+        $tenantId = app(TenantContext::class)->tenantId();
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -7224,20 +7588,32 @@ CMD);
             'is_active' => ['nullable', 'boolean'],
         ]);
 
+        $requestedRoleIds = collect($data['role_ids'] ?? [])->values();
+        $roleQuery = Role::query()->whereIn('id', $requestedRoleIds);
+        if ($tenantId === null) {
+            $roleQuery->whereNull('tenant_id');
+        } else {
+            $roleQuery->where('tenant_id', $tenantId);
+        }
+        $roleIds = $roleQuery->pluck('id')->values();
+        if ($requestedRoleIds->count() !== $roleIds->count()) {
+            return back()->withErrors(['role_ids' => 'One or more roles are outside the active tenant scope.'])->withInput();
+        }
+
         $user = User::query()->create([
             'name' => $data['name'],
             'email' => strtolower((string) $data['email']),
             'password' => $data['password'],
-            'tenant_id' => null,
+            'tenant_id' => $tenantId,
             'is_active' => (bool) ($data['is_active'] ?? true),
         ]);
 
-        $user->roles()->sync($data['role_ids'] ?? []);
+        $user->roles()->sync($roleIds->all());
 
         $auditLogger->log('user.create.staff.web', 'user', (string) $user->id, null, [
             'email' => $user->email,
             'is_active' => $user->is_active,
-            'role_ids' => $data['role_ids'] ?? [],
+            'role_ids' => $roleIds->all(),
         ], $request->user()?->id);
 
         return back()->with('status', 'Staff account created and roles assigned.');
@@ -7272,6 +7648,8 @@ CMD);
 
     public function createNote(Request $request, AuditLogger $auditLogger): RedirectResponse
     {
+        $tenantId = app(TenantContext::class)->tenantId();
+
         $data = $request->validate([
             'title' => ['required', 'string', 'max:180'],
             'body' => ['required', 'string', 'max:20000'],
@@ -7280,7 +7658,7 @@ CMD);
 
         $note = AdminNote::query()->create([
             'id' => (string) Str::uuid(),
-            'tenant_id' => null,
+            'tenant_id' => $tenantId,
             'user_id' => $request->user()?->id,
             'title' => trim((string) $data['title']),
             'body' => trim((string) $data['body']),
@@ -9033,11 +9411,46 @@ CMD);
         return $contents;
     }
 
+    private function ensurePlatformSuperAdminAccess(): void
+    {
+        $this->ensureSuperAdminAccess();
+        $user = auth()->user();
+        if ($user === null) {
+            abort(403, 'Only platform super-admin can manage SaaS tenants.');
+        }
+
+        if (empty($user->tenant_id)) {
+            return;
+        }
+
+        $hasPlatformSuperAdmin = DB::table('users')
+            ->join('role_user', 'role_user.user_id', '=', 'users.id')
+            ->join('roles', 'roles.id', '=', 'role_user.role_id')
+            ->whereNull('users.tenant_id')
+            ->where('roles.slug', 'super-admin')
+            ->exists();
+
+        abort_if($hasPlatformSuperAdmin, 403, 'Only platform super-admin can manage SaaS tenants.');
+    }
+
     private function ensureSuperAdminAccess(): void
     {
         $user = auth()->user();
-        $isSuperAdmin = $user?->roles()->where('slug', 'super-admin')->exists() ?? false;
+        $isSuperAdmin = $this->isSuperAdminUser($user);
         abort_unless($isSuperAdmin, 403, 'Only super-admin can manage access control.');
+    }
+
+    private function isSuperAdminUser(?User $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        return DB::table('role_user')
+            ->join('roles', 'roles.id', '=', 'role_user.role_id')
+            ->where('role_user.user_id', $user->id)
+            ->where('roles.slug', 'super-admin')
+            ->exists();
     }
 
     private function resolveWindowsStoreIcon(string $name, ?string $slug = null): ?array

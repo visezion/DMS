@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\EnrollmentToken;
+use App\Support\TenantContext;
 use App\Services\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,15 +35,18 @@ class DeviceAdminController extends Controller
 
     public function createEnrollmentToken(Request $request, AuditLogger $auditLogger): JsonResponse
     {
+        $tenantId = app(TenantContext::class)->tenantId();
         $data = $request->validate([
             'expires_at' => ['nullable', 'date'],
             'tenant_id' => ['nullable', 'uuid'],
         ]);
 
+        $effectiveTenantId = $tenantId ?? ($data['tenant_id'] ?? null);
+
         $rawToken = Str::random(64);
         $token = EnrollmentToken::query()->create([
             'id' => (string) Str::uuid(),
-            'tenant_id' => $data['tenant_id'] ?? null,
+            'tenant_id' => $effectiveTenantId,
             'token_hash' => hash('sha256', $rawToken),
             'expires_at' => $data['expires_at'] ?? now()->addDay(),
             'created_by' => $request->user()?->id,

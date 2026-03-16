@@ -457,16 +457,25 @@ class DeviceCheckinController extends Controller
     private function ensureComplianceCheck(?string $policyId, ?string $policyVersionId): string
     {
         $name = 'Policy compliance';
+        $tenantId = null;
         if ($policyId) {
-            $policyName = Policy::query()->where('id', $policyId)->value('name');
-            if ($policyName) {
-                $name = $policyName.' compliance';
+            $policyRecord = Policy::query()
+                ->where('id', $policyId)
+                ->first(['name', 'tenant_id']);
+            if ($policyRecord) {
+                $name = $policyRecord->name.' compliance';
+                $tenantId = $policyRecord->tenant_id;
             }
         }
 
         $key = 'policy:'.($policyVersionId ?: $policyId ?: 'unscoped');
-        $existingChecks = DB::table('compliance_checks')
-            ->where('check_type', 'policy')
+        $existingChecks = DB::table('compliance_checks')->where('check_type', 'policy');
+        if ($tenantId === null) {
+            $existingChecks->whereNull('tenant_id');
+        } else {
+            $existingChecks->where('tenant_id', $tenantId);
+        }
+        $existingChecks = $existingChecks
             ->get(['id', 'definition']);
         foreach ($existingChecks as $check) {
             $definition = json_decode((string) $check->definition, true);
@@ -478,7 +487,7 @@ class DeviceCheckinController extends Controller
         $id = (string) Str::uuid();
         DB::table('compliance_checks')->insert([
             'id' => $id,
-            'tenant_id' => null,
+            'tenant_id' => $tenantId,
             'name' => $name,
             'check_type' => 'policy',
             'definition' => json_encode([
@@ -1180,7 +1189,6 @@ class DeviceCheckinController extends Controller
 
         return Device::query()->create([
             'id' => (string) $payload['device_id'],
-            'tenant_id' => null,
             'hostname' => $hostname,
             'os_name' => $osName,
             'os_version' => $osVersion !== '' ? $osVersion : null,

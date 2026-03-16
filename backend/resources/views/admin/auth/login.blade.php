@@ -20,120 +20,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --brand-primary: {{ $brandPrimary }};
-        }
-        body { font-family: 'Space Grotesk', sans-serif; background: {{ $brandBackground }}; }
-        .scene-grid {
-            background-image:
-                linear-gradient(to right, rgba(15,23,42,.06) 1px, transparent 1px),
-                linear-gradient(to bottom, rgba(15,23,42,.06) 1px, transparent 1px);
-            background-size: 44px 44px;
-        }
-        .radar-ring {
-            animation: pulse-ring 5s ease-in-out infinite;
-        }
-        .radar-ring.delay-1 { animation-delay: 1.2s; }
-        .radar-ring.delay-2 { animation-delay: 2.4s; }
-        @keyframes pulse-ring {
-            0% { transform: scale(.72); opacity: .12; }
-            45% { transform: scale(1); opacity: .3; }
-            100% { transform: scale(1.16); opacity: 0; }
-        }
-        .node-chip {
-            animation: float-chip 4.8s ease-in-out infinite;
-        }
-        .node-chip.delay-a { animation-delay: .5s; }
-        .node-chip.delay-b { animation-delay: 1.1s; }
-        .node-chip.delay-c { animation-delay: 1.8s; }
-        .node-chip.delay-d { animation-delay: 2.6s; }
-        .node-chip.delay-e { animation-delay: 3.2s; }
-        @keyframes float-chip {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-7px); }
-        }
-        .node-card {
-            border: 1px solid rgba(148, 163, 184, .45);
-            background: rgba(255, 255, 255, .9);
-            border-radius: .85rem;
-            padding: .5rem .65rem;
-            min-width: 9.5rem;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
-        }
-        .node-icon {
-            width: 1.35rem;
-            height: 1.35rem;
-            border-radius: 9999px;
-            border: 1px solid rgba(148, 163, 184, .6);
-            background: #fff;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            color: #0f172a;
-        }
-        .node-sub {
-            font-size: .64rem;
-            line-height: .9rem;
-            color: #64748b;
-            margin-top: .05rem;
-        }
-        .flow-line {
-            stroke-dasharray: 7 10;
-            animation: dash-flow 2.2s linear infinite;
-        }
-        @keyframes dash-flow {
-            to { stroke-dashoffset: -68; }
-        }
-        .flow-dot {
-            animation: blink-dot 1.3s ease-in-out infinite;
-        }
-        @keyframes blink-dot {
-            0%, 100% { opacity: .25; }
-            50% { opacity: .95; }
-        }
-        .auth-card {
-            border: 1px solid rgba(148, 163, 184, .35);
-            background: linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(248,250,252,.97) 100%);
-            box-shadow: 0 24px 60px rgba(15, 23, 42, .12), 0 2px 10px rgba(15, 23, 42, .06);
-        }
-        .field-wrap {
-            position: relative;
-        }
-        .field-wrap .field-icon {
-            position: absolute;
-            left: .8rem;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 1rem;
-            height: 1rem;
-            color: #64748b;
-            pointer-events: none;
-        }
-        .field-wrap input {
-            padding-left: 2.35rem;
-            padding-right: 2.35rem;
-        }
-        .toggle-pass {
-            position: absolute;
-            right: .65rem;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 1.6rem;
-            height: 1.6rem;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: .45rem;
-            color: #475569;
-        }
-        .toggle-pass:hover { background: #f1f5f9; }
-    </style>
 </head>
-<body class="min-h-screen text-slate-900">
+<body
+    class="min-h-screen text-slate-900 admin-auth-login"
+    style="
+        --brand-primary: {{ $brandPrimary }};
+        --brand-primary-soft-24: {{ $brandPrimary }}24;
+        --brand-primary-soft-12: {{ $brandPrimary }}12;
+        --brand-background: {{ $brandBackground }};
+    "
+>
     <div class="min-h-screen grid lg:grid-cols-2">
         <section class="hidden lg:flex relative overflow-hidden border-r border-slate-200">
-            <div class="absolute inset-0" style="background: linear-gradient(135deg, {{ $brandPrimary }}24 0%, #ffffff 55%, {{ $brandPrimary }}12 100%);"></div>
+            <div class="absolute inset-0 auth-hero-gradient"></div>
             <div class="absolute inset-0 scene-grid"></div>
             <div class="absolute inset-0">
                 <div class="absolute left-1/2 top-[48%] h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full border border-sky-300/70 radar-ring"></div>
@@ -214,7 +113,7 @@
                     <div class="h-40 w-40 rounded-full border border-sky-300/90 bg-white/80 backdrop-blur-sm flex items-center justify-center shadow-lg">
                         <div class="text-center">
                             <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Control Plane</div>
-                            <div class="text-3xl font-bold text-center leading-tight px-3" style="color: var(--brand-primary);">{{ $brandName }}</div>
+                            <div class="text-3xl font-bold text-center leading-tight px-3 auth-brand-text">{{ $brandName }}</div>
                         </div>
                     </div>
                 </div>
@@ -310,8 +209,14 @@
                         </div>
                     @endif
                     <div class="pt-1">
-                        <button id="login-submit" type="submit" class="w-full rounded-lg text-white font-semibold py-2.5 hover:opacity-95" style="background: var(--brand-primary);">Sign In</button>
+                        <button id="login-submit" type="submit" class="w-full rounded-lg text-white font-semibold py-2.5 hover:opacity-95 auth-brand-btn">Sign In</button>
                     </div>
+                    @if(($signupEnabled ?? false) === true)
+                        <div class="text-center text-sm">
+                            <span class="text-slate-500">Need an organization account?</span>
+                            <a href="{{ route('admin.signup') }}" class="font-semibold text-slate-800 underline decoration-slate-300 underline-offset-4 hover:text-slate-900">Sign up</a>
+                        </div>
+                    @endif
                     <p class="text-[11px] text-slate-500 text-center">Authorized administrators only. All login activity is audited.</p>
                 </form>
             </div>
@@ -321,7 +226,7 @@
     <div id="login-progress-modal" class="hidden fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-6">
         <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
             <div class="flex items-start gap-3">
-                <div class="mt-0.5 h-5 w-5 rounded-full border-2 border-slate-300 animate-spin" style="border-top-color: var(--brand-primary);"></div>
+                <div class="mt-0.5 h-5 w-5 rounded-full border-2 border-slate-300 animate-spin auth-brand-spinner"></div>
                 <div>
                     <p class="text-sm font-semibold text-slate-900">Signing in...</p>
                     <p class="text-xs text-slate-600 mt-1">Please wait while your session is being created.</p>

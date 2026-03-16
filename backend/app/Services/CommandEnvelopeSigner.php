@@ -50,7 +50,6 @@ class CommandEnvelopeSigner
 
         return KeyMaterial::query()->create([
             'id' => (string) Str::uuid(),
-            'tenant_id' => null,
             'kid' => $kid,
             'purpose' => 'command_signing',
             'alg' => 'Ed25519',

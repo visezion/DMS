@@ -20,14 +20,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --brand-primary: {{ $brandPrimary }};
-        }
-        body { font-family: 'Space Grotesk', sans-serif; background: {{ $brandBackground }}; }
-    </style>
 </head>
-<body class="min-h-screen text-slate-900 flex items-center justify-center p-6">
+<body
+    class="min-h-screen text-slate-900 flex items-center justify-center p-6 admin-auth-mfa"
+    style="--brand-primary: {{ $brandPrimary }}; --brand-background: {{ $brandBackground }};"
+>
     <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
         <div class="flex items-center gap-3">
             @if($brandLogo !== '')
@@ -57,7 +54,7 @@
                 <label class="text-xs uppercase tracking-wide text-slate-500">Authentication Code</label>
                 <input id="mfa-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 tracking-[0.35em] text-center text-2xl font-semibold focus:border-slate-400 focus:outline-none" />
             </div>
-            <button id="mfa-submit" type="submit" class="w-full rounded-lg text-white font-semibold py-2.5 hover:opacity-95" style="background: var(--brand-primary);">Verify</button>
+            <button id="mfa-submit" type="submit" class="w-full rounded-lg text-white font-semibold py-2.5 hover:opacity-95 auth-brand-btn">Verify</button>
         </form>
 
         <form class="mt-3" method="POST" action="{{ route('admin.login.mfa.cancel') }}">

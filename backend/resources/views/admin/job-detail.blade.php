@@ -80,41 +80,7 @@
             }
         }
     @endphp
-
-    <style>
-        .jd-shell {
-            --jd-border: #d8e1ef;
-            --jd-bg: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-            --jd-shadow: 0 10px 22px rgba(15, 23, 42, 0.07);
-        }
-        .jd-shell .jd-panel {
-            border: 1px solid var(--jd-border);
-            background: var(--jd-bg);
-            box-shadow: var(--jd-shadow);
-        }
-        .jd-shell .jd-card {
-            border: 1px solid var(--jd-border);
-            background: #fff;
-        }
-        .jd-shell .jd-mono {
-            font-family: "IBM Plex Mono", monospace;
-        }
-        .jd-shell .jd-label {
-            font-size: 11px;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: #64748b;
-        }
-        .jd-shell .jd-reveal {
-            animation: jdFadeIn 320ms ease both;
-        }
-        @keyframes jdFadeIn {
-            from { opacity: 0; transform: translateY(4px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    </style>
-
-    <div class="jd-shell space-y-4">
+<div class="jd-shell space-y-4">
         <section class="jd-panel rounded-2xl p-5 jd-reveal">
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>

@@ -8,20 +8,7 @@
             ->reject(fn ($device) => in_array($device->id, $memberIds, true))
             ->values();
     @endphp
-
-    <style>
-        .group-shell {
-            border-color: #d7deea;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
-        }
-        .search-panel-shell {
-            border: 1px solid #d7deea;
-            background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
-            padding: 0.85rem;
-        }
-    </style>
-
-    <div class="mb-3 flex items-center justify-between gap-2">
+<div class="mb-3 flex items-center justify-between gap-2">
         <a href="{{ route('admin.groups') }}" class="inline-flex items-center gap-1 text-sm text-slate-700 hover:text-black">
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 19 8.5 12l7-7"/></svg>
             Back to Groups

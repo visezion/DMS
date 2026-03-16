@@ -115,10 +115,22 @@ Optional flags:
 Seeder admin defaults:
 
 - Seeder now uses generic env-based bootstrap credentials (no personal credentials in repo):
+  - `DMS_SEED_TENANT_NAME="Default Tenant"`
+  - `DMS_SEED_TENANT_SLUG=default`
   - `DMS_SEED_ADMIN_EMAIL=admin@example.com`
   - `DMS_SEED_ADMIN_PASSWORD=admin123`
 - Set these in `${APP_BASE}/shared/.env` before first deploy.
-- Seeder creates this admin user if it does not exist; reruns do not force-reset existing admin passwords.
+- Seeder creates the tenant plus a platform-scoped `super-admin` role and admin user if they do not exist.
+- Reruns do not force-reset existing admin passwords.
+
+Self-signup (SaaS onboarding):
+
+- `DMS_SELF_SIGNUP_ENABLED=true|false` controls public `/admin/signup`.
+- Signup creates:
+  - a new active tenant (organization),
+  - a tenant-scoped `super-admin` role,
+  - the tenant admin user attached to that tenant.
+- Tenant users are scoped to their own organization data by default.
 
 Agent note:
 

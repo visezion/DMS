@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\Tenant;
 use App\Models\User;
 use App\Services\CommandEnvelopeSigner;
 use Illuminate\Database\Seeder;
@@ -31,6 +32,17 @@ class RolePermissionSeeder extends Seeder
             $adminPassword = 'admin123';
         }
 
+        $tenantName = trim((string) env('DMS_SEED_TENANT_NAME', 'Default Tenant'));
+        if ($tenantName === '') {
+            $tenantName = 'Default Tenant';
+        }
+
+        $tenantSlugInput = trim((string) env('DMS_SEED_TENANT_SLUG', 'default'));
+        $tenantSlug = Str::slug($tenantSlugInput);
+        if ($tenantSlug === '') {
+            $tenantSlug = 'default';
+        }
+
         $permissionSlugs = [
             'devices.read', 'devices.write',
             'groups.read', 'groups.write',
@@ -50,6 +62,18 @@ class RolePermissionSeeder extends Seeder
             ]);
         }
 
+        $tenant = Tenant::query()->firstOrCreate([
+            'slug' => $tenantSlug,
+        ], [
+            'id' => (string) Str::uuid(),
+            'name' => $tenantName,
+            'status' => 'active',
+            'settings' => [],
+        ]);
+        if ($tenant->status !== 'active') {
+            $tenant->forceFill(['status' => 'active'])->save();
+        }
+
         $adminRole = Role::query()->firstOrCreate([
             'slug' => 'super-admin',
             'tenant_id' => null,
@@ -63,10 +87,14 @@ class RolePermissionSeeder extends Seeder
         $admin = User::query()->firstOrCreate([
             'email' => $adminEmail,
         ], [
+            'tenant_id' => null,
             'name' => $adminName,
             'password' => Hash::make($adminPassword),
             'is_active' => true,
         ]);
+        if (! empty($admin->tenant_id)) {
+            $admin->forceFill(['tenant_id' => null])->save();
+        }
 
         $admin->roles()->syncWithoutDetaching([$adminRole->id]);
     }

@@ -213,35 +213,7 @@
             ],
         ];
     @endphp
-    <style>
-        .doc-shell {
-            border-color: #d7deea;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
-        }
-        .doc-card {
-            border: 1px solid #d7deea;
-            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        }
-        .doc-kbd {
-            border: 1px solid #cbd5e1;
-            background: #f8fafc;
-            border-radius: 0.4rem;
-            padding: 0.1rem 0.35rem;
-            font-size: 0.72rem;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        }
-        .doc-feature-card {
-            border: 1px solid #d7deea;
-            background: #ffffff;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
-        }
-        .doc-example-box {
-            border: 1px dashed #cbd5e1;
-            background: #f8fafc;
-        }
-    </style>
-
-    <section class="rounded-2xl border p-5 doc-shell bg-gradient-to-br from-slate-50 via-white to-slate-100">
+<section class="rounded-2xl border p-5 doc-shell bg-gradient-to-br from-slate-50 via-white to-slate-100">
         <div class="space-y-4">
             <div class="max-w-3xl">
                 <p class="text-xs uppercase tracking-[0.2em] text-slate-500">DMS Control Plane</p>

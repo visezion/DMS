@@ -26,7 +26,6 @@ class AuditLogger
         ];
 
         AuditLog::query()->create([
-            'tenant_id' => null,
             'actor_user_id' => $actorUserId,
             'actor_device_id' => $actorDeviceId,
             'action' => $action,

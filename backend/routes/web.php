@@ -9,6 +9,8 @@ Route::view('/', 'welcome');
 Route::redirect('/login', '/admin/login')->name('login');
 
 Route::middleware('guest')->group(function () {
+    Route::get('/admin/signup', [AdminAuthController::class, 'registerForm'])->name('admin.signup');
+    Route::post('/admin/signup', [AdminAuthController::class, 'register'])->name('admin.signup.submit');
     Route::get('/admin/login', [AdminAuthController::class, 'loginForm'])->name('admin.login');
     Route::post('/admin/login', [AdminAuthController::class, 'login'])->name('admin.login.submit');
     Route::get('/admin/login/captcha-refresh', [AdminAuthController::class, 'refreshCaptcha'])->name('admin.login.captcha.refresh');
@@ -124,6 +126,13 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::post('/settings/https-app-url', [AdminConsoleController::class, 'updateHttpsAppUrl'])->name('settings.https-app-url');
     Route::post('/settings/environment-posture', [AdminConsoleController::class, 'updateEnvironmentPosture'])->name('settings.environment-posture');
     Route::get('/access', [AdminConsoleController::class, 'access'])->name('access');
+    Route::get('/saas/dashboard', [AdminConsoleController::class, 'saasDashboard'])->name('saas.dashboard');
+    Route::get('/saas/tenants', [AdminConsoleController::class, 'saasTenants'])->name('saas.tenants');
+    Route::post('/saas/tenants', [AdminConsoleController::class, 'createTenant'])->name('saas.tenants.create');
+    Route::patch('/saas/tenants/{tenantId}', [AdminConsoleController::class, 'updateTenant'])->name('saas.tenants.update');
+    Route::post('/saas/tenants/{tenantId}/switch', [AdminConsoleController::class, 'switchTenantContext'])->name('saas.tenants.switch');
+    Route::post('/saas/tenants/switch/platform', [AdminConsoleController::class, 'clearTenantContext'])->name('saas.tenants.switch.platform');
+    Route::post('/saas/users/tenant', [AdminConsoleController::class, 'assignUserTenant'])->name('saas.users.tenant.assign');
     Route::post('/access/users', [AdminConsoleController::class, 'createStaffUser'])->name('access.users.create');
     Route::post('/access/roles', [AdminConsoleController::class, 'createRole'])->name('access.roles.create');
     Route::patch('/access/roles/{roleId}/permissions', [AdminConsoleController::class, 'updateRolePermissions'])->name('access.roles.permissions.update');

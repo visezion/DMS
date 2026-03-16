@@ -5,21 +5,7 @@
         $inventoryUpdatedAt = is_array($device->tags) ? ($device->tags['inventory_updated_at'] ?? '') : '';
         $inventoryCollectedAt = is_array($inventory) ? ($inventory['collected_at'] ?? '') : '';
     @endphp
-    <style>
-        .win-panel {
-            border-color: #d7deea;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
-        }
-        .win-chip {
-            border: 1px solid #d7deea;
-            background: #f8fafc;
-        }
-        .win-section-title svg {
-            color: #2563eb;
-        }
-    </style>
-
-    <div class="rounded-2xl border bg-gradient-to-br from-slate-50 via-white to-slate-100 p-5 win-panel">
+<div class="rounded-2xl border bg-gradient-to-br from-slate-50 via-white to-slate-100 p-5 win-panel">
         <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="flex items-start gap-4">
                 <div class="h-24 w-24 rounded-2xl border border-sky-100 bg-sky-50 text-sky-700 flex items-center justify-center">

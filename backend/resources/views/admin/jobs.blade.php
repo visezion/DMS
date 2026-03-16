@@ -15,48 +15,7 @@
         $deviceNameMap = collect($devices ?? [])->pluck('hostname', 'id');
         $groupNameMap = collect($groups ?? [])->pluck('name', 'id');
     @endphp
-
-    <style>
-        .jobs-shell {
-            --jobs-border: #d8e1ef;
-            --jobs-card: #ffffff;
-            --jobs-metric-card: #f8fafc;
-            --jobs-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
-            --jobs-soft-shadow: 0 6px 14px rgba(15, 23, 42, 0.05);
-        }
-        .jobs-shell .jobs-panel {
-            border: 1px solid var(--jobs-border);
-            background: var(--jobs-card);
-            box-shadow: var(--jobs-shadow);
-        }
-        .jobs-shell .jobs-card {
-            border: 1px solid var(--jobs-border);
-            background: #fff;
-            box-shadow: var(--jobs-soft-shadow);
-        }
-        .jobs-shell .jobs-metric {
-            border: 1px solid var(--jobs-border);
-            background: var(--jobs-metric-card);
-        }
-        .jobs-shell .jobs-mono {
-            font-family: "IBM Plex Mono", monospace;
-        }
-        .jobs-shell .jobs-kv {
-            font-size: 11px;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: #64748b;
-        }
-        .jobs-shell .jobs-reveal {
-            animation: jobsFadeIn 340ms ease both;
-        }
-        @keyframes jobsFadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    </style>
-
-    <div class="jobs-shell space-y-4">
+<div class="jobs-shell space-y-4">
         <section class="jobs-panel rounded-2xl p-5 jobs-reveal">
             <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>

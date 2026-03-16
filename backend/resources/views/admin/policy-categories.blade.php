@@ -6,53 +6,7 @@
         $totalPresets = (int) $categoryRows->sum(fn ($row) => (int) ($row['preset_count'] ?? 0));
         $inUseCount = $categoryRows->filter(fn ($row) => ((int) ($row['policy_count'] ?? 0) + (int) ($row['preset_count'] ?? 0)) > 0)->count();
     @endphp
-
-    <style>
-        .policy-cat-shell {
-            --policy-cat-border: #d7dee8;
-            --policy-cat-soft: #f8fafc;
-            --policy-cat-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
-        }
-        .policy-cat-shell .panel {
-            border: 1px solid var(--policy-cat-border);
-            background: #ffffff;
-            box-shadow: var(--policy-cat-shadow);
-        }
-        .policy-cat-shell .field {
-            width: 100%;
-            border: 1px solid #cbd5e1;
-            border-radius: var(--brand-radius-xl);
-            background: #ffffff;
-            padding: 0.8rem 0.95rem;
-            color: #0f172a;
-            font-size: 0.925rem;
-        }
-        .policy-cat-shell .field:focus {
-            outline: none;
-            border-color: #0f172a;
-            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
-        }
-        .policy-cat-shell .primary-btn {
-            background: #0f172a;
-            color: #ffffff;
-        }
-        .policy-cat-shell .primary-btn:hover {
-            background: #1e293b;
-        }
-        .policy-cat-shell .soft-block {
-            border: 1px solid var(--policy-cat-border);
-            background: var(--policy-cat-soft);
-        }
-        .policy-cat-shell .cat-list {
-            display: grid;
-            gap: 1rem;
-        }
-        .policy-cat-shell .mono {
-            font-family: "IBM Plex Mono", monospace;
-        }
-    </style>
-
-    <div class="policy-cat-shell space-y-4">
+<div class="policy-cat-shell space-y-4">
         <section class="panel rounded-3xl p-6">
             <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>

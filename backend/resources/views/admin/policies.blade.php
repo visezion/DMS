@@ -1,26 +1,5 @@
 <x-admin-layout title="Policies" heading="Policy Enforcement">
-    <style>
-        .policy-shell {
-            border-color: #d7deea;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
-        }
-        .policy-card {
-            border: 1px solid #d7deea;
-            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-            transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-        }
-        .policy-card:hover {
-            transform: translateY(-2px);
-            border-color: #93c5fd;
-            box-shadow: 0 10px 22px rgba(37, 99, 235, 0.12);
-        }
-        .policy-pill {
-            border: 1px solid #d7deea;
-            background: #ffffff;
-        }
-    </style>
-
-    <section class="rounded-2xl bg-white border border-slate-200 p-4 space-y-4 policy-shell">
+<section class="rounded-2xl bg-white border border-slate-200 p-4 space-y-4 policy-shell">
         <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="font-semibold flex items-center gap-2">
                 <svg class="h-4 w-4 text-sky-600" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

@@ -2,41 +2,7 @@
     @php
         $totalDevices = (int) collect($devices ?? [])->count();
     @endphp
-
-    <style>
-        .group-create-simple {
-            --border: #d7dee8;
-            --shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
-        }
-        .group-create-simple .panel {
-            border: 1px solid var(--border);
-            background: #ffffff;
-            box-shadow: var(--shadow);
-        }
-        .group-create-simple .field {
-            width: 100%;
-            border: 1px solid #cbd5e1;
-            border-radius: var(--brand-radius-xl);
-            background: #ffffff;
-            padding: 0.8rem 0.95rem;
-            color: #0f172a;
-            font-size: 0.925rem;
-        }
-        .group-create-simple .field:focus {
-            outline: none;
-            border-color: #0f172a;
-            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
-        }
-        .group-create-simple .primary-btn {
-            background: #0f172a;
-            color: #ffffff;
-        }
-        .group-create-simple .primary-btn:hover {
-            background: #1e293b;
-        }
-    </style>
-
-    <div class="group-create-simple space-y-4">
+<div class="group-create-simple space-y-4">
         <section class="panel rounded-3xl p-6">
             <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>

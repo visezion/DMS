@@ -36,53 +36,7 @@
         $defaultCount = $totalCatalog - $customCount;
         $ruleTypes = $catalogItems->pluck('item.rule_type')->filter()->unique()->count();
     @endphp
-
-    <style>
-        .catalog-shell {
-            --catalog-border: #d7dee8;
-            --catalog-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
-            --catalog-soft: #f8fafc;
-        }
-        .catalog-shell .panel {
-            border: 1px solid var(--catalog-border);
-            background: #ffffff;
-            box-shadow: var(--catalog-shadow);
-        }
-        .catalog-shell .field {
-            width: 100%;
-            border: 1px solid #cbd5e1;
-            border-radius: var(--brand-radius-xl);
-            background: #ffffff;
-            padding: 0.8rem 0.95rem;
-            color: #0f172a;
-            font-size: 0.925rem;
-        }
-        .catalog-shell .field:focus {
-            outline: none;
-            border-color: #0f172a;
-            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
-        }
-        .catalog-shell .primary-btn {
-            background: #0f172a;
-            color: #ffffff;
-        }
-        .catalog-shell .primary-btn:hover {
-            background: #1e293b;
-        }
-        .catalog-shell .soft-block {
-            border: 1px solid var(--catalog-border);
-            background: var(--catalog-soft);
-        }
-        .catalog-shell .mono {
-            font-family: "IBM Plex Mono", monospace;
-        }
-        .catalog-shell .catalog-list {
-            display: grid;
-            gap: 1rem;
-        }
-    </style>
-
-    <div class="catalog-shell space-y-4">
+<div class="catalog-shell space-y-4">
         <section class="panel rounded-3xl p-6">
             <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
