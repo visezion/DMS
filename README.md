@@ -176,7 +176,7 @@ Main entry points:
 - `Devices`, `Groups`, `Jobs`
 - `Application Management` -> `Software Packages`
 - `Policy Center` -> `Policies`, `Policy Catalog`, `Policy Categories`
-- `Deployment Center` -> `Agent Delivery`, `IP Deployment`
+- `Deployment Center` -> `Agent Delivery`
 - `Settings`, `Access Control`, `Docs`, `Audit Logs`
 
 Enrollment flow:

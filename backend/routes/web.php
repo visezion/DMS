@@ -102,9 +102,6 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::post('/agent/test-connectivity', [AdminConsoleController::class, 'testAgentApiConnectivity'])->name('agent.test-connectivity');
     Route::post('/agent/backend/start', [AdminConsoleController::class, 'startAgentBackendServer'])->name('agent.backend.start');
     Route::get('/agent/backend/status', [AdminConsoleController::class, 'agentBackendServerStatus'])->name('agent.backend.status');
-    Route::get('/ip-deploy', [AdminConsoleController::class, 'ipDeploy'])->name('ip-deploy');
-    Route::post('/ip-deploy/run', [AdminConsoleController::class, 'runIpDeploy'])->name('ip-deploy.run');
-
     Route::get('/getting-started', [AdminConsoleController::class, 'gettingStarted'])->name('getting-started');
     Route::get('/docs', [AdminConsoleController::class, 'docs'])->name('docs');
     Route::get('/notes', [AdminConsoleController::class, 'notes'])->name('notes');

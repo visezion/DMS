@@ -94,7 +94,7 @@
             ['label' => 'Agent Delivery', 'url' => route('admin.agent'), 'classes' => 'bg-amber-100 text-amber-800 border-amber-200'],
         ];
     @endphp
-<div id="admin-dashboard-root" class="mx-auto max-w-[1320px] space-y-4">
+<div id="admin-dashboard-root" class="space-y-4">
         <section class="hero-surface rounded-[1.5rem] p-4 lg:p-5">
             <div class="relative z-10 grid gap-4 xl:grid-cols-[1.55fr,0.95fr]">
                 <div>

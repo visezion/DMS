@@ -122,13 +122,12 @@
                 ],
             ],
             [
-                'title' => 'Agent Delivery and IP Deployment',
-                'summary' => 'These tools manage the agent release lifecycle and remote installation workflows.',
-                'paths' => ['/admin/agent', '/admin/ip-deploy'],
+                'title' => 'Agent Delivery',
+                'summary' => 'This tool manages the full agent release lifecycle and update workflow.',
+                'paths' => ['/admin/agent'],
                 'works' => [
                     'Agent Delivery handles release upload or autobuild, release activation, installer generation, push updates, and connectivity checks.',
-                    'IP Deployment is for remote installation workflows when you know the target hosts and need to push the agent over network protocols.',
-                    'Together they cover both packaging the agent and distributing it into the fleet.',
+                    'Use it to package and distribute the agent across your fleet.',
                 ],
                 'example_title' => 'Example: ship a new agent release',
                 'example_steps' => [
@@ -504,7 +503,7 @@ dotnet publish .\src\Dms.Agent.Service\Dms.Agent.Service.csproj -c Release -r wi
                     <tr class="border-b align-top"><td class="py-2 font-medium">Policy Center</td><td class="py-2">Policy authoring and governance</td><td class="py-2">Policies, catalog presets, categories, apply/remove mode versioning</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Jobs</td><td class="py-2">Remote execution workflow</td><td class="py-2">Queue install/uninstall/policy jobs and track outcomes</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">AI Control Center</td><td class="py-2">Behavior analytics and recommendations</td><td class="py-2">Review anomaly cases, replay streams, train or retrain models, approve recommendations</td></tr>
-                    <tr class="border-b align-top"><td class="py-2 font-medium">Deployment Center</td><td class="py-2">Delivery tooling</td><td class="py-2">Agent Delivery and IP Deployment workflows</td></tr>
+                    <tr class="border-b align-top"><td class="py-2 font-medium">Deployment Center</td><td class="py-2">Delivery tooling</td><td class="py-2">Agent Delivery workflows</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Settings</td><td class="py-2">System-wide operational controls</td><td class="py-2">Kill switch, retries, backoff, allowlist, signature bypass, enrollment token</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Access Control</td><td class="py-2">Role and permission management</td><td class="py-2">Create users, assign roles, restrict module access</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Notes</td><td class="py-2">Internal operator knowledge base</td><td class="py-2">Store pinned runbooks, change notes, and support reminders</td></tr>

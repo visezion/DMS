@@ -55,7 +55,7 @@
                     <tr class="border-b align-top"><td class="py-2 font-medium">Software Packages</td><td class="py-2">Create package catalog and deploy versions.</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Policy Center</td><td class="py-2">Manage policies, catalog presets, and categories.</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Jobs</td><td class="py-2">Track queued/running/completed operations.</td></tr>
-                    <tr class="border-b align-top"><td class="py-2 font-medium">Deployment Center</td><td class="py-2">Agent Delivery and IP Deployment tools.</td></tr>
+                    <tr class="border-b align-top"><td class="py-2 font-medium">Deployment Center</td><td class="py-2">Agent Delivery tools.</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Settings</td><td class="py-2">System-level operational settings.</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Access Control</td><td class="py-2">Users, roles, and permissions.</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Docs</td><td class="py-2">Detailed technical documentation and runbooks.</td></tr>

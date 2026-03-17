@@ -119,99 +119,10 @@ Rollout is complete when:
 4. Validate recovery on pilot subset.
 5. Toggle kill switch OFF and continue staged recovery.
 
-## Standalone install by IP (WinRM)
-Use this only as a standalone utility. It does not change backend app logic.
+## Remote install note
+Standalone IP deployment scripts were removed from this project.
 
-- Script path: `backend/scripts/install-agent-by-ip.ps1`
-- Target requirements:
-  - WinRM reachable from admin machine
-  - Local/domain admin credential
-  - PowerShell enabled
-
-### Single IP
-```powershell
-powershell -ExecutionPolicy Bypass -File backend\scripts\install-agent-by-ip.ps1 `
-  -InstallScriptUrl "http://YOUR_SERVER/DMS/backend/public/agent/releases/<release-id>/install-script?..." `
-  -TargetIp "172.16.43.55" `
-  -Username "DOMAIN\Administrator" `
-  -Password "YourPassword"
-```
-
-### Multiple IPs from file
-Create a text file with one IP per line (`#` for comments), then:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File backend\scripts\install-agent-by-ip.ps1 `
-  -InstallScriptUrl "http://YOUR_SERVER/DMS/backend/public/agent/releases/<release-id>/install-script?..." `
-  -TargetListPath "C:\temp\target-ips.txt" `
-  -Username "DOMAIN\Administrator" `
-  -Password "YourPassword"
-```
-
-### Dry run
-```powershell
-powershell -ExecutionPolicy Bypass -File backend\scripts\install-agent-by-ip.ps1 `
-  -InstallScriptUrl "http://YOUR_SERVER/DMS/backend/public/agent/releases/<release-id>/install-script?..." `
-  -TargetListPath "C:\temp\target-ips.txt" `
-  -Username "DOMAIN\Administrator" `
-  -Password "YourPassword" `
-  -WhatIf
-```
-
-Result CSV is saved under:
-- `backend/scripts/logs/install-agent-by-ip-<timestamp>.csv`
-
-## Standalone install by SMB/RPC (when WinRM 5985 is closed)
-Use this if:
-- `5985` is closed
-- `445` and `135` are open
-
-Script path:
-- `backend/scripts/install-agent-by-smb-rpc.ps1`
-
-This script is standalone and removable. It does not change backend app logic.
-
-### Single IP
-```powershell
-powershell -ExecutionPolicy Bypass -File backend\scripts\install-agent-by-smb-rpc.ps1 `
-  -InstallScriptUrl "http://YOUR_SERVER/DMS/backend/public/agent/releases/<release-id>/install-script?expires=...&signature=..." `
-  -TargetIp "172.16.155.165" `
-  -Username "TARGET-PC\Administrator" `
-  -Password "YourPassword"
-```
-
-### IP range (CIDR)
-```powershell
-powershell -ExecutionPolicy Bypass -File backend\scripts\install-agent-by-smb-rpc.ps1 `
-  -InstallScriptUrl "http://YOUR_SERVER/DMS/backend/public/agent/releases/<release-id>/install-script?expires=...&signature=..." `
-  -IpRangeCidr "172.16.155.0/24" `
-  -Username "DOMAIN\IT-Deploy" `
-  -Password "YourPassword"
-```
-
-### Dry run
-```powershell
-powershell -ExecutionPolicy Bypass -File backend\scripts\install-agent-by-smb-rpc.ps1 `
-  -InstallScriptUrl "http://YOUR_SERVER/DMS/backend/public/agent/releases/<release-id>/install-script?expires=...&signature=..." `
-  -TargetIp "172.16.155.165" `
-  -Username "TARGET-PC\Administrator" `
-  -Password "YourPassword" `
-  -WhatIf
-```
-
-Result CSV is saved under:
-- `backend/scripts/logs/install-agent-by-smb-rpc-<timestamp>.csv`
-
-### GUI mode with live popup progress
-Launch:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File backend\scripts\install-agent-by-smb-rpc-gui.ps1
-```
-
-GUI shows:
-- found targets
-- processed targets
-- installed / failed counters
-- per-IP live log
-- final popup summary with totals and report path
+Use **Deployment Center -> Agent Delivery** to:
+- activate a release,
+- generate signed installer links/scripts,
+- and roll out updates through managed job workflows.

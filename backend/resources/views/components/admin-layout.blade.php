@@ -306,7 +306,7 @@
 <div id="admin-shell" class="flex min-h-screen">
     <aside class="w-72 hidden lg:flex lg:flex-col border-r border-slate-200/60 glass" style="background: {{ $brandSidebarTint }}CC;">
         <div class="px-6 py-4 border-b border-slate-200/60">
-            <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center">
                 @if($brandLogo !== '')
                     <img src="{{ $brandLogo }}" alt="Brand Logo" class="h-14 w-auto max-w-[12rem] object-contain">
                 @else
@@ -386,14 +386,13 @@
                     </a>
                 </div>
             </details>
-            <details class="pt-2 group" {{ request()->routeIs('admin.agent*') || request()->routeIs('admin.ip-deploy*') ? 'open' : '' }}>
-                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.agent*') || request()->routeIs('admin.ip-deploy*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+            <details class="pt-2 group" {{ request()->routeIs('admin.agent*') ? 'open' : '' }}>
+                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.agent*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
                     <span>Deployment Center</span>
                     <span class="expand-indicator text-xs"></span>
                 </summary>
                 <div class="mt-3 pl-2 space-y-2">
                     <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.agent*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.agent') }}">Agent Delivery</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.ip-deploy*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.ip-deploy') }}">IP Deployment</a>
                 </div>
             </details>
             <details class="pt-2 group" {{ request()->routeIs('admin.settings*') || request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'open' : '' }}>
@@ -636,14 +635,13 @@
                         </div>
                     </details>
 
-                    <details class="pt-1 group" {{ request()->routeIs('admin.agent*') || request()->routeIs('admin.ip-deploy*') ? 'open' : '' }}>
-                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.agent*') || request()->routeIs('admin.ip-deploy*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                    <details class="pt-1 group" {{ request()->routeIs('admin.agent*') ? 'open' : '' }}>
+                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.agent*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
                             <span>Deployment Center</span>
                             <span class="expand-indicator text-xs"></span>
                         </summary>
                         <div class="mt-3 pl-2 space-y-2">
                             <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.agent*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.agent') }}">Agent Delivery</a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.ip-deploy*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.ip-deploy') }}">IP Deployment</a>
                         </div>
                     </details>
 
@@ -1172,7 +1170,6 @@
             'Jobs': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
             'Behavior Alerts': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 4 7v6c0 5 3.5 7.8 8 9 4.5-1.2 8-4 8-9V7l-8-4Z"/><path d="M12 8v5"/><circle cx="12" cy="16.5" r="0.9"/></svg>',
             'Agent Delivery': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="M3 17l9 5 9-5"/><path d="M3 12l9 5 9-5"/></svg>',
-            'IP Deployment': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>',
             'Settings': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M10.3 3h3.4l.6 2.2a7.8 7.8 0 0 1 1.8.8l2-1.1 2.4 2.4-1.1 2a7.8 7.8 0 0 1 .8 1.8l2.2.6v3.4l-2.2.6a7.8 7.8 0 0 1-.8 1.8l1.1 2-2.4 2.4-2-1.1a7.8 7.8 0 0 1-1.8.8l-.6 2.2h-3.4l-.6-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1.1-2.4-2.4 1.1-2a7.8 7.8 0 0 1-.8-1.8L3 13.7v-3.4l2.2-.6a7.8 7.8 0 0 1 .8-1.8l-1.1-2 2.4-2.4 2 1.1a7.8 7.8 0 0 1 1.8-.8l.6-2.2Z"/><circle cx="12" cy="12" r="3"/></svg>',
             'General': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M10.3 3h3.4l.6 2.2a7.8 7.8 0 0 1 1.8.8l2-1.1 2.4 2.4-1.1 2a7.8 7.8 0 0 1 .8 1.8l2.2.6v3.4l-2.2.6a7.8 7.8 0 0 1-.8 1.8l1.1 2-2.4 2.4-2-1.1a7.8 7.8 0 0 1-1.8.8l-.6 2.2h-3.4l-.6-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1.1-2.4-2.4 1.1-2a7.8 7.8 0 0 1-.8-1.8L3 13.7v-3.4l2.2-.6a7.8 7.8 0 0 1 .8-1.8l-1.1-2 2.4-2.4 2 1.1a7.8 7.8 0 0 1 1.8-.8l.6-2.2Z"/><circle cx="12" cy="12" r="3"/></svg>',
             'Branding': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3a9 9 0 0 0-9 9c0 4 3 7 7 7h1v2h2v-2h1a7 7 0 0 0 0-14h-2z"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="8" r="1"/><circle cx="15" cy="11" r="1"/></svg>',

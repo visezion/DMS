@@ -133,7 +133,7 @@ Supported UI job types in current validation:
 - `uninstall_agent`
 - `reconcile_software_inventory`
 
-### 1.9 Agent Delivery and IP Deployment
+### 1.9 Agent Delivery
 - `GET /admin/agent` -> agent delivery page
 - `POST /admin/agent/releases` -> upload release artifact
 - `POST /admin/agent/releases/autobuild` -> build release from repo
@@ -144,8 +144,6 @@ Supported UI job types in current validation:
 - `POST /admin/agent/test-connectivity` -> test API connectivity for installer path
 - `POST /admin/agent/backend/start` -> start optional local backend helper
 - `GET /admin/agent/backend/status` -> backend helper status
-- `GET /admin/ip-deploy` -> IP deployment page
-- `POST /admin/ip-deploy/run` -> execute deployment run
 
 ### 1.10 Docs, Notes, Profile, Settings, RBAC, Audit
 - `GET /admin/getting-started` -> onboarding page
@@ -273,13 +271,7 @@ Source folder: `backend/scripts`
 - `build-agent.ps1` -> build/package agent artifacts
 - `bootstrap-enable-remote-deploy.ps1` -> configure Windows host for remote deployment prerequisites
 
-### 4.2 Deployment Automation
-- `install-agent-by-ip.ps1` -> install agent over WinRM/session-based remote execution
-- `install-agent-by-psexec.ps1` -> install agent via PsExec workflow
-- `install-agent-by-smb-rpc.ps1` -> install agent over SMB + remote service control
-- `install-agent-by-smb-rpc-gui.ps1` -> GUI wrapper for SMB/RPC deploy script
-
-### 4.3 Debug/Utility Scripts
+### 4.2 Debug/Utility Scripts
 - `e2e-device-test.php` -> end-to-end device API flow checks
 - `queue-one-run.php` -> enqueue one run for test/debug
 - `queue-debug-runs.php` -> enqueue debug runs
@@ -289,7 +281,7 @@ Source folder: `backend/scripts`
 - `find-device-assignment.php` -> inspect policy/package assignment state
 - `print-php-canonical.php` -> canonical JSON/hash diagnostic helper
 
-### 4.4 Sample Payload Files
+### 4.3 Sample Payload Files
 - `command-sample.json`
 - `command-sample-new.json`
 - `keyset-sample.json`
@@ -417,8 +409,8 @@ When adding or changing any route/job type/script, update this file in the same 
   - Queue `run_command` with `hostname` against one endpoint.
   - Confirm the device ACKs the job and posts the final result.
 
-### 9.9 Agent Delivery and IP Deployment
-- Agent Delivery manages releases and updates; IP Deployment helps push installs to known remote hosts.
+### 9.9 Agent Delivery
+- Agent Delivery manages releases, installer generation, and fleet updates.
 - Example:
   - Upload or autobuild release `1.3.0`, activate it, then push an update to a pilot group.
 
