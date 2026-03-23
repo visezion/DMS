@@ -31,7 +31,7 @@ public sealed class BehaviorTelemetryCollector
 
         try
         {
-            string query = $"*[System[(EventRecordID > {Math.Max(0, lastRecordId)}) and (EventID=4624 or EventID=4688 or EventID=4663)]]";
+            string query = $"*[System[(EventRecordID > {Math.Max(0, lastRecordId)}) and (EventID=4624 or EventID=4625 or EventID=4688 or EventID=4663)]]";
             var logQuery = new EventLogQuery("Security", PathType.LogName, query)
             {
                 ReverseDirection = false,
@@ -86,7 +86,7 @@ public sealed class BehaviorTelemetryCollector
 
     private static BehaviorEventDto? MapRecord(EventRecord record)
     {
-        if (record.Id is not (4624 or 4688 or 4663))
+        if (record.Id is not (4624 or 4625 or 4688 or 4663))
         {
             return null;
         }
@@ -114,10 +114,22 @@ public sealed class BehaviorTelemetryCollector
         DateTimeOffset occurredAt = ResolveOccurredAt(doc, record.TimeCreated);
         string recordId = (record.RecordId ?? 0).ToString();
 
-        if (record.Id == 4624)
+        if (record.Id is 4624 or 4625)
         {
+            bool failedLogon = record.Id == 4625;
             string logonTypeRaw = ReadEventData(doc, "LogonType");
-            if (!int.TryParse(logonTypeRaw, out int logonType) || logonType is not (2 or 7 or 10 or 11))
+            if (!int.TryParse(logonTypeRaw, out int logonType))
+            {
+                return null;
+            }
+            if (failedLogon)
+            {
+                if (logonType is not (2 or 3 or 7 or 10 or 11))
+                {
+                    return null;
+                }
+            }
+            else if (logonType is not (2 or 7 or 10 or 11))
             {
                 return null;
             }
@@ -127,6 +139,13 @@ public sealed class BehaviorTelemetryCollector
             {
                 return null;
             }
+
+            string failureReason = failedLogon ? ReadEventData(doc, "FailureReason") : string.Empty;
+            string statusCode = failedLogon ? ReadEventData(doc, "Status") : string.Empty;
+            string subStatus = failedLogon ? ReadEventData(doc, "SubStatus") : string.Empty;
+            string sourceIp = NullIfWhitespace(ReadEventData(doc, "IpAddress")) ?? string.Empty;
+            string sourceWorkstation = NullIfWhitespace(ReadEventData(doc, "WorkstationName")) ?? string.Empty;
+            string sourceProcess = NullIfWhitespace(ReadEventData(doc, "ProcessName")) ?? string.Empty;
 
             return new BehaviorEventDto
             {
@@ -140,6 +159,17 @@ public sealed class BehaviorTelemetryCollector
                     ["source_event_id"] = record.Id,
                     ["source_record_id"] = recordId,
                     ["logon_type"] = logonType,
+                    ["status"] = failedLogon ? "failed" : "success",
+                    ["outcome"] = failedLogon ? "failure" : "success",
+                    ["message"] = failedLogon
+                        ? (string.IsNullOrWhiteSpace(failureReason) ? "logon failed" : failureReason)
+                        : "logon success",
+                    ["failure_reason"] = string.IsNullOrWhiteSpace(failureReason) ? null : failureReason,
+                    ["status_code"] = string.IsNullOrWhiteSpace(statusCode) ? null : statusCode,
+                    ["sub_status"] = string.IsNullOrWhiteSpace(subStatus) ? null : subStatus,
+                    ["source_ip"] = sourceIp == "-" || string.IsNullOrWhiteSpace(sourceIp) ? null : sourceIp,
+                    ["workstation"] = string.IsNullOrWhiteSpace(sourceWorkstation) ? null : sourceWorkstation,
+                    ["source_process"] = string.IsNullOrWhiteSpace(sourceProcess) ? null : sourceProcess,
                     ["source_log"] = "Security",
                 },
             };

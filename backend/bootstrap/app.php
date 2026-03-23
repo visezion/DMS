@@ -14,12 +14,16 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        $middleware->web(append: [
-            ResolveTenantContext::class,
-        ]);
-        $middleware->api(append: [
-            ResolveTenantContext::class,
-        ]);
+        // bootstrap/app.php runs before config bindings are available.
+        $standaloneMode = filter_var((string) env('DMS_STANDALONE_MODE', 'true'), FILTER_VALIDATE_BOOL);
+        if (! $standaloneMode) {
+            $middleware->web(append: [
+                ResolveTenantContext::class,
+            ]);
+            $middleware->api(append: [
+                ResolveTenantContext::class,
+            ]);
+        }
         $middleware->alias([
             'permission' => RequirePermission::class,
         ]);

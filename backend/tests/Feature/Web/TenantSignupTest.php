@@ -15,6 +15,15 @@ class TenantSignupTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if ((bool) config('dms.standalone_mode', true)) {
+            $this->markTestSkipped('Tenant self-signup tests are disabled in standalone mode.');
+        }
+    }
+
     public function test_guest_can_sign_up_tenant_and_only_see_own_org_items(): void
     {
         putenv('DMS_SELF_SIGNUP_ENABLED=true');
@@ -108,4 +117,3 @@ class TenantSignupTest extends TestCase
         }
     }
 }
-

@@ -35,13 +35,14 @@ class DeviceAdminController extends Controller
 
     public function createEnrollmentToken(Request $request, AuditLogger $auditLogger): JsonResponse
     {
+        $standaloneMode = (bool) config('dms.standalone_mode', true);
         $tenantId = app(TenantContext::class)->tenantId();
         $data = $request->validate([
             'expires_at' => ['nullable', 'date'],
             'tenant_id' => ['nullable', 'uuid'],
         ]);
 
-        $effectiveTenantId = $tenantId ?? ($data['tenant_id'] ?? null);
+        $effectiveTenantId = $standaloneMode ? null : ($tenantId ?? ($data['tenant_id'] ?? null));
 
         $rawToken = Str::random(64);
         $token = EnrollmentToken::query()->create([

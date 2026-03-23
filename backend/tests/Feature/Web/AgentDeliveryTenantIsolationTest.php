@@ -19,6 +19,10 @@ class AgentDeliveryTenantIsolationTest extends TestCase
     {
         parent::setUp();
 
+        if ((bool) config('dms.standalone_mode', true)) {
+            $this->markTestSkipped('Tenant isolation tests are disabled in standalone mode.');
+        }
+
         config()->set('app.url', 'http://localhost');
         URL::forceRootUrl('http://localhost');
     }

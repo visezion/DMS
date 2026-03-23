@@ -38,9 +38,13 @@ class EnrollmentController extends Controller
             return response()->json(['message' => 'Enrollment token invalid or expired'], 422);
         }
 
+        $effectiveTenantId = (bool) config('dms.standalone_mode', true)
+            ? null
+            : $token->tenant_id;
+
         $device = Device::query()->create([
             'id' => (string) Str::uuid(),
-            'tenant_id' => $token->tenant_id,
+            'tenant_id' => $effectiveTenantId,
             'hostname' => $payload['device_facts']['hostname'],
             'os_name' => $payload['device_facts']['os_name'],
             'os_version' => $payload['device_facts']['os_version'] ?? null,

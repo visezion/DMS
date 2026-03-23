@@ -45,6 +45,10 @@ class ControlPlaneSettingBuilder extends Builder
 
     private function tenantId(): ?string
     {
+        if ((bool) config('dms.standalone_mode', true)) {
+            return null;
+        }
+
         if (! app()->bound(TenantContext::class)) {
             return null;
         }

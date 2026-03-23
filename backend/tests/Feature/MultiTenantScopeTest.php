@@ -16,6 +16,15 @@ class MultiTenantScopeTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if ((bool) config('dms.standalone_mode', true)) {
+            $this->markTestSkipped('Multi-tenant scope tests are disabled in standalone mode.');
+        }
+    }
+
     public function test_tenant_user_only_sees_own_tenant_devices(): void
     {
         $tenantA = Tenant::query()->create([

@@ -23,6 +23,7 @@ class AnomalyDetectionEngine
     public function __construct(
         private readonly BehaviorPipelineSettings $settings,
         private readonly BehaviorFeatureBuilder $featureBuilder,
+        private readonly OpenAiBehaviorAnalyst $openAiBehaviorAnalyst,
         StatisticalEnsembleDetector $statisticalEnsembleDetector,
         OffHoursDetector $offHoursDetector,
         RareProcessDetector $rareProcessDetector,
@@ -92,8 +93,31 @@ class AnomalyDetectionEngine
 
         $rawRiskScore = $weightTotal > 0 ? $this->clamp($weightedSum / $weightTotal) : 0.0;
         $riskAdjustments = $this->trustedActivityAdjustments($features);
-        $scoreDelta = (float) ($riskAdjustments['score_delta'] ?? 0.0);
-        $riskScore = $this->clamp($rawRiskScore - $scoreDelta);
+        $trustedScoreDelta = (float) ($riskAdjustments['score_delta'] ?? 0.0);
+        $openAiAnalysis = $this->openAiBehaviorAnalyst->analyze(
+            $event,
+            $features,
+            $signals,
+            $rawRiskScore,
+            (float) $this->settings->settingFloat('behavior.ai_threshold', 0.82)
+        );
+        $openAiClassification = $this->normalizeOpenAiClassification(
+            is_array($openAiAnalysis) ? (string) ($openAiAnalysis['classification'] ?? '') : ''
+        );
+        $openAiRecommendedAction = $this->normalizeOpenAiAction(
+            is_array($openAiAnalysis) ? (string) ($openAiAnalysis['recommended_action'] ?? '') : ''
+        );
+        $openAiConfidence = is_array($openAiAnalysis) ? $this->clamp((float) ($openAiAnalysis['confidence'] ?? 0.0)) : 0.0;
+        $openAiMinConfidence = $this->clamp((float) config('services.openai.behavior_min_confidence', 0.60));
+        $openAiConfidenceGatePassed = $openAiClassification !== 'inconclusive' && $openAiConfidence >= $openAiMinConfidence;
+        $openAiRawAdjustment = $this->clampSignedAdjustment(
+            is_array($openAiAnalysis) ? (float) ($openAiAnalysis['risk_adjustment'] ?? 0.0) : 0.0
+        );
+        $openAiDirectionalAdjustment = $this->directionalOpenAiAdjustment($openAiRawAdjustment, $openAiClassification);
+        $openAiRiskAdjustment = $openAiConfidenceGatePassed
+            ? $this->clampSignedAdjustment($openAiDirectionalAdjustment * $openAiConfidence)
+            : 0.0;
+        $riskScore = $this->clamp(($rawRiskScore - $trustedScoreDelta) + $openAiRiskAdjustment);
         $threshold = $this->clamp(
             $this->settings->settingFloat(
                 'behavior.pipeline.min_risk',
@@ -109,12 +133,23 @@ class AnomalyDetectionEngine
         if (($riskAdjustments['severity_override'] ?? null) === 'low') {
             $severity = 'low';
         }
+        if ($openAiClassification === 'normal' && $openAiConfidence >= 0.90) {
+            $severity = 'low';
+        }
+        if ($openAiClassification === 'malicious' && $openAiConfidence >= 0.75 && $riskScore >= 0.85) {
+            $severity = 'high';
+        }
+
         $summary = sprintf(
             'AI pipeline detected %s anomaly for %s on device %s',
             $severity,
             (string) ($features['event_type'] ?? 'unknown'),
             (string) $event->device_id
         );
+        $openAiSummary = trim((string) ($openAiAnalysis['summary'] ?? ''));
+        if ($openAiConfidenceGatePassed && $openAiSummary !== '') {
+            $summary = mb_substr($openAiSummary, 0, 220);
+        }
         $trustedLabels = is_array($riskAdjustments['labels'] ?? null) ? $riskAdjustments['labels'] : [];
         if ($trustedLabels !== []) {
             $summary .= ' (trusted automation pattern)';
@@ -122,7 +157,12 @@ class AnomalyDetectionEngine
 
         $case = BehaviorAnomalyCase::query()->firstOrNew(['behavior_log_id' => (string) $event->id]);
         $autoApproveTrusted = $this->settings->settingBool('behavior.pipeline.auto_approve_trusted_activity', true);
-        $trustedStatus = ($trustedLabels !== [] && $autoApproveTrusted) ? 'approved' : 'pending_review';
+        $openAiAutoApprove = $openAiClassification === 'normal'
+            && $openAiConfidence >= 0.92
+            && $openAiRecommendedAction === 'observe';
+        $trustedStatus = (($trustedLabels !== [] && $autoApproveTrusted) || $openAiAutoApprove)
+            ? 'approved'
+            : 'pending_review';
         $case->fill([
             'stream_event_id' => $stream->id,
             'device_id' => $event->device_id,
@@ -135,8 +175,19 @@ class AnomalyDetectionEngine
                 'threshold' => $threshold,
                 'risk' => [
                     'raw_score' => round($rawRiskScore, 4),
-                    'score_delta' => round($scoreDelta, 4),
+                    'score_delta' => round($trustedScoreDelta, 4),
+                    'trusted_adjustment' => round($trustedScoreDelta, 4),
+                    'openai_adjustment' => round($openAiRiskAdjustment, 4),
+                    'openai_raw_adjustment' => round($openAiRawAdjustment, 4),
+                    'openai_directional_adjustment' => round($openAiDirectionalAdjustment, 4),
                     'adjusted_score' => round($riskScore, 4),
+                ],
+                'openai_calibration' => [
+                    'classification' => $openAiClassification,
+                    'confidence' => round($openAiConfidence, 4),
+                    'min_confidence' => round($openAiMinConfidence, 4),
+                    'confidence_gate_passed' => $openAiConfidenceGatePassed,
+                    'recommended_action' => $openAiRecommendedAction,
                 ],
                 'activity_labels' => $trustedLabels,
                 'trusted_activity' => [
@@ -144,6 +195,7 @@ class AnomalyDetectionEngine
                     'auto_approved' => ! $case->exists && $trustedStatus === 'approved',
                     'explanation' => (string) ($riskAdjustments['explanation'] ?? ''),
                 ],
+                'openai' => $openAiAnalysis,
                 'detector_signals' => $signals,
             ],
             'detector_weights' => $weights,
@@ -209,6 +261,46 @@ class AnomalyDetectionEngine
     private function clamp(float $value): float
     {
         return max(0.0, min(1.0, $value));
+    }
+
+    private function clampSignedAdjustment(float $value): float
+    {
+        return max(-0.35, min(0.35, $value));
+    }
+
+    private function normalizeOpenAiClassification(string $classification): string
+    {
+        $normalized = mb_strtolower(trim($classification));
+
+        return in_array($normalized, ['normal', 'suspicious', 'malicious', 'inconclusive'], true)
+            ? $normalized
+            : 'inconclusive';
+    }
+
+    private function normalizeOpenAiAction(string $recommendedAction): string
+    {
+        $normalized = mb_strtolower(trim($recommendedAction));
+
+        return in_array($normalized, ['observe', 'notify', 'apply_policy'], true)
+            ? $normalized
+            : 'observe';
+    }
+
+    private function directionalOpenAiAdjustment(float $adjustment, string $classification): float
+    {
+        if ($classification === 'normal') {
+            return min(0.0, $adjustment);
+        }
+
+        if ($classification === 'malicious') {
+            return max(0.0, $adjustment);
+        }
+
+        if ($classification === 'inconclusive') {
+            return 0.0;
+        }
+
+        return $adjustment;
     }
 
     /**

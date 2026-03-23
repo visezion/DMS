@@ -53,6 +53,7 @@ class DeviceCheckinController extends Controller
             $tags['runtime_diagnostics'] = $payload['runtime_diagnostics'];
             $tags['runtime_diagnostics_updated_at'] = now()->toIso8601String();
         }
+        $this->mergeRequestIpIntoRuntimeTags($tags, $request);
         $this->mergeUwfStatusIntoTags($tags, $payload);
         $updateData = [
             'agent_version' => $payload['agent_version'],
@@ -97,6 +98,7 @@ class DeviceCheckinController extends Controller
             $tags['runtime_diagnostics'] = $payload['runtime_diagnostics'];
             $tags['runtime_diagnostics_updated_at'] = now()->toIso8601String();
         }
+        $this->mergeRequestIpIntoRuntimeTags($tags, $request);
         $this->mergeUwfStatusIntoTags($tags, $payload);
         $updateData = [
             'last_seen_at' => now(),
@@ -457,6 +459,7 @@ class DeviceCheckinController extends Controller
     private function ensureComplianceCheck(?string $policyId, ?string $policyVersionId): string
     {
         $name = 'Policy compliance';
+        $standaloneMode = (bool) config('dms.standalone_mode', true);
         $tenantId = null;
         if ($policyId) {
             $policyRecord = Policy::query()
@@ -464,7 +467,7 @@ class DeviceCheckinController extends Controller
                 ->first(['name', 'tenant_id']);
             if ($policyRecord) {
                 $name = $policyRecord->name.' compliance';
-                $tenantId = $policyRecord->tenant_id;
+                $tenantId = $standaloneMode ? null : $policyRecord->tenant_id;
             }
         }
 
@@ -1246,6 +1249,27 @@ class DeviceCheckinController extends Controller
 
         $tags['uwf_status'] = $uwfStatus;
         $tags['uwf_status_updated_at'] = now()->toIso8601String();
+    }
+
+    private function mergeRequestIpIntoRuntimeTags(array &$tags, Request $request): void
+    {
+        $requestIp = trim((string) $request->ip());
+        if ($requestIp === '') {
+            return;
+        }
+
+        $runtime = is_array($tags['runtime_diagnostics'] ?? null) ? $tags['runtime_diagnostics'] : [];
+        $existingIp = trim((string) ($runtime['ip_address'] ?? ''));
+        if ($existingIp === '') {
+            $runtime['ip_address'] = $requestIp;
+        }
+        $runtime['request_ip_address'] = $requestIp;
+        $network = is_array($runtime['network'] ?? null) ? $runtime['network'] : [];
+        $network['request_ip'] = $requestIp;
+        $runtime['network'] = $network;
+
+        $tags['runtime_diagnostics'] = $runtime;
+        $tags['runtime_diagnostics_updated_at'] = now()->toIso8601String();
     }
 
     private function signatureCompatCandidateCount(CommandEnvelopeSigner $signer): int

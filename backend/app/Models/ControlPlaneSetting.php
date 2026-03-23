@@ -38,6 +38,10 @@ class ControlPlaneSetting extends Model
             return $trimmed;
         }
 
+        if ((bool) config('dms.standalone_mode', true)) {
+            return $trimmed;
+        }
+
         if (str_starts_with($trimmed, self::TENANT_KEY_PREFIX)) {
             return $trimmed;
         }

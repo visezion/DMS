@@ -15,6 +15,11 @@ class ResolveTenantContext
     public function handle(Request $request, Closure $next): Response
     {
         $tenantContext = app(TenantContext::class);
+        if ((bool) config('dms.standalone_mode', true)) {
+            $tenantContext->setTenantId(null);
+            return $next($request);
+        }
+
         $tenantContext->setTenantId($this->resolveTenantId($request));
 
         return $next($request);

@@ -13,6 +13,15 @@ class SettingsTenantIsolationTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if ((bool) config('dms.standalone_mode', true)) {
+            $this->markTestSkipped('Tenant setting isolation tests are disabled in standalone mode.');
+        }
+    }
+
     public function test_tenant_settings_are_written_with_tenant_namespace(): void
     {
         $tenant = Tenant::query()->create([

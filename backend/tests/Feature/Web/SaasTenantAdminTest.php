@@ -14,6 +14,15 @@ class SaasTenantAdminTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if ((bool) config('dms.standalone_mode', true)) {
+            $this->markTestSkipped('SaaS tenant admin tests are disabled in standalone mode.');
+        }
+    }
+
     public function test_platform_superadmin_can_manage_saas_tenants_page(): void
     {
         $platformSuperAdmin = $this->createSuperAdminUser();

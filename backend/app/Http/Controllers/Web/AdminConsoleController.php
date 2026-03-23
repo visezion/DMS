@@ -13,6 +13,7 @@ use App\Models\BehaviorPolicyRecommendation;
 use App\Models\ComplianceResult;
 use App\Models\ControlPlaneSetting;
 use App\Models\Device;
+use App\Models\DeviceBehaviorLog;
 use App\Models\DeviceGroup;
 use App\Models\DmsJob;
 use App\Models\EnrollmentToken;
@@ -491,6 +492,187 @@ class AdminConsoleController extends Controller
             'effective_policies' => $effectivePolicies,
             'device_packages' => $devicePackages,
         ]);
+    }
+
+    public function deviceBehaviorIntelligence(Request $request, string $deviceId): View
+    {
+        $device = Device::query()->findOrFail($deviceId);
+        $behaviorLogsTableReady = Schema::hasTable('device_behavior_logs');
+        $anomalyCasesTableReady = Schema::hasTable('behavior_anomaly_cases');
+
+        $historyEvents = collect();
+        $openAiTimeline = collect();
+        $historyPaginator = null;
+        $timelinePaginator = null;
+        $stats = [
+            'events_24h' => 0,
+            'events_7d' => 0,
+            'event_types_7d' => 0,
+            'anomaly_cases_7d' => 0,
+            'openai_verdicts_7d' => 0,
+        ];
+        $verdictDistribution = [
+            'normal' => 0,
+            'suspicious' => 0,
+            'malicious' => 0,
+            'inconclusive' => 0,
+        ];
+
+        if ($behaviorLogsTableReady) {
+            $historyPaginator = DeviceBehaviorLog::query()
+                ->where('device_id', $device->id)
+                ->orderByDesc('occurred_at')
+                ->paginate(40, ['*'], 'history_page')
+                ->withQueryString();
+
+            $historyEvents = $historyPaginator->getCollection()->map(function (DeviceBehaviorLog $event): array {
+                $metadata = is_array($event->metadata) ? $event->metadata : [];
+                $tagsRaw = is_array($metadata['tags'] ?? null) ? $metadata['tags'] : [];
+                $tags = array_values(array_filter(array_map(function ($tag): string {
+                    return is_scalar($tag) ? trim((string) $tag) : '';
+                }, $tagsRaw), fn (string $tag) => $tag !== ''));
+
+                return [
+                    'id' => (string) $event->id,
+                    'occurred_at' => $event->occurred_at,
+                    'occurred_at_human' => $event->occurred_at?->diffForHumans(),
+                    'event_type' => (string) ($event->event_type ?? 'unknown'),
+                    'user_name' => trim((string) ($event->user_name ?? '')),
+                    'process_name' => trim((string) ($event->process_name ?? '')),
+                    'file_path' => trim((string) ($event->file_path ?? '')),
+                    'tags' => array_slice($tags, 0, 8),
+                ];
+            });
+            $historyPaginator->setCollection($historyEvents);
+
+            $stats['events_24h'] = DeviceBehaviorLog::query()
+                ->where('device_id', $device->id)
+                ->where('occurred_at', '>=', now()->subDay())
+                ->count();
+            $stats['events_7d'] = DeviceBehaviorLog::query()
+                ->where('device_id', $device->id)
+                ->where('occurred_at', '>=', now()->subDays(7))
+                ->count();
+            $stats['event_types_7d'] = DeviceBehaviorLog::query()
+                ->where('device_id', $device->id)
+                ->where('occurred_at', '>=', now()->subDays(7))
+                ->distinct('event_type')
+                ->count('event_type');
+        }
+
+        if ($anomalyCasesTableReady) {
+            $timelinePaginator = BehaviorAnomalyCase::query()
+                ->where('device_id', $device->id)
+                ->whereNotNull('detected_at')
+                ->orderByDesc('detected_at')
+                ->paginate(30, ['*'], 'timeline_page')
+                ->withQueryString();
+
+            $openAiTimeline = $timelinePaginator->getCollection()->map(
+                fn (BehaviorAnomalyCase $case): array => $this->normalizeOpenAiTimelineEntry($case)
+            );
+            $timelinePaginator->setCollection($openAiTimeline);
+
+            $stats['anomaly_cases_7d'] = BehaviorAnomalyCase::query()
+                ->where('device_id', $device->id)
+                ->where('detected_at', '>=', now()->subDays(7))
+                ->count();
+            $stats['openai_verdicts_7d'] = BehaviorAnomalyCase::query()
+                ->where('device_id', $device->id)
+                ->where('detected_at', '>=', now()->subDays(7))
+                ->get(['context'])
+                ->filter(function (BehaviorAnomalyCase $case): bool {
+                    $context = is_array($case->context) ? $case->context : [];
+
+                    return is_array($context['openai'] ?? null);
+                })
+                ->count();
+
+            BehaviorAnomalyCase::query()
+                ->where('device_id', $device->id)
+                ->orderByDesc('detected_at')
+                ->limit(250)
+                ->get(['context'])
+                ->each(function (BehaviorAnomalyCase $case) use (&$verdictDistribution): void {
+                    $context = is_array($case->context) ? $case->context : [];
+                    $openAi = is_array($context['openai'] ?? null) ? $context['openai'] : [];
+                    $classification = $this->normalizeOpenAiClassification((string) ($openAi['classification'] ?? ''));
+                    $verdictDistribution[$classification] = ($verdictDistribution[$classification] ?? 0) + 1;
+                });
+        }
+
+        return view('admin.device-behavior-intelligence', [
+            'device' => $device,
+            'history_events' => $historyEvents,
+            'openai_timeline' => $openAiTimeline,
+            'history_paginator' => $historyPaginator,
+            'timeline_paginator' => $timelinePaginator,
+            'stats' => $stats,
+            'verdict_distribution' => $verdictDistribution,
+            'history_table_ready' => $behaviorLogsTableReady,
+            'timeline_table_ready' => $anomalyCasesTableReady,
+        ]);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function normalizeOpenAiTimelineEntry(BehaviorAnomalyCase $case): array
+    {
+        $context = is_array($case->context) ? $case->context : [];
+        $openAi = is_array($context['openai'] ?? null) ? $context['openai'] : [];
+
+        $classification = $this->normalizeOpenAiClassification((string) ($openAi['classification'] ?? ''));
+        $recommendedAction = $this->normalizeOpenAiAction((string) ($openAi['recommended_action'] ?? ''));
+        $confidence = max(0.0, min(1.0, (float) ($openAi['confidence'] ?? 0.0)));
+        $riskAdjustment = (float) ($openAi['risk_adjustment'] ?? data_get($context, 'risk.openai_adjustment', 0.0));
+        $riskAdjustment = max(-0.35, min(0.35, $riskAdjustment));
+        $summary = trim((string) ($openAi['summary'] ?? $case->summary ?? ''));
+        if ($summary === '') {
+            $summary = 'No OpenAI summary captured for this case.';
+        }
+
+        $markersRaw = is_array($openAi['behavior_markers'] ?? null) ? $openAi['behavior_markers'] : [];
+        $markers = array_values(array_filter(array_map(function ($marker): string {
+            return is_scalar($marker) ? mb_substr(trim((string) $marker), 0, 120) : '';
+        }, $markersRaw), fn (string $marker) => $marker !== ''));
+
+        return [
+            'id' => (string) $case->id,
+            'detected_at' => $case->detected_at,
+            'detected_at_human' => $case->detected_at?->diffForHumans(),
+            'risk_score' => round((float) ($case->risk_score ?? 0.0), 4),
+            'severity' => (string) ($case->severity ?? 'low'),
+            'status' => (string) ($case->status ?? 'pending_review'),
+            'classification' => $classification,
+            'classification_label' => ucfirst($classification),
+            'confidence_percent' => round($confidence * 100, 1),
+            'recommended_action' => $recommendedAction,
+            'recommended_action_label' => str_replace('_', ' ', ucfirst($recommendedAction)),
+            'risk_adjustment' => round($riskAdjustment, 4),
+            'summary' => mb_substr($summary, 0, 220),
+            'behavior_markers' => array_slice($markers, 0, 8),
+            'model' => trim((string) ($openAi['model'] ?? '')),
+            'generated_at' => trim((string) ($openAi['generated_at'] ?? '')),
+        ];
+    }
+
+    private function normalizeOpenAiClassification(string $classification): string
+    {
+        $normalized = mb_strtolower(trim($classification));
+
+        return in_array($normalized, ['normal', 'suspicious', 'malicious', 'inconclusive'], true)
+            ? $normalized
+            : 'inconclusive';
+    }
+
+    private function normalizeOpenAiAction(string $recommendedAction): string
+    {
+        $normalized = mb_strtolower(trim($recommendedAction));
+
+        return in_array($normalized, ['observe', 'notify', 'apply_policy'], true)
+            ? $normalized
+            : 'observe';
     }
 
     public function removeDevicePolicyAssignment(Request $request, string $deviceId, string $assignmentId, AuditLogger $auditLogger): RedirectResponse
@@ -5630,6 +5812,10 @@ PS1;
 
     private function releaseTenantRouteValue(AgentRelease $release): string
     {
+        if ((bool) config('dms.standalone_mode', true)) {
+            return 'platform';
+        }
+
         $tenantId = is_string($release->tenant_id) ? trim((string) $release->tenant_id) : '';
 
         return $tenantId !== '' ? $tenantId : 'platform';
@@ -5637,6 +5823,10 @@ PS1;
 
     private function assertSignedReleaseTenantScope(Request $request, AgentRelease $release): void
     {
+        if ((bool) config('dms.standalone_mode', true)) {
+            return;
+        }
+
         $expected = $this->releaseTenantRouteValue($release);
         $provided = trim((string) $request->query('tenant', ''));
 

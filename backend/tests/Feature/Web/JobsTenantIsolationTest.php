@@ -15,6 +15,15 @@ class JobsTenantIsolationTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if ((bool) config('dms.standalone_mode', true)) {
+            $this->markTestSkipped('Tenant isolation tests are disabled in standalone mode.');
+        }
+    }
+
     public function test_jobs_dashboard_metrics_are_scoped_to_current_tenant(): void
     {
         [$tenantA, $tenantB] = $this->createTenants();

@@ -23,6 +23,9 @@
             <div class="flex flex-wrap items-center gap-2">
                 <span id="device-status" class="rounded-full win-chip px-3 py-1 text-xs text-slate-700">Status: {{ $device->status }}</span>
                 <span id="last-checkin" class="rounded-full win-chip px-3 py-1 text-xs text-slate-700">Last check-in: {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'never' }}</span>
+                <a href="{{ route('admin.devices.behavior-intelligence', $device->id) }}" class="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs text-sky-700 hover:bg-sky-100">
+                    Open Behavior Brain
+                </a>
             </div>
         </div>
         <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

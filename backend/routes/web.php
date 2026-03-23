@@ -2,15 +2,20 @@
 
 use App\Http\Controllers\Web\AdminAuthController;
 use App\Http\Controllers\Web\BehaviorAiController;
+use App\Http\Controllers\Web\AiPowerController;
 use App\Http\Controllers\Web\AdminConsoleController;
 use Illuminate\Support\Facades\Route;
+
+$standaloneMode = (bool) config('dms.standalone_mode', true);
 
 Route::view('/', 'welcome');
 Route::redirect('/login', '/admin/login')->name('login');
 
-Route::middleware('guest')->group(function () {
-    Route::get('/admin/signup', [AdminAuthController::class, 'registerForm'])->name('admin.signup');
-    Route::post('/admin/signup', [AdminAuthController::class, 'register'])->name('admin.signup.submit');
+Route::middleware('guest')->group(function () use ($standaloneMode) {
+    if (! $standaloneMode) {
+        Route::get('/admin/signup', [AdminAuthController::class, 'registerForm'])->name('admin.signup');
+        Route::post('/admin/signup', [AdminAuthController::class, 'register'])->name('admin.signup.submit');
+    }
     Route::get('/admin/login', [AdminAuthController::class, 'loginForm'])->name('admin.login');
     Route::post('/admin/login', [AdminAuthController::class, 'login'])->name('admin.login.submit');
     Route::get('/admin/login/captcha-refresh', [AdminAuthController::class, 'refreshCaptcha'])->name('admin.login.captcha.refresh');
@@ -19,7 +24,7 @@ Route::middleware('guest')->group(function () {
     Route::post('/admin/login/mfa/cancel', [AdminAuthController::class, 'cancelMfa'])->name('admin.login.mfa.cancel');
 });
 
-Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
+Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () use ($standaloneMode) {
     Route::post('/logout', [AdminAuthController::class, 'logout'])->name('logout');
 
     Route::get('/', [AdminConsoleController::class, 'dashboard'])->name('dashboard');
@@ -27,6 +32,7 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::get('/devices', [AdminConsoleController::class, 'devices'])->name('devices');
     Route::get('/enroll-devices', [AdminConsoleController::class, 'enrollDevices'])->name('enroll-devices');
     Route::get('/devices/{deviceId}', [AdminConsoleController::class, 'deviceDetail'])->name('devices.show');
+    Route::get('/devices/{deviceId}/behavior-intelligence', [AdminConsoleController::class, 'deviceBehaviorIntelligence'])->name('devices.behavior-intelligence');
     Route::get('/devices/{deviceId}/live', [AdminConsoleController::class, 'deviceDetailLive'])->name('devices.live');
     Route::patch('/devices/{deviceId}', [AdminConsoleController::class, 'updateDevice'])->name('devices.update');
     Route::delete('/devices/{deviceId}', [AdminConsoleController::class, 'deleteDevice'])->name('devices.delete');
@@ -123,13 +129,17 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::post('/settings/https-app-url', [AdminConsoleController::class, 'updateHttpsAppUrl'])->name('settings.https-app-url');
     Route::post('/settings/environment-posture', [AdminConsoleController::class, 'updateEnvironmentPosture'])->name('settings.environment-posture');
     Route::get('/access', [AdminConsoleController::class, 'access'])->name('access');
-    Route::get('/saas/dashboard', [AdminConsoleController::class, 'saasDashboard'])->name('saas.dashboard');
-    Route::get('/saas/tenants', [AdminConsoleController::class, 'saasTenants'])->name('saas.tenants');
-    Route::post('/saas/tenants', [AdminConsoleController::class, 'createTenant'])->name('saas.tenants.create');
-    Route::patch('/saas/tenants/{tenantId}', [AdminConsoleController::class, 'updateTenant'])->name('saas.tenants.update');
-    Route::post('/saas/tenants/{tenantId}/switch', [AdminConsoleController::class, 'switchTenantContext'])->name('saas.tenants.switch');
-    Route::post('/saas/tenants/switch/platform', [AdminConsoleController::class, 'clearTenantContext'])->name('saas.tenants.switch.platform');
-    Route::post('/saas/users/tenant', [AdminConsoleController::class, 'assignUserTenant'])->name('saas.users.tenant.assign');
+
+    if (! $standaloneMode) {
+        Route::get('/saas/dashboard', [AdminConsoleController::class, 'saasDashboard'])->name('saas.dashboard');
+        Route::get('/saas/tenants', [AdminConsoleController::class, 'saasTenants'])->name('saas.tenants');
+        Route::post('/saas/tenants', [AdminConsoleController::class, 'createTenant'])->name('saas.tenants.create');
+        Route::patch('/saas/tenants/{tenantId}', [AdminConsoleController::class, 'updateTenant'])->name('saas.tenants.update');
+        Route::post('/saas/tenants/{tenantId}/switch', [AdminConsoleController::class, 'switchTenantContext'])->name('saas.tenants.switch');
+        Route::post('/saas/tenants/switch/platform', [AdminConsoleController::class, 'clearTenantContext'])->name('saas.tenants.switch.platform');
+        Route::post('/saas/users/tenant', [AdminConsoleController::class, 'assignUserTenant'])->name('saas.users.tenant.assign');
+    }
+
     Route::post('/access/users', [AdminConsoleController::class, 'createStaffUser'])->name('access.users.create');
     Route::post('/access/roles', [AdminConsoleController::class, 'createRole'])->name('access.roles.create');
     Route::patch('/access/roles/{roleId}/permissions', [AdminConsoleController::class, 'updateRolePermissions'])->name('access.roles.permissions.update');
@@ -137,6 +147,8 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::patch('/access/users/{userId}/roles', [AdminConsoleController::class, 'assignUserRoles'])->name('access.users.roles.update');
     Route::get('/audit', [AdminConsoleController::class, 'audit'])->name('audit');
     Route::get('/behavior-ai', [BehaviorAiController::class, 'index'])->name('behavior-ai.index');
+    Route::get('/ai-power', [AiPowerController::class, 'index'])->name('ai-power.index');
+    Route::post('/ai-power/execute', [AiPowerController::class, 'execute'])->name('ai-power.execute');
     Route::post('/behavior-ai/recommendations/{recommendationId}/review', [BehaviorAiController::class, 'reviewRecommendation'])->name('behavior-ai.review');
     Route::post('/behavior-ai/recommendations/approve-all-pending', [BehaviorAiController::class, 'approveAllPendingRecommendations'])->name('behavior-ai.review.approve-all-pending');
     Route::post('/behavior-ai/runtime/start', [BehaviorAiController::class, 'startRuntime'])->name('behavior-ai.runtime.start');

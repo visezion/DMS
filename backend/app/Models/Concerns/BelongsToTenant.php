@@ -16,6 +16,10 @@ trait BelongsToTenant
 
     public static function bootBelongsToTenant(): void
     {
+        if (static::standaloneMode()) {
+            return;
+        }
+
         static::addGlobalScope('tenant', function (Builder $builder): void {
             $model = $builder->getModel();
             if (! static::hasTenantColumn($model)) {
@@ -61,5 +65,10 @@ trait BelongsToTenant
         }
 
         return static::$tenantColumnCache[$table] = Schema::hasColumn($table, 'tenant_id');
+    }
+
+    protected static function standaloneMode(): bool
+    {
+        return (bool) config('dms.standalone_mode', true);
     }
 }

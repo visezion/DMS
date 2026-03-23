@@ -20,7 +20,8 @@
     $topbarInitial = strtoupper(substr($topbarUserName, 0, 1));
     $topbarIsSuperAdmin = false;
     $topbarCanManageSaasTenants = false;
-    if ($topbarUser) {
+    $standaloneMode = (bool) config('dms.standalone_mode', true);
+    if ($topbarUser && ! $standaloneMode) {
         $topbarIsSuperAdmin = \Illuminate\Support\Facades\DB::table('role_user')
             ->join('roles', 'roles.id', '=', 'role_user.role_id')
             ->where('role_user.user_id', $topbarUser->id)
@@ -338,8 +339,8 @@
                 </div>
             </details>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
-            <details class="pt-2 group" {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'open' : '' }}>
-                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+            <details class="pt-2 group" {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'open' : '' }}>
+                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
                     <span class="flex items-center gap-2">
                         <span aria-hidden="true" class="text-current">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
@@ -349,7 +350,7 @@
                         </span>
                         <span class="flex items-center gap-2">
                             <span>Behaviour Center</span>
-                            <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700' }}">
+                            <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700' }}">
                                 WIP
                             </span>
                         </span>
@@ -365,6 +366,15 @@
                             </svg>
                         </span>
                         <span>AI Control Center</span>
+                    </a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.ai-power*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.ai-power.index') }}">
+                        <span aria-hidden="true" class="text-current">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
+                                <path d="M4 12h16M12 4v16"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                        </span>
+                        <span>AI Power</span>
                     </a>
                     <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.behavior-baseline*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-baseline.index') }}">
                         <span aria-hidden="true" class="text-current">
@@ -617,14 +627,17 @@
 
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
 
-                    <details class="pt-1 group" {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'open' : '' }}>
-                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                    <details class="pt-1 group" {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'open' : '' }}>
+                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
                             <span>Behaviour Center</span>
                             <span class="expand-indicator text-xs"></span>
                         </summary>
                         <div class="mt-3 pl-2 space-y-2">
                             <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.behavior-ai*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-ai.index') }}">
                                 <span>AI Control Center</span>
+                            </a>
+                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.ai-power*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.ai-power.index') }}">
+                                <span>AI Power</span>
                             </a>
                             <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.behavior-baseline*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-baseline.index') }}">
                                 <span>Behavioral Baseline</span>

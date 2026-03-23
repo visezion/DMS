@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'standalone_mode' => env('DMS_STANDALONE_MODE', true),
     'enforce_mtls' => env('DMS_ENFORCE_MTLS', false),
     'command_signing_required' => env('DMS_COMMAND_SIGNING_REQUIRED', true),
     'checkin_interval_seconds' => (int) env('DMS_CHECKIN_INTERVAL_SECONDS', 60),

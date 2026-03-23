@@ -464,6 +464,10 @@ class AdminAuthController extends Controller
 
     private function selfSignupEnabled(): bool
     {
+        if ((bool) config('dms.standalone_mode', true)) {
+            return false;
+        }
+
         return filter_var((string) env('DMS_SELF_SIGNUP_ENABLED', 'true'), FILTER_VALIDATE_BOOL);
     }
 }
