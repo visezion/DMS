@@ -113,6 +113,7 @@ public sealed class BehaviorTelemetryCollector
 
         DateTimeOffset occurredAt = ResolveOccurredAt(doc, record.TimeCreated);
         string recordId = (record.RecordId ?? 0).ToString();
+        string eventUid = $"security:{record.Id}:{recordId}";
 
         if (record.Id is 4624 or 4625)
         {
@@ -146,9 +147,12 @@ public sealed class BehaviorTelemetryCollector
             string sourceIp = NullIfWhitespace(ReadEventData(doc, "IpAddress")) ?? string.Empty;
             string sourceWorkstation = NullIfWhitespace(ReadEventData(doc, "WorkstationName")) ?? string.Empty;
             string sourceProcess = NullIfWhitespace(ReadEventData(doc, "ProcessName")) ?? string.Empty;
+            string sessionUid = NullIfWhitespace(ReadEventData(doc, "TargetLogonId")) ?? NullIfWhitespace(ReadEventData(doc, "SubjectLogonId")) ?? $"logon:{recordId}";
 
             return new BehaviorEventDto
             {
+                EventUid = eventUid,
+                SessionUid = sessionUid,
                 EventType = "user_logon",
                 OccurredAt = occurredAt,
                 UserName = user,
@@ -184,8 +188,15 @@ public sealed class BehaviorTelemetryCollector
             }
 
             string user = ReadEventData(doc, "SubjectUserName");
+            string? processId = NullIfWhitespace(ReadEventData(doc, "NewProcessId"));
+            string? parentProcessId = NullIfWhitespace(ReadEventData(doc, "ProcessId"));
+            string? sessionUid = NullIfWhitespace(ReadEventData(doc, "SubjectLogonId"));
             return new BehaviorEventDto
             {
+                EventUid = eventUid,
+                SessionUid = sessionUid,
+                ProcessUid = processId is null ? null : $"pid:{processId}",
+                ParentProcessUid = parentProcessId is null ? null : $"pid:{parentProcessId}",
                 EventType = "app_launch",
                 OccurredAt = occurredAt,
                 UserName = string.IsNullOrWhiteSpace(user) ? null : user,
@@ -195,6 +206,8 @@ public sealed class BehaviorTelemetryCollector
                 {
                     ["source_event_id"] = record.Id,
                     ["source_record_id"] = recordId,
+                    ["new_process_id"] = processId,
+                    ["parent_process_id"] = parentProcessId,
                     ["command_line"] = ReadEventData(doc, "CommandLine"),
                     ["source_log"] = "Security",
                 },
@@ -209,6 +222,9 @@ public sealed class BehaviorTelemetryCollector
 
         return new BehaviorEventDto
         {
+            EventUid = eventUid,
+            SessionUid = NullIfWhitespace(ReadEventData(doc, "SubjectLogonId")),
+            ProcessUid = NullIfWhitespace(ReadEventData(doc, "ProcessId")) is string fileAccessProcessId ? $"pid:{fileAccessProcessId}" : null,
             EventType = "file_access",
             OccurredAt = occurredAt,
             UserName = NullIfWhitespace(ReadEventData(doc, "SubjectUserName")),

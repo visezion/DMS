@@ -2,16 +2,21 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Common\DeviceIngestionAuthService;
+use App\Domain\Common\DeviceIntelligenceDispatchService;
 use App\Http\Controllers\Controller;
 use App\Models\ComplianceResult;
 use App\Models\ControlPlaneSetting;
 use App\Models\Device;
+use App\Models\DeviceHealthSnapshot;
 use App\Models\DmsJob;
 use App\Models\JobEvent;
 use App\Models\JobRun;
+use App\Models\ActionRollback;
 use App\Models\Policy;
 use App\Models\PolicyRule;
 use App\Models\PolicyVersion;
+use App\Models\RemediationActionResult;
 use App\Services\AuditLogger;
 use App\Services\CommandEnvelopeSigner;
 use Illuminate\Http\JsonResponse;
@@ -21,12 +26,19 @@ use Illuminate\Support\Str;
 
 class DeviceCheckinController extends Controller
 {
+    public function __construct(
+        private readonly DeviceIntelligenceDispatchService $dispatchService,
+        private readonly DeviceIngestionAuthService $ingestionAuth,
+    ) {
+    }
+
     public function heartbeat(Request $request): JsonResponse
     {
         $payload = $request->validate([
             'device_id' => ['required', 'uuid'],
             'agent_version' => ['required', 'string'],
             'agent_build' => ['nullable', 'string', 'max:128'],
+            'checkin_id' => ['nullable', 'string', 'max:128'],
             'hostname' => ['nullable', 'string', 'max:255'],
             'os_name' => ['nullable', 'string', 'max:255'],
             'os_version' => ['nullable', 'string', 'max:255'],
@@ -53,6 +65,9 @@ class DeviceCheckinController extends Controller
             $tags['runtime_diagnostics'] = $payload['runtime_diagnostics'];
             $tags['runtime_diagnostics_updated_at'] = now()->toIso8601String();
         }
+        if (! empty($payload['checkin_id'])) {
+            $tags['last_checkin_id'] = (string) $payload['checkin_id'];
+        }
         $this->mergeRequestIpIntoRuntimeTags($tags, $request);
         $this->mergeUwfStatusIntoTags($tags, $payload);
         $updateData = [
@@ -63,8 +78,17 @@ class DeviceCheckinController extends Controller
         ];
         $this->applyDeviceIdentityUpdates($updateData, $payload);
         $device->update($updateData);
+        $this->dispatchIntelligenceBuild(
+            $device->id,
+            $this->shouldBuildIntelligenceImmediately($device->id, $payload)
+        );
+        $bootstrap = $this->bootstrapPayload($device);
 
-        return response()->json(['ok' => true, 'server_time' => now()->toIso8601String()]);
+        return response()->json([
+            'ok' => true,
+            'server_time' => now()->toIso8601String(),
+            'bootstrap' => $bootstrap,
+        ]);
     }
 
     public function checkin(Request $request, CommandEnvelopeSigner $signer): JsonResponse
@@ -73,6 +97,7 @@ class DeviceCheckinController extends Controller
             'device_id' => ['required', 'uuid'],
             'agent_version' => ['nullable', 'string'],
             'agent_build' => ['nullable', 'string', 'max:128'],
+            'checkin_id' => ['nullable', 'string', 'max:128'],
             'hostname' => ['nullable', 'string', 'max:255'],
             'os_name' => ['nullable', 'string', 'max:255'],
             'os_version' => ['nullable', 'string', 'max:255'],
@@ -98,6 +123,9 @@ class DeviceCheckinController extends Controller
             $tags['runtime_diagnostics'] = $payload['runtime_diagnostics'];
             $tags['runtime_diagnostics_updated_at'] = now()->toIso8601String();
         }
+        if (! empty($payload['checkin_id'])) {
+            $tags['last_checkin_id'] = (string) $payload['checkin_id'];
+        }
         $this->mergeRequestIpIntoRuntimeTags($tags, $request);
         $this->mergeUwfStatusIntoTags($tags, $payload);
         $updateData = [
@@ -110,12 +138,18 @@ class DeviceCheckinController extends Controller
         }
         $this->applyDeviceIdentityUpdates($updateData, $payload);
         $device->update($updateData);
+        $this->dispatchIntelligenceBuild(
+            $device->id,
+            $this->shouldBuildIntelligenceImmediately($device->id, $payload)
+        );
 
         $killSwitch = $this->settingBool('jobs.kill_switch', false);
+        $bootstrap = $this->bootstrapPayload($device);
         if ($killSwitch) {
             return response()->json([
                 'server_time' => now()->toIso8601String(),
                 'commands' => [],
+                'bootstrap' => $bootstrap,
                 'control' => [
                     'jobs_paused' => true,
                 ],
@@ -195,6 +229,7 @@ class DeviceCheckinController extends Controller
         return response()->json([
             'server_time' => now()->toIso8601String(),
             'commands' => $commands,
+            'bootstrap' => $bootstrap,
         ]);
     }
 
@@ -290,6 +325,14 @@ class DeviceCheckinController extends Controller
             'status' => ['required', 'in:success,failed,running,non_compliant'],
             'exit_code' => ['nullable', 'integer'],
             'result_payload' => ['nullable', 'array'],
+            'execution_duration_ms' => ['nullable', 'integer', 'min:0'],
+            'stdout_sha256' => ['nullable', 'string', 'max:128'],
+            'stderr_sha256' => ['nullable', 'string', 'max:128'],
+            'rollback_hint' => ['nullable', 'array'],
+            'artifacts' => ['nullable', 'array'],
+            'action_token' => ['nullable', 'string', 'max:255'],
+            'idempotency_key' => ['nullable', 'string', 'max:255'],
+            'checkin_id' => ['nullable', 'string', 'max:128'],
         ]);
 
         $run = JobRun::query()->where('id', $payload['job_run_id'])->where('device_id', $payload['device_id'])->firstOrFail();
@@ -298,6 +341,19 @@ class DeviceCheckinController extends Controller
         $status = $payload['status'];
         $resultPayload = $payload['result_payload'] ?? null;
         $exitCode = $payload['exit_code'] ?? null;
+        $resultEvidence = [
+            'execution_duration_ms' => $payload['execution_duration_ms'] ?? null,
+            'stdout_sha256' => $payload['stdout_sha256'] ?? null,
+            'stderr_sha256' => $payload['stderr_sha256'] ?? null,
+            'rollback_hint' => $payload['rollback_hint'] ?? null,
+            'artifacts' => $payload['artifacts'] ?? null,
+            'action_token' => $payload['action_token'] ?? null,
+            'idempotency_key' => $payload['idempotency_key'] ?? null,
+            'checkin_id' => $payload['checkin_id'] ?? null,
+        ];
+        if (is_array($resultPayload)) {
+            $resultPayload['_agent_result_meta'] = array_filter($resultEvidence, fn ($value) => $value !== null && $value !== []);
+        }
         if (
             $job
             && $job->job_type === 'apply_policy'
@@ -357,8 +413,18 @@ class DeviceCheckinController extends Controller
                 'attempt_count' => $attempt,
                 'retry_scheduled' => $retryable,
                 'next_retry_at' => $run->next_retry_at?->toIso8601String(),
+                'execution_duration_ms' => $payload['execution_duration_ms'] ?? null,
+                'stdout_sha256' => $payload['stdout_sha256'] ?? null,
+                'stderr_sha256' => $payload['stderr_sha256'] ?? null,
+                'rollback_hint' => $payload['rollback_hint'] ?? null,
+                'artifacts' => $payload['artifacts'] ?? null,
+                'action_token' => $payload['action_token'] ?? null,
+                'idempotency_key' => $payload['idempotency_key'] ?? null,
+                'checkin_id' => $payload['checkin_id'] ?? null,
             ],
         ]);
+
+        $this->syncRemediationActionOutcome($run, $status, $exitCode, $resultPayload, $payload);
 
         if ($job && $job->job_type === 'apply_policy' && is_array($resultPayload)) {
             $policyVersionId = (string) ($job->payload['policy_version_id'] ?? '');
@@ -394,6 +460,10 @@ class DeviceCheckinController extends Controller
 
         if ($job) {
             $this->syncJobStatus($job->id);
+        }
+
+        if ($device) {
+            $this->dispatchIntelligenceBuild($device->id);
         }
 
         $auditLogger->log('job.result', 'job_run', $run->id, null, $run->toArray(), null, $run->device_id);
@@ -453,7 +523,70 @@ class DeviceCheckinController extends Controller
             ]);
         }
 
+        $this->dispatchIntelligenceBuild($payload['device_id']);
+
         return response()->json(['ok' => true]);
+    }
+
+    private function syncRemediationActionOutcome(JobRun $run, string $status, ?int $exitCode, ?array $resultPayload, array $payload): void
+    {
+        $actionResult = RemediationActionResult::query()
+            ->where(function ($query) use ($run) {
+                $query->where('job_run_id', $run->id)->orWhere('job_id', $run->job_id);
+            })
+            ->latest('created_at')
+            ->first();
+
+        if (! $actionResult) {
+            return;
+        }
+
+        $evidence = is_array($actionResult->evidence) ? $actionResult->evidence : [];
+        $evidence = array_merge($evidence, [
+            'result_payload' => $resultPayload,
+            'execution_duration_ms' => $payload['execution_duration_ms'] ?? null,
+            'stdout_sha256' => $payload['stdout_sha256'] ?? null,
+            'stderr_sha256' => $payload['stderr_sha256'] ?? null,
+            'rollback_hint' => $payload['rollback_hint'] ?? null,
+            'artifacts' => $payload['artifacts'] ?? null,
+            'action_token' => $payload['action_token'] ?? null,
+            'idempotency_key' => $payload['idempotency_key'] ?? null,
+            'checkin_id' => $payload['checkin_id'] ?? null,
+        ]);
+
+        $actionResult->update([
+            'job_run_id' => $run->id,
+            'status' => $status,
+            'exit_code' => $exitCode,
+            'evidence' => array_filter($evidence, fn ($value) => $value !== null),
+            'error_text' => is_array($resultPayload) ? ($resultPayload['error'] ?? null) : null,
+            'finished_at' => now(),
+        ]);
+
+        $action = $actionResult->action;
+        if ($action) {
+            $action->update([
+                'status' => $status === 'success' ? 'completed' : ($status === 'running' ? 'running' : 'failed'),
+            ]);
+        }
+
+        $rollbackHint = is_array($payload['rollback_hint'] ?? null) ? $payload['rollback_hint'] : [];
+        if (($status === 'failed' || $status === 'non_compliant') && ($rollbackHint['possible'] ?? false)) {
+            ActionRollback::query()->firstOrCreate(
+                [
+                    'tenant_id' => $actionResult->tenant_id,
+                    'action_result_id' => $actionResult->id,
+                    'status' => 'available',
+                ],
+                [
+                    'id' => (string) Str::uuid(),
+                    'rollback_action_type' => (string) ($rollbackHint['job_type'] ?? 'manual_review'),
+                    'rollback_args' => is_array($rollbackHint) ? $rollbackHint : [],
+                    'result' => [],
+                    'started_at' => now(),
+                ]
+            );
+        }
     }
 
     private function ensureComplianceCheck(?string $policyId, ?string $policyVersionId): string
@@ -1205,25 +1338,80 @@ class DeviceCheckinController extends Controller
 
     private function applyDeviceIdentityUpdates(array &$updateData, array $payload): void
     {
+        $identityHints = $this->extractDeviceIdentityHints($payload);
+
         $hostname = trim((string) ($payload['hostname'] ?? ''));
+        if ($hostname === '') {
+            $hostname = trim((string) ($identityHints['hostname'] ?? ''));
+        }
         if ($hostname !== '') {
             $updateData['hostname'] = $hostname;
         }
 
         $osName = trim((string) ($payload['os_name'] ?? ''));
+        if ($osName === '') {
+            $osName = trim((string) ($identityHints['windows_edition'] ?? ''));
+        }
         if ($osName !== '') {
             $updateData['os_name'] = $osName;
         }
 
         $osVersion = trim((string) ($payload['os_version'] ?? ''));
+        if ($osVersion === '') {
+            $osVersion = trim((string) ($identityHints['windows_build_number'] ?? ''));
+        }
         if ($osVersion !== '') {
             $updateData['os_version'] = $osVersion;
         }
 
         $serial = trim((string) ($payload['serial_number'] ?? ''));
+        if ($serial === '') {
+            $serial = trim((string) ($identityHints['serial_number'] ?? ''));
+        }
         if ($serial !== '') {
             $updateData['serial_number'] = $serial;
         }
+
+        if ($identityHints !== []) {
+            $tags = is_array($updateData['tags'] ?? null) ? $updateData['tags'] : [];
+            $tags['device_identity'] = array_filter($identityHints, function ($value) {
+                if (is_bool($value)) {
+                    return true;
+                }
+
+                return $value !== null && $value !== '';
+            });
+            $tags['device_identity_updated_at'] = now()->toIso8601String();
+            $updateData['tags'] = $tags;
+        }
+    }
+
+    private function extractDeviceIdentityHints(array $payload): array
+    {
+        $inventory = is_array($payload['inventory'] ?? null) ? $payload['inventory'] : [];
+        $deviceIdentity = is_array($inventory['device_identity'] ?? null) ? $inventory['device_identity'] : [];
+        $windowsIdentity = is_array(data_get($inventory, 'windows_telemetry.basic_device_identity')) ? data_get($inventory, 'windows_telemetry.basic_device_identity') : [];
+
+        $resolved = [
+            'hostname' => trim((string) ($deviceIdentity['hostname'] ?? $windowsIdentity['hostname'] ?? '')),
+            'serial_number' => trim((string) ($deviceIdentity['serial_number'] ?? $windowsIdentity['serial_number'] ?? '')),
+            'manufacturer' => trim((string) ($deviceIdentity['manufacturer'] ?? $windowsIdentity['manufacturer'] ?? '')),
+            'model' => trim((string) ($deviceIdentity['model'] ?? $windowsIdentity['model'] ?? '')),
+            'windows_edition' => trim((string) ($deviceIdentity['windows_edition'] ?? $windowsIdentity['windows_edition'] ?? '')),
+            'windows_build_number' => trim((string) ($deviceIdentity['windows_build_number'] ?? $windowsIdentity['windows_build_number'] ?? '')),
+            'bios_uefi_version' => trim((string) ($deviceIdentity['bios_uefi_version'] ?? $windowsIdentity['bios_uefi_version'] ?? '')),
+            'physical_location' => trim((string) ($deviceIdentity['physical_location'] ?? $windowsIdentity['physical_location'] ?? '')),
+            'domain_joined' => (bool) ($deviceIdentity['domain_joined'] ?? $windowsIdentity['domain_joined'] ?? false),
+            'azure_ad_joined' => (bool) ($deviceIdentity['azure_ad_joined'] ?? $windowsIdentity['azure_ad_joined'] ?? false),
+        ];
+
+        return array_filter($resolved, function ($value) {
+            if (is_bool($value)) {
+                return true;
+            }
+
+            return $value !== null && $value !== '';
+        });
     }
 
     private function mergeUwfStatusIntoTags(array &$tags, array $payload): void
@@ -1270,6 +1458,38 @@ class DeviceCheckinController extends Controller
 
         $tags['runtime_diagnostics'] = $runtime;
         $tags['runtime_diagnostics_updated_at'] = now()->toIso8601String();
+    }
+
+    private function shouldBuildIntelligenceImmediately(string $deviceId, array $payload): bool
+    {
+        $hasSnapshot = DeviceHealthSnapshot::query()->where('device_id', $deviceId)->exists();
+        if ($hasSnapshot) {
+            return false;
+        }
+
+        return is_array($payload['inventory'] ?? null)
+            || is_array($payload['runtime_diagnostics'] ?? null)
+            || is_array($payload['uwf_status'] ?? null);
+    }
+
+    private function dispatchIntelligenceBuild(string $deviceId, bool $immediate = false): void
+    {
+        $this->dispatchService->dispatch($deviceId, $immediate);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function bootstrapPayload(Device $device): array
+    {
+        $checkinInterval = max(15, min(300, (int) config('services.endpoint_intelligence.checkin_interval_seconds', 60)));
+        $nonceWindow = max(60, (int) config('services.endpoint_intelligence.nonce_window_seconds', 300));
+
+        return [
+            'checkin_interval_seconds' => $checkinInterval,
+            'nonce_window_seconds' => $nonceWindow,
+            'behavior_ingest_token' => $this->ingestionAuth->ensureBehaviorIngestToken($device),
+        ];
     }
 
     private function signatureCompatCandidateCount(CommandEnvelopeSigner $signer): int

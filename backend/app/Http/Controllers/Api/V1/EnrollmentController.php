@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Common\DeviceIngestionAuthService;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\DeviceIdentity;
@@ -13,6 +14,11 @@ use Illuminate\Support\Str;
 
 class EnrollmentController extends Controller
 {
+    public function __construct(
+        private readonly DeviceIngestionAuthService $ingestionAuth
+    ) {
+    }
+
     public function enroll(Request $request, AuditLogger $auditLogger): JsonResponse
     {
         $payload = $request->validate([
@@ -75,6 +81,7 @@ class EnrollmentController extends Controller
         ]);
 
         $auditLogger->log('device.enroll', 'device', $device->id, null, $device->toArray(), null, $device->id);
+        $behaviorIngestToken = $this->ingestionAuth->ensureBehaviorIngestToken($device);
 
         return response()->json([
             'device_id' => $device->id,
@@ -85,8 +92,9 @@ class EnrollmentController extends Controller
                 'expires_at' => now()->addYear()->toIso8601String(),
             ],
             'bootstrap' => [
-                'checkin_interval_seconds' => 60,
-                'nonce_window_seconds' => 300,
+                'checkin_interval_seconds' => max(15, min(300, (int) config('services.endpoint_intelligence.checkin_interval_seconds', 60))),
+                'nonce_window_seconds' => max(60, (int) config('services.endpoint_intelligence.nonce_window_seconds', 300)),
+                'behavior_ingest_token' => $behaviorIngestToken,
             ],
         ], 201);
     }

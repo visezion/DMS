@@ -38,6 +38,7 @@ internal static class DeviceInventoryCollector
         var data = new Dictionary<string, object?>
         {
             ["collected_at"] = DateTimeOffset.UtcNow.ToString("O"),
+            ["device_identity"] = await GetDeviceIdentityAsync(cancellationToken),
             ["cpu"] = GetCpu(),
             ["memory"] = GetMemory(),
             ["disks"] = GetDisks(),
@@ -47,6 +48,7 @@ internal static class DeviceInventoryCollector
             ["running_processes"] = GetProcesses(),
             ["services"] = GetServices(),
             ["geolocation"] = await GetGeoAsync(cancellationToken),
+            ["windows_telemetry"] = await WindowsExtendedTelemetryCollector.CollectAsync(cancellationToken),
         };
 
         lock (Sync)
@@ -300,6 +302,91 @@ internal static class DeviceInventoryCollector
             ["ip_addresses"] = ips.Take(20).ToList(),
             ["adapters"] = adapters.Take(50).ToList(),
         };
+    }
+
+    private static async Task<Dictionary<string, object?>> GetDeviceIdentityAsync(CancellationToken cancellationToken)
+    {
+        string hostname = Environment.MachineName;
+        string serialNumber = string.Empty;
+        string manufacturer = string.Empty;
+        string model = string.Empty;
+        string windowsEdition = string.Empty;
+        string windowsBuildNumber = string.Empty;
+        string biosVersion = string.Empty;
+        bool domainJoined = false;
+
+        try
+        {
+            using RegistryKey? currentVersion = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            windowsEdition = currentVersion?.GetValue("ProductName")?.ToString() ?? string.Empty;
+            windowsBuildNumber = currentVersion?.GetValue("CurrentBuildNumber")?.ToString() ?? string.Empty;
+        }
+        catch { }
+
+        try
+        {
+            string? output = await RunPowerShellSnippetAsync("""
+$ErrorActionPreference='SilentlyContinue'
+$cs = Get-CimInstance Win32_ComputerSystem
+$bios = Get-CimInstance Win32_BIOS
+[Console]::Out.WriteLine([string]$cs.Manufacturer)
+[Console]::Out.WriteLine([string]$cs.Model)
+[Console]::Out.WriteLine([string]$bios.SerialNumber)
+[Console]::Out.WriteLine([string]$bios.SMBIOSBIOSVersion)
+[Console]::Out.WriteLine(([bool]($cs.PartOfDomain)))
+""", cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                string[] lines = output
+                    .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+                manufacturer = lines.ElementAtOrDefault(0) ?? string.Empty;
+                model = lines.ElementAtOrDefault(1) ?? string.Empty;
+                serialNumber = lines.ElementAtOrDefault(2) ?? string.Empty;
+                biosVersion = lines.ElementAtOrDefault(3) ?? string.Empty;
+                domainJoined = bool.TryParse(lines.ElementAtOrDefault(4), out bool parsedDomainJoined) && parsedDomainJoined;
+            }
+        }
+        catch { }
+
+        return new Dictionary<string, object?>
+        {
+            ["hostname"] = hostname,
+            ["serial_number"] = serialNumber,
+            ["manufacturer"] = manufacturer,
+            ["model"] = model,
+            ["windows_edition"] = windowsEdition,
+            ["windows_build_number"] = windowsBuildNumber,
+            ["bios_uefi_version"] = biosVersion,
+            ["domain_joined"] = domainJoined,
+            ["azure_ad_joined"] = false,
+            ["physical_location"] = Environment.GetEnvironmentVariable("DMS_DEVICE_LOCATION") ?? string.Empty,
+        };
+    }
+
+    private static async Task<string?> RunPowerShellSnippetAsync(string script, CancellationToken cancellationToken)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{script.Replace("\"", "\\\"").Replace("\r", string.Empty).Replace("\n", "; ")}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        using var process = Process.Start(psi);
+        if (process is null)
+        {
+            return null;
+        }
+
+        string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+
+        return process.ExitCode == 0 ? output : null;
     }
 
     private static async Task<Dictionary<string, object?>?> GetGeoAsync(CancellationToken cancellationToken)

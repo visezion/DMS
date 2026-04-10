@@ -63,7 +63,7 @@
 
         $policyDensity = round((((int) ($metrics['policies_total'] ?? 0)) / $deviceTotal) * 100, 1);
         $packageDensity = round((((int) ($metrics['packages_total'] ?? 0)) / $deviceTotal) * 100, 1);
-        $aiQueue = (int) (($metrics['behavior_ai_cases_pending'] ?? 0) + ($metrics['behavior_ai_recommendations_pending'] ?? 0));
+        $coverageRate = round((((int) ($metrics['devices_enrolled'] ?? 0)) / $deviceTotal) * 100, 1);
 
         $deviceRingTotal = max(1, $deviceOnlineCount + $deviceOfflineCount + $devicePendingCount);
         $deviceOnlineDeg = round(($deviceOnlineCount / $deviceRingTotal) * 360, 1);
@@ -93,44 +93,80 @@
             ['label' => 'Jobs', 'url' => route('admin.jobs'), 'classes' => 'bg-indigo-100 text-indigo-800 border-indigo-200'],
             ['label' => 'Agent Delivery', 'url' => route('admin.agent'), 'classes' => 'bg-amber-100 text-amber-800 border-amber-200'],
         ];
+
+        $overviewCards = [
+            ['label' => 'Policies / 100 devices', 'value' => $policyDensity],
+            ['label' => 'Packages / 100 devices', 'value' => $packageDensity],
+            ['label' => 'Replay Rejects', 'value' => (int) ($metrics['replay_rejects'] ?? 0)],
+            ['label' => 'Failed / Device', 'value' => $failureRate.'%'],
+        ];
+
+        $intelligenceTrend = $jobTrend->values()->map(function (array $point, int $index) use ($anomalyTrend) {
+            $dayTotal = max(1, (int) (($point['success'] ?? 0) + ($point['failed'] ?? 0) + ($point['active'] ?? 0)));
+            $daySuccessRate = ((int) ($point['success'] ?? 0) / $dayTotal) * 100;
+            $dayRisk = max(0, min(100, 100 - $daySuccessRate));
+            $dayIncidents = (int) (($anomalyTrend[$index]['total'] ?? 0));
+            $projection = max(0, min(100, ($dayRisk * 0.62) + min(38, $dayIncidents * 8.5)));
+
+            return [
+                'label' => $point['label'] ?? now()->format('M d'),
+                'projection' => round($projection, 1),
+                'incidents' => $dayIncidents,
+            ];
+        });
+        $projectionNext24h = round(min(100, max(0, (($intelligenceTrend->take(-3)->avg('projection') ?? 0) * 0.68) + ($riskScore * 0.32))), 1);
+        $fleetAverageHealth = round(max(0, min(100, ($onlineRate + $complianceRate + $jobSuccessRate) / 3)), 1);
+        $fleetAverageRisk = round(max(0, min(100, 100 - $fleetAverageHealth)), 1);
+        $incidentDailyAverage = round((float) ($anomalyTrend->avg('total') ?? 0), 1);
+        $incidentChartMax = max(1, (int) $intelligenceTrend->max('incidents'));
+        $projectionTone = $projectionNext24h >= 60 ? 'text-rose-700 bg-rose-50 border-rose-200' : ($projectionNext24h >= 35 ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200');
+        $fleetRiskTone = $fleetAverageRisk >= 60 ? 'text-rose-700 bg-rose-50 border-rose-200' : ($fleetAverageRisk >= 35 ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200');
+        $fleetAverageCards = [
+            ['label' => 'Fleet Average Health', 'value' => $fleetAverageHealth.'%', 'barClass' => 'bg-teal-500', 'barValue' => $fleetAverageHealth],
+            ['label' => 'Fleet Average Risk', 'value' => $fleetAverageRisk.'%', 'barClass' => 'bg-rose-500', 'barValue' => $fleetAverageRisk],
+            ['label' => 'Incidents / Day', 'value' => $incidentDailyAverage, 'barClass' => 'bg-amber-500', 'barValue' => min(100, $incidentDailyAverage * 14)],
+            ['label' => 'Projected Risk (24h)', 'value' => $projectionNext24h.'%', 'barClass' => 'bg-sky-500', 'barValue' => $projectionNext24h],
+        ];
+
+        $recentPanels = [
+            ['type' => 'devices', 'eyebrow' => 'Recent Devices', 'title' => 'Last touched endpoints', 'route' => route('admin.devices'), 'cta' => 'Open Devices'],
+            ['type' => 'jobs', 'eyebrow' => 'Recent Job Runs', 'title' => 'Latest execution traffic', 'route' => route('admin.jobs'), 'cta' => 'Open Jobs'],
+            ['type' => 'risk', 'eyebrow' => 'Behavior Oversight', 'title' => 'Recent anomaly review feed', 'route' => route('admin.intelligence.risk'), 'cta' => 'Open Risk'],
+        ];
     @endphp
 <div id="admin-dashboard-root" class="space-y-4">
         <section class="hero-surface rounded-[1.5rem] p-4 lg:p-5">
-            <div class="relative z-10 grid gap-4 xl:grid-cols-[1.55fr,0.95fr]">
-                <div>
-                    <div class="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.22em] text-slate-500">
-                        <span class="rounded-full border border-slate-200 bg-white px-3 py-1">Fleet Runtime</span>
-                        <span class="rounded-full border border-slate-200 bg-white px-3 py-1">Security Posture</span>
-                        <span class="rounded-full border border-slate-200 bg-white px-3 py-1">{{ now()->format('D, M j') }}</span>
-                    </div>
-
-                    <div class="mt-3 grid gap-3 sm:grid-cols-3">
-                        <div class="hero-card rounded-[1.2rem] p-4">
-                            <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Fleet Risk</p>
-                            <div class="mt-2 flex items-end justify-between gap-3">
-                                <p class="text-3xl font-semibold text-slate-900">{{ number_format($riskScore, 1) }}</p>
-                                <span class="rounded-full border px-3 py-1 text-xs font-medium {{ $riskTone }}">{{ $riskLabel }}</span>
-                            </div>
-                        </div>
-                        <div class="hero-card rounded-[1.2rem] p-4">
-                            <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Dispatch Pressure</p>
-                            <p class="mt-2 text-3xl font-semibold {{ $opsTone }}">{{ $opsPressure }}%</p>
-                            <p class="mt-1 text-xs text-slate-500">Pending {{ $metrics['jobs_pending'] }} | retrying {{ $metrics['retrying_runs'] }}</p>
-                        </div>
-                        <div class="hero-card rounded-[1.2rem] p-4">
-                            <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">AI Review Queue</p>
-                            <p class="mt-2 text-3xl font-semibold text-slate-900">{{ $aiQueue }}</p>
-                            <p class="mt-1 text-xs text-slate-500">Waiting for action</p>
-                        </div>
-                    </div>
-
+            <div class="relative z-10">
+                <div class="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                    <span class="rounded-full border border-slate-200 bg-white px-3 py-1">Fleet Runtime</span>
+                    <span class="rounded-full border border-slate-200 bg-white px-3 py-1">Security Posture</span>
+                    <span class="rounded-full border border-slate-200 bg-white px-3 py-1">{{ now()->format('D, M j') }}</span>
                 </div>
 
+                <div class="mt-3 grid gap-3 sm:grid-cols-3">
+                    <div class="hero-card rounded-[1.2rem] p-4">
+                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Fleet Risk</p>
+                        <div class="mt-2 flex items-end justify-between gap-3">
+                            <p class="text-3xl font-semibold text-slate-900">{{ number_format($riskScore, 1) }}</p>
+                            <span class="rounded-full border px-3 py-1 text-xs font-medium {{ $riskTone }}">{{ $riskLabel }}</span>
+                        </div>
+                    </div>
+                    <div class="hero-card rounded-[1.2rem] p-4">
+                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Dispatch Pressure</p>
+                        <p class="mt-2 text-3xl font-semibold {{ $opsTone }}">{{ $opsPressure }}%</p>
+                        <p class="mt-1 text-xs text-slate-500">Pending {{ $metrics['jobs_pending'] }} | retrying {{ $metrics['retrying_runs'] }}</p>
+                    </div>
+                    <div class="hero-card rounded-[1.2rem] p-4">
+                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Fleet Coverage</p>
+                        <p class="mt-2 text-3xl font-semibold text-slate-900">{{ $coverageRate }}%</p>
+                        <p class="mt-1 text-xs text-slate-500">Enrolled {{ $metrics['devices_enrolled'] }} of {{ $metrics['devices_total'] }}</p>
+                    </div>
+                </div>
             </div>
         </section>
 
         <section class="grid gap-4 xl:grid-cols-12">
-            <div class="board-surface rounded-[1.4rem] p-4 xl:col-span-8">
+            <div class="board-surface self-start rounded-[1.4rem] p-4 xl:col-span-8">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <div>
                         <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Executive Signals</p>
@@ -175,25 +211,101 @@
                 </div>
             </div>
 
-            <aside class="board-surface rounded-[1.4rem] p-4 xl:col-span-4">
+            <aside class="board-surface self-start rounded-[1.4rem] p-4 xl:col-span-4">
                 <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Quick Overview</p>
                 <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                    @foreach($overviewCards as $overviewCard)
+                        <div class="metric-card rounded-[1rem] p-3.5">
+                            <p class="text-[11px] uppercase tracking-wide text-slate-500">{{ $overviewCard['label'] }}</p>
+                            <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $overviewCard['value'] }}</p>
+                        </div>
+                    @endforeach
+                </div>
+            </aside>
+        </section>
+
+        <section class="grid gap-4 xl:grid-cols-12">
+            <div class="board-surface self-start rounded-[1.4rem] p-4 xl:col-span-8">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Live Endpoint Intelligence</p>
+                        <h3 class="mt-1 text-xl font-semibold text-slate-900">Projection, risk, incidents</h3>
+                    </div>
+                    <a href="{{ route('admin.intelligence.assistant') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Assistant</a>
+                </div>
+
+                <div class="mt-4 grid gap-3 sm:grid-cols-3">
                     <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Policies / 100 devices</p>
-                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $policyDensity }}</p>
+                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Projection (24h)</p>
+                        <div class="mt-1 flex items-center gap-2">
+                            <p class="text-2xl font-semibold text-slate-900">{{ $projectionNext24h }}%</p>
+                            <span class="rounded-full border px-2.5 py-1 text-[11px] font-medium {{ $projectionTone }}">Forecast</span>
+                        </div>
                     </div>
                     <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Packages / 100 devices</p>
-                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $packageDensity }}</p>
+                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Fleet Average Risk</p>
+                        <div class="mt-1 flex items-center gap-2">
+                            <p class="text-2xl font-semibold text-slate-900">{{ $fleetAverageRisk }}%</p>
+                            <span class="rounded-full border px-2.5 py-1 text-[11px] font-medium {{ $fleetRiskTone }}">Current</span>
+                        </div>
                     </div>
                     <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Replay Rejects</p>
-                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $metrics['replay_rejects'] }}</p>
+                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Incident Load</p>
+                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $incidentDailyAverage }} / day</p>
+                        <p class="text-xs text-slate-500">Based on last 7 days anomaly feed</p>
                     </div>
-                    <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Failed / Device</p>
-                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $failureRate }}%</p>
+                </div>
+
+                <div class="mt-4 grid gap-3 xl:grid-cols-[0.78fr,1.22fr]">
+                    <div class="rounded-[1.1rem] border border-slate-200 bg-slate-50 p-3.5">
+                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Risk Model</p>
+                        <div class="mt-2 space-y-2 text-sm text-slate-600">
+                            <p class="flex items-center justify-between gap-2"><span>Execution risk</span><span class="font-semibold text-slate-900">62%</span></p>
+                            <p class="flex items-center justify-between gap-2"><span>Incident pressure</span><span class="font-semibold text-slate-900">38%</span></p>
+                            <p class="flex items-center justify-between gap-2"><span>Daily anomalies</span><span class="font-semibold text-slate-900">{{ $incidentDailyAverage }}</span></p>
+                        </div>
                     </div>
+
+                    <div class="overflow-x-auto pb-2">
+                        <div class="chart-scroll intelligence-chart-scroll">
+                            @foreach($intelligenceTrend as $trendPoint)
+                                @php
+                                    $projectionHeight = max(8, min(100, (float) $trendPoint['projection']));
+                                    $incidentHeight = max(8, min(100, ((int) $trendPoint['incidents'] / $incidentChartMax) * 100));
+                                @endphp
+                                <div class="chart-col">
+                                    <div class="chart-well">
+                                        <div class="flex h-full items-end gap-1.5">
+                                            <div class="w-2 rounded-full bg-sky-500" style="height: {{ $projectionHeight }}%"></div>
+                                            <div class="w-2 rounded-full bg-rose-400" style="height: {{ $incidentHeight }}%"></div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 text-center">
+                                        <p class="text-base font-semibold text-slate-900">{{ $trendPoint['projection'] }}%</p>
+                                        <p class="text-[11px] uppercase tracking-wide text-slate-500">{{ $trendPoint['label'] }}</p>
+                                        <p class="text-[11px] text-slate-500">{{ $trendPoint['incidents'] }} incidents</p>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="board-surface self-start rounded-[1.4rem] p-4 xl:col-span-4">
+                <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Fleet Averages</p>
+                <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                    @foreach($fleetAverageCards as $fleetAverageCard)
+                        <div class="metric-card rounded-[1rem] p-3.5">
+                            <div class="flex items-center justify-between gap-2">
+                                <p class="text-[11px] uppercase tracking-wide text-slate-500">{{ $fleetAverageCard['label'] }}</p>
+                                <p class="text-sm font-semibold text-slate-900">{{ $fleetAverageCard['value'] }}</p>
+                            </div>
+                            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                <div class="h-full {{ $fleetAverageCard['barClass'] }}" style="width: {{ max(4, min(100, (float) $fleetAverageCard['barValue'])) }}%"></div>
+                            </div>
+                        </div>
+                    @endforeach
                 </div>
             </aside>
         </section>
@@ -272,85 +384,71 @@
         </section>
 
         <section class="grid gap-4 xl:grid-cols-3">
-            <div class="board-surface rounded-[1.4rem] p-4">
-                <div class="mb-4 flex items-center justify-between gap-2">
-                    <div>
-                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Recent Devices</p>
-                        <h3 class="mt-1 text-xl font-semibold text-slate-900">Last touched endpoints</h3>
-                    </div>
-                    <a href="{{ route('admin.devices') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Devices</a>
-                </div>
-                <div class="space-y-3">
-                    @forelse($recent_devices as $device)
-                        <a href="{{ route('admin.devices.show', $device->id) }}" class="block rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-slate-300 hover:bg-white">
-                            <div class="flex items-center justify-between gap-3">
-                                <div>
-                                    <p class="text-base font-semibold text-slate-900">{{ $device->hostname }}</p>
-                                    <p class="mt-1 text-sm text-slate-500">{{ $device->os_name }} {{ $device->os_version }}</p>
-                                </div>
-                                <span class="rounded-full px-3 py-1 text-xs font-medium {{ $device->status === 'online' ? 'bg-emerald-100 text-emerald-700' : ($device->status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700') }}">
-                                    {{ $device->status }}
-                                </span>
-                            </div>
-                            <p class="mt-2 text-xs text-slate-500">Last seen {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'never' }}</p>
-                        </a>
-                    @empty
-                        <div class="rounded-[1.3rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No devices yet.</div>
-                    @endforelse
-                </div>
-            </div>
-
-            <div class="board-surface rounded-[1.4rem] p-4">
-                <div class="mb-4 flex items-center justify-between gap-2">
-                    <div>
-                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Recent Job Runs</p>
-                        <h3 class="mt-1 text-xl font-semibold text-slate-900">Latest execution traffic</h3>
-                    </div>
-                    <a href="{{ route('admin.jobs') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Jobs</a>
-                </div>
-                <div class="space-y-3">
-                    @forelse($recent_jobs as $job)
-                        <div class="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4">
-                            <div class="flex items-center justify-between gap-3">
-                                <p class="font-mono text-xs text-slate-700 break-all">{{ $job->id }}</p>
-                                <span class="rounded-full px-3 py-1 text-xs font-medium {{ $job->status === 'success' ? 'bg-indigo-100 text-indigo-700' : ($job->status === 'failed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700') }}">
-                                    {{ $job->status }}
-                                </span>
-                            </div>
-                            <p class="mt-2 text-xs text-slate-500">Updated {{ $job->updated_at ? $job->updated_at->diffForHumans() : 'recently' }}</p>
+            @foreach($recentPanels as $panel)
+                <div class="board-surface rounded-[1.4rem] p-4">
+                    <div class="mb-4 flex items-center justify-between gap-2">
+                        <div>
+                            <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">{{ $panel['eyebrow'] }}</p>
+                            <h3 class="mt-1 text-xl font-semibold text-slate-900">{{ $panel['title'] }}</h3>
                         </div>
-                    @empty
-                        <div class="rounded-[1.3rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No job runs yet.</div>
-                    @endforelse
-                </div>
-            </div>
-
-            <div class="board-surface rounded-[1.4rem] p-4">
-                <div class="mb-4 flex items-center justify-between gap-2">
-                    <div>
-                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">AI Cases</p>
-                        <h3 class="mt-1 text-xl font-semibold text-slate-900">Recent anomaly review feed</h3>
+                        <a href="{{ $panel['route'] }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">{{ $panel['cta'] }}</a>
                     </div>
-                    <a href="{{ route('admin.behavior-ai.index') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open AI Center</a>
-                </div>
-                <div class="space-y-3">
-                    @forelse($recent_behavior_ai_cases as $case)
-                        <div class="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4">
-                            <div class="flex items-start justify-between gap-3">
-                                <div>
-                                    <p class="text-base font-semibold text-slate-900">{{ $case->summary }}</p>
-                                    <p class="mt-1 text-xs text-slate-500">Device <span class="font-mono">{{ $case->device_id }}</span> | Severity {{ $case->severity }} | Risk {{ number_format((float) $case->risk_score, 4) }}</p>
+                    <div class="space-y-3">
+                        @if($panel['type'] === 'devices')
+                            @forelse($recent_devices as $device)
+                                <a href="{{ route('admin.devices.show', $device->id) }}" class="block rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-slate-300 hover:bg-white">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-base font-semibold text-slate-900">{{ $device->hostname }}</p>
+                                            <p class="mt-1 text-sm text-slate-500">{{ $device->os_name }} {{ $device->os_version }}</p>
+                                        </div>
+                                        <span class="rounded-full px-3 py-1 text-xs font-medium {{ $device->status === 'online' ? 'bg-emerald-100 text-emerald-700' : ($device->status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700') }}">
+                                            {{ $device->status }}
+                                        </span>
+                                    </div>
+                                    <p class="mt-2 text-xs text-slate-500">Last seen {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'never' }}</p>
+                                </a>
+                            @empty
+                                <div class="rounded-[1.3rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No devices yet.</div>
+                            @endforelse
+                        @elseif($panel['type'] === 'jobs')
+                            @forelse($recent_jobs as $job)
+                                <div class="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <p class="font-mono text-xs text-slate-700 break-all">{{ $job->id }}</p>
+                                        <span class="rounded-full px-3 py-1 text-xs font-medium {{ $job->status === 'success' ? 'bg-indigo-100 text-indigo-700' : ($job->status === 'failed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700') }}">
+                                            {{ $job->status }}
+                                        </span>
+                                    </div>
+                                    <p class="mt-2 text-xs text-slate-500">Updated {{ $job->updated_at ? $job->updated_at->diffForHumans() : 'recently' }}</p>
                                 </div>
-                                <span class="rounded-full px-3 py-1 text-xs font-medium {{ $case->status === 'pending_review' ? 'bg-amber-100 text-amber-700' : (($case->status === 'approved' || $case->status === 'auto_applied') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700') }}">
-                                    {{ $case->status }}
-                                </span>
-                            </div>
-                        </div>
-                    @empty
-                        <div class="rounded-[1.3rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No AI anomaly cases recorded.</div>
-                    @endforelse
+                            @empty
+                                <div class="rounded-[1.3rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No job runs yet.</div>
+                            @endforelse
+                        @else
+                            @forelse($recent_anomaly_cases as $case)
+                                <div class="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-base font-semibold text-slate-900">{{ $case->summary }}</p>
+                                            <p class="mt-1 text-sm text-slate-500">{{ $case->device?->hostname ?? 'Unknown device' }}</p>
+                                        </div>
+                                        <span class="rounded-full px-3 py-1 text-xs font-medium {{ $case->severity === 'critical' ? 'bg-rose-100 text-rose-700' : ($case->severity === 'high' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700') }}">
+                                            {{ $case->severity }}
+                                        </span>
+                                    </div>
+                                    <div class="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+                                        <span>Status {{ str_replace('_', ' ', $case->status) }}</span>
+                                        <span>Detected {{ $case->detected_at ? $case->detected_at->diffForHumans() : 'recently' }}</span>
+                                    </div>
+                                </div>
+                            @empty
+                                <div class="rounded-[1.3rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No anomaly cases awaiting review.</div>
+                            @endforelse
+                        @endif
+                    </div>
                 </div>
-            </div>
+            @endforeach
         </section>
     </div>
 </x-admin-layout>

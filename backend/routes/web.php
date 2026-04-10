@@ -1,15 +1,16 @@
 <?php
 
 use App\Http\Controllers\Web\AdminAuthController;
-use App\Http\Controllers\Web\BehaviorAiController;
-use App\Http\Controllers\Web\AiPowerController;
 use App\Http\Controllers\Web\AdminConsoleController;
+use App\Http\Controllers\Web\AdminEndpointIntelligenceController;
 use Illuminate\Support\Facades\Route;
 
 $standaloneMode = (bool) config('dms.standalone_mode', true);
 
 Route::view('/', 'welcome');
-Route::redirect('/login', '/admin/login')->name('login');
+Route::get('/login', function () {
+    return redirect()->route('admin.login');
+})->name('login');
 
 Route::middleware('guest')->group(function () use ($standaloneMode) {
     if (! $standaloneMode) {
@@ -30,9 +31,12 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () us
     Route::get('/', [AdminConsoleController::class, 'dashboard'])->name('dashboard');
 
     Route::get('/devices', [AdminConsoleController::class, 'devices'])->name('devices');
+    Route::get('/assets', [AdminConsoleController::class, 'assetsOverview'])->name('assets');
+    Route::get('/assets/hardware', [AdminConsoleController::class, 'assetsHardwareInventory'])->name('assets.hardware');
+    Route::get('/assets/software', [AdminConsoleController::class, 'assetsSoftwareInventory'])->name('assets.software');
+    Route::get('/assets/clients', [AdminConsoleController::class, 'assetsClientManagement'])->name('assets.clients');
     Route::get('/enroll-devices', [AdminConsoleController::class, 'enrollDevices'])->name('enroll-devices');
     Route::get('/devices/{deviceId}', [AdminConsoleController::class, 'deviceDetail'])->name('devices.show');
-    Route::get('/devices/{deviceId}/behavior-intelligence', [AdminConsoleController::class, 'deviceBehaviorIntelligence'])->name('devices.behavior-intelligence');
     Route::get('/devices/{deviceId}/live', [AdminConsoleController::class, 'deviceDetailLive'])->name('devices.live');
     Route::patch('/devices/{deviceId}', [AdminConsoleController::class, 'updateDevice'])->name('devices.update');
     Route::delete('/devices/{deviceId}', [AdminConsoleController::class, 'deleteDevice'])->name('devices.delete');
@@ -146,23 +150,44 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () us
     Route::delete('/access/roles/{roleId}', [AdminConsoleController::class, 'deleteRole'])->name('access.roles.delete');
     Route::patch('/access/users/{userId}/roles', [AdminConsoleController::class, 'assignUserRoles'])->name('access.users.roles.update');
     Route::get('/audit', [AdminConsoleController::class, 'audit'])->name('audit');
-    Route::get('/behavior-ai', [BehaviorAiController::class, 'index'])->name('behavior-ai.index');
-    Route::get('/ai-power', [AiPowerController::class, 'index'])->name('ai-power.index');
-    Route::post('/ai-power/execute', [AiPowerController::class, 'execute'])->name('ai-power.execute');
-    Route::post('/behavior-ai/recommendations/{recommendationId}/review', [BehaviorAiController::class, 'reviewRecommendation'])->name('behavior-ai.review');
-    Route::post('/behavior-ai/recommendations/approve-all-pending', [BehaviorAiController::class, 'approveAllPendingRecommendations'])->name('behavior-ai.review.approve-all-pending');
-    Route::post('/behavior-ai/runtime/start', [BehaviorAiController::class, 'startRuntime'])->name('behavior-ai.runtime.start');
-    Route::get('/behavior-ai/runtime/status', [BehaviorAiController::class, 'runtimeStatus'])->name('behavior-ai.runtime.status');
-    Route::get('/behavior-ai/live-status', [BehaviorAiController::class, 'liveStatus'])->name('behavior-ai.live-status');
-    Route::post('/behavior-ai/train-now', [BehaviorAiController::class, 'queueTrainNow'])->name('behavior-ai.train-now');
-    Route::post('/behavior-ai/retrain', [BehaviorAiController::class, 'queueRetrain'])->name('behavior-ai.retrain');
-    Route::post('/behavior-ai/replay', [BehaviorAiController::class, 'replayFailedStream'])->name('behavior-ai.replay');
-    Route::get('/behavior-baseline', [BehaviorAiController::class, 'baseline'])->name('behavior-baseline.index');
-    Route::post('/behavior-baseline/settings', [BehaviorAiController::class, 'updateBaselineSettings'])->name('behavior-baseline.settings');
-    Route::post('/behavior-baseline/backfill', [BehaviorAiController::class, 'queueBaselineBackfill'])->name('behavior-baseline.backfill');
-    Route::get('/behavior-remediation', [BehaviorAiController::class, 'remediation'])->name('behavior-remediation.index');
-    Route::post('/behavior-remediation/settings', [BehaviorAiController::class, 'updateRemediationSettings'])->name('behavior-remediation.settings');
-    Route::post('/behavior-remediation/sweep', [BehaviorAiController::class, 'queueRemediationSweep'])->name('behavior-remediation.sweep');
+
+    Route::get('/intelligence/health', [AdminEndpointIntelligenceController::class, 'fleetHealthOverview'])->name('intelligence.health');
+    Route::get('/intelligence/health/devices/{deviceId}', [AdminEndpointIntelligenceController::class, 'deviceHealthDetail'])->name('intelligence.health.device');
+    Route::get('/intelligence/telemetry/devices/{deviceId}', [AdminEndpointIntelligenceController::class, 'telemetryDetail'])->name('intelligence.telemetry.device');
+    Route::get('/intelligence/risk', [AdminEndpointIntelligenceController::class, 'riskDashboard'])->name('intelligence.risk');
+    Route::get('/intelligence/incidents', [AdminEndpointIntelligenceController::class, 'incidentExplorer'])->name('intelligence.incidents');
+    Route::get('/intelligence/incidents/{incidentId}/timeline', [AdminEndpointIntelligenceController::class, 'incidentTimeline'])->name('intelligence.incidents.timeline');
+    Route::get('/intelligence/assistant', [AdminEndpointIntelligenceController::class, 'assistant'])->name('intelligence.assistant');
+    Route::post('/intelligence/assistant/ask', [AdminEndpointIntelligenceController::class, 'askAssistant'])
+        ->middleware('permission:assistant.use')
+        ->name('intelligence.assistant.ask');
+    Route::get('/intelligence/remediation', [AdminEndpointIntelligenceController::class, 'remediationQueue'])->name('intelligence.remediation');
+    Route::post('/intelligence/remediation/plans/{planId}/validate', [AdminEndpointIntelligenceController::class, 'validateRemediationPlan'])
+        ->middleware('permission:remediation.plan')
+        ->name('intelligence.remediation.plans.validate');
+    Route::post('/intelligence/remediation/plans/{planId}/approve', [AdminEndpointIntelligenceController::class, 'approveRemediationPlan'])
+        ->middleware('permission:remediation.approve')
+        ->name('intelligence.remediation.plans.approve');
+    Route::post('/intelligence/remediation/plans/{planId}/execute', [AdminEndpointIntelligenceController::class, 'executeRemediationPlan'])
+        ->middleware('permission:remediation.execute')
+        ->name('intelligence.remediation.plans.execute');
+    Route::post('/intelligence/remediation/actions/{actionId}/rollback', [AdminEndpointIntelligenceController::class, 'rollbackRemediationAction'])
+        ->middleware('permission:remediation.execute')
+        ->name('intelligence.remediation.actions.rollback');
+    Route::get('/intelligence/approvals', [AdminEndpointIntelligenceController::class, 'approvalCenter'])->name('intelligence.approvals');
+    Route::post('/intelligence/approvals/{approvalId}/approve', [AdminEndpointIntelligenceController::class, 'approveRequest'])
+        ->middleware('permission:remediation.approve')
+        ->name('intelligence.approvals.approve');
+    Route::post('/intelligence/approvals/{approvalId}/reject', [AdminEndpointIntelligenceController::class, 'rejectRequest'])
+        ->middleware('permission:remediation.approve')
+        ->name('intelligence.approvals.reject');
+    Route::get('/intelligence/actions', [AdminEndpointIntelligenceController::class, 'actionHistory'])->name('intelligence.actions');
+    Route::get('/intelligence/autonomy', [AdminEndpointIntelligenceController::class, 'autonomySettings'])->name('intelligence.autonomy');
+    Route::post('/intelligence/autonomy/policies', [AdminEndpointIntelligenceController::class, 'saveAutonomyPolicy'])
+        ->middleware('permission:autonomy.manage')
+        ->name('intelligence.autonomy.policies.save');
+    Route::get('/intelligence/tuning', [AdminEndpointIntelligenceController::class, 'engineTuning'])->name('intelligence.tuning');
+    Route::get('/intelligence/executive/{deviceId}', [AdminEndpointIntelligenceController::class, 'executiveSummary'])->name('intelligence.executive');
 });
 
 Route::get('/agent/releases/{releaseId}/download', [AdminConsoleController::class, 'downloadAgentRelease'])

@@ -6,6 +6,11 @@
             'bio' => '',
             'avatar_url' => null,
         ], is_array($profilePref ?? null) ? $profilePref : []);
+        $mfaPolicyRequired = (bool) ($mfaPolicyRequired ?? false);
+        $mfaSecretCorrupted = (bool) ($mfaSecretCorrupted ?? false);
+        $mfaEnabled = (bool) ($user->mfa_enabled ?? false);
+        $mfaHasSecret = !empty($mfaSecretPlain);
+        $mfaCanRotate = !($mfaPolicyRequired && $mfaEnabled);
         $profileAvatarUrl = is_string($profilePref['avatar_url'] ?? null) ? trim((string) $profilePref['avatar_url']) : '';
         if ($profileAvatarUrl !== '' && preg_match('/^https?:\/\//i', $profileAvatarUrl) === 1) {
             $path = parse_url($profileAvatarUrl, PHP_URL_PATH);
@@ -91,12 +96,33 @@
                 <h3 class="font-semibold">Multi-Factor Authentication (TOTP)</h3>
                 <p class="text-xs text-slate-500 mt-1">Protect your admin account with an authenticator app.</p>
             </div>
-            <span class="rounded-full px-3 py-1 text-xs font-medium {{ ($user->mfa_enabled ?? false) ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">
-                {{ ($user->mfa_enabled ?? false) ? 'Enabled' : 'Disabled' }}
+            <span class="rounded-full px-3 py-1 text-xs font-medium {{ $mfaEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">
+                {{ $mfaEnabled ? 'Enabled' : 'Disabled' }}
             </span>
         </div>
 
+        <div class="mt-3 rounded-lg border px-3 py-2 text-xs {{ $mfaPolicyRequired ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-slate-50 text-slate-700' }}">
+            Policy:
+            @if($mfaPolicyRequired)
+                MFA is required by admin auth policy. Disable and rotate actions are restricted to prevent lockout.
+            @else
+                MFA is optional for this account.
+            @endif
+        </div>
+
+        @if($mfaSecretCorrupted)
+            <div class="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                Stored MFA secret could not be decrypted. Generate a new setup secret and re-enable MFA.
+            </div>
+        @endif
+
         @error('profile_mfa')
+            <div class="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">{{ $message }}</div>
+        @enderror
+        @error('code')
+            <div class="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">{{ $message }}</div>
+        @enderror
+        @error('password')
             <div class="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">{{ $message }}</div>
         @enderror
 
@@ -105,8 +131,11 @@
                 <p class="text-xs font-medium text-slate-700">1. Setup Secret</p>
                 <form method="POST" action="{{ route('admin.profile.mfa.setup') }}" class="mt-2">
                     @csrf
-                    <button class="rounded bg-skyline text-white px-3 py-2 text-xs">Generate / Rotate Secret</button>
+                    <button class="rounded bg-skyline text-white px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60" @disabled(! $mfaCanRotate)>Generate / Rotate Secret</button>
                 </form>
+                @if(! $mfaCanRotate)
+                    <p class="mt-2 text-[11px] text-amber-700">Disable policy requirement first before rotating a currently enabled MFA secret.</p>
+                @endif
                 @if(!empty($mfaSecretPlain))
                     <div class="mt-3 space-y-2">
                         <p class="text-[11px] text-slate-600">Setup Secret</p>
@@ -130,15 +159,21 @@
                 <p class="text-xs font-medium text-slate-700">2. Enable / Disable</p>
                 <form method="POST" action="{{ route('admin.profile.mfa.enable') }}" class="mt-2 space-y-2">
                     @csrf
-                    <input name="code" placeholder="Enter 6-digit code" class="w-full rounded border border-slate-300 px-3 py-2 text-sm" required>
-                    <button class="rounded bg-emerald-600 text-white px-3 py-2 text-xs">Enable MFA</button>
+                    <input name="code" value="{{ old('code') }}" placeholder="Enter 6-digit code" inputmode="numeric" pattern="\d{6}" maxlength="6" class="w-full rounded border border-slate-300 px-3 py-2 text-sm" required>
+                    <button class="rounded bg-emerald-600 text-white px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60" @disabled(! $mfaHasSecret)>Enable MFA</button>
                 </form>
+                @if(! $mfaHasSecret)
+                    <p class="mt-2 text-[11px] text-slate-600">Generate setup secret first, then enter a 6-digit authenticator code.</p>
+                @endif
 
                 <form method="POST" action="{{ route('admin.profile.mfa.disable') }}" class="mt-3 space-y-2" onsubmit="return confirm('Disable MFA for your account?');">
                     @csrf
-                    <input type="password" name="password" placeholder="Current password" class="w-full rounded border border-slate-300 px-3 py-2 text-sm" required>
-                    <button class="rounded bg-rose-600 text-white px-3 py-2 text-xs">Disable MFA</button>
+                    <input type="password" name="password" placeholder="Current password" class="w-full rounded border border-slate-300 px-3 py-2 text-sm" @disabled($mfaPolicyRequired) required>
+                    <button class="rounded bg-rose-600 text-white px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60" @disabled($mfaPolicyRequired)>Disable MFA</button>
                 </form>
+                @if($mfaPolicyRequired)
+                    <p class="mt-2 text-[11px] text-amber-700">Disable is blocked while global "Require MFA" policy is enabled.</p>
+                @endif
             </div>
         </div>
     </div>

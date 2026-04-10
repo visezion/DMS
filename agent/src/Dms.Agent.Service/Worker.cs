@@ -22,11 +22,11 @@ public sealed class Worker(
     private static readonly string LastSuccessPath = Path.Combine(DiagnosticsDir, "last-success.txt");
     private static readonly string LastErrorPath = Path.Combine(DiagnosticsDir, "last-error.txt");
     private static readonly string LastHeartbeatPath = Path.Combine(DiagnosticsDir, "last-heartbeat.txt");
+    private readonly BehaviorEventSpool _behaviorEventSpool = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         Directory.CreateDirectory(DiagnosticsDir);
-        int intervalSeconds = ResolveCheckinIntervalSeconds();
         try
         {
             var tamperResult = await tamperProtection.ApplyStartupHardeningAsync(stoppingToken);
@@ -77,8 +77,14 @@ public sealed class Worker(
                             var behaviorEvents = await behaviorTelemetryCollector.CollectAsync(stoppingToken);
                             if (behaviorEvents.Count > 0)
                             {
-                                await apiClient.PostBehaviorEventsAsync(behaviorEvents, stoppingToken);
-                                logger.LogInformation("Uploaded {Count} behavior telemetry event(s).", behaviorEvents.Count);
+                                _behaviorEventSpool.Enqueue(behaviorEvents);
+                                logger.LogInformation("Queued {Count} behavior telemetry event(s) for upload.", behaviorEvents.Count);
+                            }
+
+                            int flushed = await _behaviorEventSpool.FlushAsync(apiClient, stoppingToken);
+                            if (flushed > 0)
+                            {
+                                logger.LogInformation("Uploaded {Count} spooled behavior telemetry event(s).", flushed);
                             }
                         }
                         catch (Exception telemetryEx)
@@ -121,22 +127,13 @@ public sealed class Worker(
                 WriteDiagnosticsFile(LastHeartbeatPath, $"utc={DateTimeOffset.UtcNow:O}");
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(ResolveCheckinIntervalSeconds()), stoppingToken);
         }
     }
 
     private static int ResolveCheckinIntervalSeconds()
     {
-        const int fallback = 60;
-        const int min = 15;
-        const int max = 300;
-        string? raw = Environment.GetEnvironmentVariable("DMS_CHECKIN_INTERVAL_SECONDS");
-        if (int.TryParse(raw, out int parsed))
-        {
-            return Math.Clamp(parsed, min, max);
-        }
-
-        return fallback;
+        return AgentBootstrapConfiguration.Load().CheckinIntervalSeconds;
     }
 
     private static void WriteDiagnosticsFile(string path, string content)

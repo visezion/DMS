@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "gsnUM67IrVg=",
+  "dgSpecHash": "LpvSaFuOd98=",
   "success": true,
   "projectFilePath": "C:\\xampp\\htdocs\\DMS\\agent\\src\\Dms.Agent.Service\\Dms.Agent.Service.csproj",
   "expectedPackageFiles": [
@@ -35,10 +35,10 @@
     "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\microsoft.extensions.primitives\\8.0.0\\microsoft.extensions.primitives.8.0.0.nupkg.sha512",
     "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\system.diagnostics.eventlog\\8.0.1\\system.diagnostics.eventlog.8.0.1.nupkg.sha512",
     "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\system.serviceprocess.servicecontroller\\8.0.1\\system.serviceprocess.servicecontroller.8.0.1.nupkg.sha512",
-    "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\microsoft.netcore.app.ref\\8.0.24\\microsoft.netcore.app.ref.8.0.24.nupkg.sha512",
-    "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\8.0.24\\microsoft.windowsdesktop.app.ref.8.0.24.nupkg.sha512",
-    "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\8.0.24\\microsoft.aspnetcore.app.ref.8.0.24.nupkg.sha512",
-    "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\8.0.24\\microsoft.netcore.app.host.win-x64.8.0.24.nupkg.sha512"
+    "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\microsoft.netcore.app.ref\\8.0.25\\microsoft.netcore.app.ref.8.0.25.nupkg.sha512",
+    "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\8.0.25\\microsoft.windowsdesktop.app.ref.8.0.25.nupkg.sha512",
+    "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\8.0.25\\microsoft.aspnetcore.app.ref.8.0.25.nupkg.sha512",
+    "C:\\xampp\\htdocs\\DMS\\agent\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\8.0.25\\microsoft.netcore.app.host.win-x64.8.0.25.nupkg.sha512"
   ],
   "logs": []
 }

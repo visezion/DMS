@@ -45,10 +45,10 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Age
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Agent.Service.AssemblyInfoInputs.cache
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Agent.Service.AssemblyInfo.cs
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Agent.Service.csproj.CoreCompileInputs.cache
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Agent.Service.sourcelink.json
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Agen.B3F2CB08.Up2Date
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Agent.Service.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\refint\Dms.Agent.Service.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Agent.Service.pdb
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Agent.Service.genruntimeconfig.cache
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\ref\Dms.Agent.Service.dll
-C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Debug\net8.0-windows\Dms.Agent.Service.sourcelink.json

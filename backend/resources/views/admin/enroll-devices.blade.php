@@ -86,6 +86,10 @@
                         <li>Complete enrollment and verify device appears in <a href="{{ route('admin.devices') }}" class="text-sky-700 underline">Devices</a>.</li>
                     </ol>
 
+                    <div class="mt-6">
+                        <button type="submit" form="generate-install-script-form" class="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Generate Install Script</button>
+                    </div>
+
                     <div class="mt-8 rounded-lg border border-slate-200 bg-white p-4">
                         <p class="font-semibold text-slate-900">Start Managing</p>
                         <p class="mt-1 text-sm text-slate-700">After enrollment, assign policies and packages from Policy Center and Application Management.</p>
@@ -100,7 +104,7 @@
                         @error('agent_generate')
                             <div class="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">{{ $message }}</div>
                         @enderror
-                        <form method="POST" action="{{ route('admin.agent.releases.generate') }}" class="space-y-3">
+                        <form id="generate-install-script-form" method="POST" action="{{ route('admin.agent.releases.generate') }}" class="space-y-3">
                             @csrf
                             <div>
                                 <label class="mb-1 block text-xs uppercase text-slate-500">Release</label>
@@ -124,7 +128,6 @@
                                 <label class="mb-1 block text-xs uppercase text-slate-500">Public Base URL</label>
                                 <input name="public_base_url" value="{{ old('public_base_url', $defaultPublicBase) }}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                             </div>
-                            <button class="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Generate Install Script</button>
                         </form>
                     </div>
                 </div>

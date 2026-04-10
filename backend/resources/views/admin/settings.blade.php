@@ -5,6 +5,17 @@
         $debugDisabled = old('disable_debug_mode', !((bool) ($environmentPolicy['app_debug'] ?? false)));
         $secureCookies = old('secure_session_cookies', (bool) ($environmentPolicy['session_secure_cookie'] ?? false));
         $httpsEnabled = str_starts_with(strtolower((string) ($httpsPolicy['app_url'] ?? '')), 'https://');
+        $killSwitchEnabled = (bool) ($ops['kill_switch'] ?? false);
+        $killSwitchStatus = $killSwitchEnabled ? 'Dispatch Halted' : 'Dispatch Active';
+        $killSwitchTone = $killSwitchEnabled
+            ? 'border-rose-200 bg-rose-50 text-rose-700'
+            : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+        $killSwitchModalTitle = $killSwitchEnabled ? 'Restore Command Dispatch' : 'Engage Emergency Kill Switch';
+        $killSwitchModalDescription = $killSwitchEnabled
+            ? 'Release the kill switch and allow new command dispatch to continue from the control plane.'
+            : 'Immediately stop all new command dispatch from the control plane until an administrator explicitly restores it.';
+        $killSwitchConfirmLabel = $killSwitchEnabled ? 'Restore Dispatch' : 'Engage Kill Switch';
+        $killSwitchConfirmPhrase = $killSwitchEnabled ? 'RESTORE DISPATCH' : 'PAUSE DISPATCH';
     @endphp
 
     <section class="rounded-2xl border border-slate-200 bg-white p-4">
@@ -149,12 +160,30 @@
             <h3 class="text-base font-semibold text-slate-900">Operations Controls</h3>
             <p class="mt-1 text-xs text-slate-500">Tune dispatch safety, retries, script allowlist, and package URL mode.</p>
 
+            <div class="mt-4 rounded-xl border {{ $killSwitchTone }} p-3">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                        <p class="text-xs uppercase tracking-wide">Emergency Kill Switch</p>
+                        <p class="mt-1 text-sm font-semibold">{{ $killSwitchStatus }}</p>
+                        <p class="mt-1 text-xs">Use this control to immediately halt or restore new command dispatch with password + phrase confirmation.</p>
+                    </div>
+                    <button
+                        type="button"
+                        class="rounded-lg border border-current/30 bg-white/70 px-3 py-2 text-xs font-medium"
+                        data-kill-switch-trigger="1"
+                        data-kill-switch-enabled="{{ $killSwitchEnabled ? '0' : '1' }}"
+                        data-kill-switch-title="{{ $killSwitchModalTitle }}"
+                        data-kill-switch-description="{{ $killSwitchModalDescription }}"
+                        data-kill-switch-confirm="{{ $killSwitchConfirmLabel }}"
+                        data-kill-switch-phrase="{{ $killSwitchConfirmPhrase }}"
+                    >
+                        {{ $killSwitchEnabled ? 'Restore Dispatch' : 'Engage Kill Switch' }}
+                    </button>
+                </div>
+            </div>
+
             <form method="POST" action="{{ route('admin.ops.update') }}" class="mt-4 grid gap-3 md:grid-cols-2">
                 @csrf
-                <label class="flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
-                    <input type="checkbox" name="kill_switch" value="1" @checked(($ops['kill_switch'] ?? false))>
-                    Pause all command dispatch (Kill Switch)
-                </label>
                 <div>
                     <label class="text-xs uppercase text-slate-500">Max Retries</label>
                     <input name="max_retries" type="number" min="0" max="10" value="{{ $ops['max_retries'] ?? 3 }}" class="mt-1 w-full rounded border border-slate-300 px-2 py-2" />
@@ -182,20 +211,6 @@
                         <option value="signed" @selected(($ops['package_download_url_mode'] ?? 'public') === 'signed')>Signed (expires by deploy window)</option>
                     </select>
                     <p class="mt-1 text-xs text-slate-500">External source URLs always use their original URL.</p>
-                </div>
-                <div class="md:col-span-2">
-                    <label class="text-xs uppercase text-slate-500">Behavior Detection Mode</label>
-                    <input type="text" readonly value="AI-only (Rule-based disabled)" class="mt-1 w-full rounded border border-slate-300 bg-slate-100 px-2 py-2 text-sm font-medium text-slate-700" />
-                    <p class="mt-1 text-xs text-slate-500">Detection is locked to AI-based scoring across all behavior events.</p>
-                </div>
-                <div>
-                    <label class="text-xs uppercase text-slate-500">AI Anomaly Threshold</label>
-                    <input name="behavior_ai_threshold" type="number" min="0.10" max="0.99" step="0.01" value="{{ $ops['behavior_ai_threshold'] ?? '0.82' }}" class="mt-1 w-full rounded border border-slate-300 px-2 py-2" />
-                </div>
-                <div>
-                    <label class="text-xs uppercase text-slate-500">AI Model Path</label>
-                    <input type="text" readonly value="{{ $ops['behavior_ai_model_path'] ?? 'behavior_models/current-model.json' }}" class="mt-1 w-full rounded border border-slate-300 bg-slate-100 px-2 py-2 text-xs font-mono" />
-                    <p class="mt-1 text-xs text-slate-500">Trained at: {{ $ops['behavior_ai_model_trained_at'] ?? 'not-trained' }}</p>
                 </div>
                 <div class="md:col-span-2 flex justify-end">
                     <button class="rounded bg-skyline px-4 py-2 text-sm text-white">Save Ops Settings</button>

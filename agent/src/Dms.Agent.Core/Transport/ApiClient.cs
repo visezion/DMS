@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using Dms.Agent.Core.Protocol;
+using Dms.Agent.Core.Runtime;
 using Dms.Agent.Core.Telemetry;
 
 namespace Dms.Agent.Core.Transport;
@@ -14,36 +15,40 @@ namespace Dms.Agent.Core.Transport;
 public sealed class ApiClient
 {
     private readonly HttpClient _httpClient;
+    private readonly AgentBootstrapConfiguration _bootstrapConfiguration;
     private readonly string _deviceIdPath;
     private readonly string _enrollmentTokenPath;
-    private readonly string _apiBaseUrlPath;
+    private readonly string _behaviorIngestTokenPath;
+    private string? _behaviorIngestToken;
+    private string? _lastCheckinId;
     private const string EmptyDeviceId = "00000000-0000-0000-0000-000000000000";
 
     public ApiClient()
     {
-        string programData = Environment.GetEnvironmentVariable("ProgramData") ?? @"C:\ProgramData";
-        string dmsDir = Path.Combine(programData, "DMS");
-        Directory.CreateDirectory(dmsDir);
+        _bootstrapConfiguration = AgentBootstrapConfiguration.Load();
+        Directory.CreateDirectory(_bootstrapConfiguration.DmsDirectory);
 
-        _deviceIdPath = Path.Combine(dmsDir, "device-id.txt");
-        _enrollmentTokenPath = Path.Combine(dmsDir, "enrollment-token.txt");
-        _apiBaseUrlPath = Path.Combine(dmsDir, "api-base-url.txt");
-
-        string configuredBase = ResolveApiBaseUrl();
-        string normalizedBase = configuredBase.EndsWith('/') ? configuredBase : configuredBase + "/";
+        _deviceIdPath = _bootstrapConfiguration.DeviceIdPath;
+        _enrollmentTokenPath = _bootstrapConfiguration.EnrollmentTokenPath;
+        _behaviorIngestTokenPath = Path.Combine(_bootstrapConfiguration.DmsDirectory, "behavior-ingest-token.txt");
+        _behaviorIngestToken = ResolveBehaviorIngestToken();
 
         _httpClient = new HttpClient
         {
-            BaseAddress = new Uri(normalizedBase)
+            BaseAddress = new Uri(_bootstrapConfiguration.ResolvedApiBaseUrl)
         };
+        _bootstrapConfiguration.WriteBootstrapState();
     }
 
     public async Task<CheckinResponseDto> CheckinAsync(CancellationToken cancellationToken)
     {
         string deviceId = await EnsureEnrolledAsync(cancellationToken);
+        string checkinId = Guid.NewGuid().ToString("D");
+        _lastCheckinId = checkinId;
         string agentVersion = ResolveAgentVersion();
         string agentBuild = ResolveAgentBuild();
         var inventory = await DeviceInventoryCollector.CollectAsync(cancellationToken);
+        string? serialNumber = ResolveSerialNumber(inventory);
         var runtimeDiagnostics = CollectRuntimeDiagnostics();
         HttpResponseMessage response = await _httpClient.PostAsJsonAsync("device/checkin", new
         {
@@ -53,7 +58,8 @@ public sealed class ApiClient
             hostname = Environment.MachineName,
             os_name = RuntimeInformation.OSDescription,
             os_version = Environment.OSVersion.VersionString,
-            serial_number = (string?)null,
+            serial_number = serialNumber,
+            checkin_id = checkinId,
             inventory,
             runtime_diagnostics = runtimeDiagnostics,
             uwf_status = BuildUwfStatus(runtimeDiagnostics),
@@ -72,7 +78,8 @@ public sealed class ApiClient
                 hostname = Environment.MachineName,
                 os_name = RuntimeInformation.OSDescription,
                 os_version = Environment.OSVersion.VersionString,
-                serial_number = (string?)null,
+                serial_number = serialNumber,
+                checkin_id = checkinId,
                 inventory,
                 runtime_diagnostics = runtimeDiagnostics,
                 uwf_status = BuildUwfStatus(runtimeDiagnostics),
@@ -82,6 +89,8 @@ public sealed class ApiClient
         response.EnsureSuccessStatusCode();
 
         CheckinResponseDto? payload = await response.Content.ReadFromJsonAsync<CheckinResponseDto>(cancellationToken: cancellationToken);
+        _bootstrapConfiguration.PersistCheckinInterval(payload?.Bootstrap?.CheckinIntervalSeconds);
+        PersistBehaviorIngestToken(payload?.Bootstrap?.BehaviorIngestToken);
         return payload ?? new CheckinResponseDto();
     }
 
@@ -100,7 +109,13 @@ public sealed class ApiClient
         await _httpClient.PostAsJsonAsync("device/job-ack", new { job_run_id = jobRunId, device_id = deviceId }, cancellationToken);
     }
 
-    public async Task ResultAsync(string jobRunId, string status, int? exitCode, object? resultPayload, CancellationToken cancellationToken)
+    public async Task ResultAsync(
+        string jobRunId,
+        string status,
+        int? exitCode,
+        object? resultPayload,
+        Dictionary<string, object?>? resultMeta,
+        CancellationToken cancellationToken)
     {
         string deviceId = ResolveDeviceId();
         await _httpClient.PostAsJsonAsync("device/job-result", new
@@ -110,6 +125,14 @@ public sealed class ApiClient
             status,
             exit_code = exitCode,
             result_payload = resultPayload,
+            execution_duration_ms = resultMeta?.GetValueOrDefault("execution_duration_ms"),
+            stdout_sha256 = resultMeta?.GetValueOrDefault("stdout_sha256"),
+            stderr_sha256 = resultMeta?.GetValueOrDefault("stderr_sha256"),
+            rollback_hint = resultMeta?.GetValueOrDefault("rollback_hint"),
+            artifacts = resultMeta?.GetValueOrDefault("artifacts"),
+            action_token = resultMeta?.GetValueOrDefault("action_token"),
+            idempotency_key = resultMeta?.GetValueOrDefault("idempotency_key"),
+            checkin_id = _lastCheckinId,
         }, cancellationToken);
     }
 
@@ -121,9 +144,11 @@ public sealed class ApiClient
         }
 
         string deviceId = await EnsureEnrolledAsync(cancellationToken);
-        HttpResponseMessage response = await _httpClient.PostAsJsonAsync("device/behavior-log", new
+        string? checkinId = _lastCheckinId;
+        var payload = new
         {
             device_id = deviceId,
+            checkin_id = checkinId,
             events = events.Select(e => new
             {
                 event_type = e.EventType,
@@ -131,9 +156,27 @@ public sealed class ApiClient
                 user_name = e.UserName,
                 process_name = e.ProcessName,
                 file_path = e.FilePath,
+                event_uid = e.EventUid,
+                session_uid = e.SessionUid,
+                process_uid = e.ProcessUid,
+                parent_process_uid = e.ParentProcessUid,
+                checkin_id = e.CheckinId ?? checkinId,
                 metadata = e.Metadata,
             }),
-        }, cancellationToken);
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "device/behavior-log")
+        {
+            Content = JsonContent.Create(payload),
+        };
+
+        string token = ResolveBehaviorIngestToken();
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            request.Headers.TryAddWithoutValidation("X-DMS-Behavior-Token", token);
+        }
+
+        HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken);
 
         response.EnsureSuccessStatusCode();
     }
@@ -153,6 +196,8 @@ public sealed class ApiClient
         }
 
         var runtimeDiagnostics = CollectRuntimeDiagnostics();
+        var inventory = await DeviceInventoryCollector.CollectAsync(cancellationToken);
+        string? serialNumber = ResolveSerialNumber(inventory);
         var enrollPayload = new
         {
             enrollment_token = token,
@@ -162,17 +207,30 @@ public sealed class ApiClient
                 hostname = Environment.MachineName,
                 os_name = RuntimeInformation.OSDescription,
                 os_version = Environment.OSVersion.VersionString,
-                serial_number = (string?)null,
+                serial_number = serialNumber,
                 agent_version = ResolveAgentVersion(),
                 agent_build = ResolveAgentBuild(),
-                inventory = await DeviceInventoryCollector.CollectAsync(cancellationToken),
+                inventory,
                 runtime_diagnostics = runtimeDiagnostics,
                 uwf_status = BuildUwfStatus(runtimeDiagnostics),
             }
         };
 
         HttpResponseMessage enrollResponse = await _httpClient.PostAsJsonAsync("device/enroll", enrollPayload, cancellationToken);
-        enrollResponse.EnsureSuccessStatusCode();
+        if (!enrollResponse.IsSuccessStatusCode)
+        {
+            string responseBody = await SafeReadResponseContentAsync(enrollResponse, cancellationToken);
+            _bootstrapConfiguration.WriteEnrollmentError(string.Join(Environment.NewLine, new[]
+            {
+                $"utc={DateTimeOffset.UtcNow:O}",
+                $"api_base_url={_bootstrapConfiguration.ResolvedApiBaseUrl}",
+                $"api_base_url_source={_bootstrapConfiguration.ApiBaseUrlSource}",
+                $"enrollment_token_source={_bootstrapConfiguration.EnrollmentTokenSource}",
+                $"status_code={(int) enrollResponse.StatusCode} {enrollResponse.StatusCode}",
+                $"response_body={responseBody}",
+            }));
+            enrollResponse.EnsureSuccessStatusCode();
+        }
 
         EnrollmentResponseDto? enrolled = await enrollResponse.Content.ReadFromJsonAsync<EnrollmentResponseDto>(cancellationToken: cancellationToken);
         if (enrolled is null || string.IsNullOrWhiteSpace(enrolled.DeviceId))
@@ -181,6 +239,8 @@ public sealed class ApiClient
         }
 
         PersistDeviceId(enrolled.DeviceId);
+        _bootstrapConfiguration.PersistCheckinInterval(enrolled.Bootstrap?.CheckinIntervalSeconds);
+        PersistBehaviorIngestToken(enrolled.Bootstrap?.BehaviorIngestToken);
         return enrolled.DeviceId;
     }
 
@@ -233,32 +293,71 @@ public sealed class ApiClient
         return Guid.TryParse(value, out Guid parsed) && parsed != Guid.Empty;
     }
 
-    private string ResolveApiBaseUrl()
+    private static string? ResolveSerialNumber(IReadOnlyDictionary<string, object?> inventory)
     {
-        string? envUrl = Environment.GetEnvironmentVariable("DMS_API_BASE_URL");
-        if (!string.IsNullOrWhiteSpace(envUrl))
+        if (TryReadNestedString(inventory, out string? serial, "windows_telemetry", "basic_device_identity", "serial_number")
+            && !string.IsNullOrWhiteSpace(serial))
         {
-            return envUrl;
+            return serial;
         }
 
-        if (File.Exists(_apiBaseUrlPath))
+        if (TryReadNestedString(inventory, out serial, "basic_device_identity", "serial_number")
+            && !string.IsNullOrWhiteSpace(serial))
         {
-            string fileUrl = File.ReadAllText(_apiBaseUrlPath).Trim();
-            if (!string.IsNullOrWhiteSpace(fileUrl))
+            return serial;
+        }
+
+        return null;
+    }
+
+    private static bool TryReadNestedString(
+        IReadOnlyDictionary<string, object?> root,
+        out string? value,
+        params string[] path)
+    {
+        value = null;
+        if (path.Length == 0)
+        {
+            return false;
+        }
+
+        object? current = root;
+        foreach (string segment in path)
+        {
+            if (current is not IReadOnlyDictionary<string, object?> readOnlyNode)
             {
-                return fileUrl;
+                if (current is Dictionary<string, object?> mutableNode)
+                {
+                    if (!mutableNode.TryGetValue(segment, out current))
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+
+                return false;
+            }
+
+            if (!readOnlyNode.TryGetValue(segment, out current))
+            {
+                return false;
             }
         }
 
-        return "http://localhost/api/v1/";
+        if (current is string s)
+        {
+            value = s.Trim();
+            return true;
+        }
+
+        return false;
     }
 
     private string? ResolveEnrollmentToken()
     {
-        string? envToken = Environment.GetEnvironmentVariable("DMS_ENROLLMENT_TOKEN");
-        if (!string.IsNullOrWhiteSpace(envToken))
+        if (!string.IsNullOrWhiteSpace(_bootstrapConfiguration.EnrollmentToken))
         {
-            return envToken;
+            return _bootstrapConfiguration.EnrollmentToken;
         }
 
         if (File.Exists(_enrollmentTokenPath))
@@ -271,6 +370,65 @@ public sealed class ApiClient
         }
 
         return null;
+    }
+
+    private string ResolveBehaviorIngestToken()
+    {
+        if (!string.IsNullOrWhiteSpace(_behaviorIngestToken))
+        {
+            return _behaviorIngestToken;
+        }
+
+        string? envToken = Environment.GetEnvironmentVariable("DMS_BEHAVIOR_INGEST_TOKEN");
+        if (!string.IsNullOrWhiteSpace(envToken))
+        {
+            _behaviorIngestToken = envToken.Trim();
+            return _behaviorIngestToken;
+        }
+
+        if (File.Exists(_behaviorIngestTokenPath))
+        {
+            string fileToken = File.ReadAllText(_behaviorIngestTokenPath).Trim();
+            if (!string.IsNullOrWhiteSpace(fileToken))
+            {
+                _behaviorIngestToken = fileToken;
+                return _behaviorIngestToken;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private void PersistBehaviorIngestToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        string normalized = token.Trim();
+        _behaviorIngestToken = normalized;
+        Directory.CreateDirectory(_bootstrapConfiguration.DmsDirectory);
+        File.WriteAllText(_behaviorIngestTokenPath, normalized);
+    }
+
+    private static async Task<string> SafeReadResponseContentAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            string body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return "<empty>";
+            }
+
+            string singleLine = body.Replace(Environment.NewLine, " ").Replace('\n', ' ').Replace('\r', ' ').Trim();
+            return singleLine.Length <= 1000 ? singleLine : singleLine[..1000];
+        }
+        catch (Exception ex)
+        {
+            return $"<unavailable: {ex.Message}>";
+        }
     }
 
     private static string ResolveAgentVersion()

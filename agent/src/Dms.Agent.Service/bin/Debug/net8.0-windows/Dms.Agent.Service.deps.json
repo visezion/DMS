@@ -438,7 +438,8 @@
       },
       "Dms.Agent.Core/1.0.0": {
         "dependencies": {
-          "BouncyCastle.Cryptography": "2.5.1"
+          "BouncyCastle.Cryptography": "2.5.1",
+          "System.Diagnostics.EventLog": "8.0.1"
         },
         "runtime": {
           "Dms.Agent.Core.dll": {

@@ -14,6 +14,7 @@ This project requires documentation updates for every functional change.
 - `docs/FUNCTIONS_GUIDE.md` (primary usage reference)
 - `docs/runbooks/operations.md` (incident + operations steps)
 - `docs/architecture/architecture.md` (if architecture or data flow changes)
+- `backend/resources/views/admin/docs.blade.php` (`/admin/docs` operator-facing handbook and UI update log)
 
 ## Definition of done (DoD)
 A feature is not complete until all are true:
@@ -22,11 +23,13 @@ A feature is not complete until all are true:
 3. Runbook updates are included if operations behavior changed.
 4. API changes include request/response updates in docs.
 5. Security-sensitive changes include mitigation notes.
+6. `/admin/docs` reflects current UI behavior for the changed modules.
 
 ## Pull request checklist (copy into PR description)
 - [ ] Updated `docs/FUNCTIONS_GUIDE.md`
 - [ ] Updated `docs/runbooks/operations.md` (if needed)
 - [ ] Updated `docs/architecture/architecture.md` (if needed)
+- [ ] Updated `/admin/docs` (`backend/resources/views/admin/docs.blade.php`) when UI/flow changed
 - [ ] Added/updated examples for new API/UI flow
 - [ ] Verified docs against running build
 

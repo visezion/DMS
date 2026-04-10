@@ -11,7 +11,6 @@ return [
         'apply_policy' => ['risk_level' => 'medium', 'requires_approval' => false, 'rollback_command' => 'remove_policy_assignment'],
         'get_device_status' => ['risk_level' => 'low', 'requires_approval' => false, 'rollback_command' => ''],
         'project_inventory' => ['risk_level' => 'low', 'requires_approval' => false, 'rollback_command' => ''],
-        'ai_query' => ['risk_level' => 'low', 'requires_approval' => false, 'rollback_command' => ''],
         'unknown' => ['risk_level' => 'low', 'requires_approval' => false, 'rollback_command' => ''],
     ],
 
@@ -64,7 +63,7 @@ return [
         [
             'slug' => 'shutdown_device',
             'phrases' => ['shut down', 'shutdown device', 'power off'],
-            'script' => 'shutdown.exe /s /t 0 /f /c "AI Power requested shutdown"',
+            'script' => 'shutdown.exe /s /t 0 /f /c "Control plane requested shutdown"',
             'run_as' => 'system',
             'timeout_seconds' => 180,
             'confidence' => 0.82,
@@ -87,7 +86,7 @@ return [
         ],
         [
             'slug' => 'update_all_software',
-            'phrases' => ['update all outdated application', 'update all outdated applications', 'upgrade all applications'],
+            'phrases' => ['update all outdated application', 'update all outdated applications', 'upgrade all applications', 'update all devices', 'update devices in'],
             'script' => 'winget upgrade --all --silent --accept-source-agreements --accept-package-agreements',
             'run_as' => 'system',
             'timeout_seconds' => 1200,
@@ -123,7 +122,7 @@ return [
         ],
         [
             'slug' => 'restart_agent',
-            'phrases' => ['restart agent', 'restart dms agent', 'restart endpoint management service'],
+            'phrases' => ['restart agent', 'restart dms agent', 'restart endpoint management service', 'reinstall agent', 'reinstall the agent', 're-install agent'],
             'script' => 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Restart-Service -Name DmsAgent -Force"',
             'run_as' => 'system',
             'timeout_seconds' => 300,
@@ -234,4 +233,3 @@ return [
         ],
     ],
 ];
-

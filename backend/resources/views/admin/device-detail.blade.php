@@ -23,9 +23,6 @@
             <div class="flex flex-wrap items-center gap-2">
                 <span id="device-status" class="rounded-full win-chip px-3 py-1 text-xs text-slate-700">Status: {{ $device->status }}</span>
                 <span id="last-checkin" class="rounded-full win-chip px-3 py-1 text-xs text-slate-700">Last check-in: {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'never' }}</span>
-                <a href="{{ route('admin.devices.behavior-intelligence', $device->id) }}" class="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs text-sky-700 hover:bg-sky-100">
-                    Open Behavior Brain
-                </a>
             </div>
         </div>
         <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -45,6 +42,17 @@
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Agent Version</p>
                 <p class="text-sm font-medium text-slate-800">{{ $device->agent_version ?: 'Unknown' }}</p>
             </div>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-2">
+            <a href="{{ route('admin.intelligence.health.device', $device->id) }}" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-slate-400">
+                Device Health
+            </a>
+            <a href="{{ route('admin.intelligence.executive', $device->id) }}" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-slate-400">
+                Executive Summary
+            </a>
+            <a href="{{ route('admin.intelligence.telemetry.device', $device->id) }}" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-slate-400">
+                Telemetry Detail
+            </a>
         </div>
         <div class="mt-4 rounded-xl border border-red-200 bg-red-50/60 p-3">
             <div class="flex flex-wrap items-center justify-between gap-2">

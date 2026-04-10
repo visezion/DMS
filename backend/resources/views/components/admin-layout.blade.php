@@ -15,6 +15,43 @@
     $brandRadiusPx = max(0, min(32, (int) ($branding['border_radius_px'] ?? 12)));
     $brandLogo = is_string($branding['logo_url'] ?? null) ? trim((string) $branding['logo_url']) : '';
     $brandFavicon = is_string($branding['favicon_url'] ?? null) ? trim((string) $branding['favicon_url']) : '';
+    $currentScheme = strtolower((string) request()->getScheme());
+    $currentHost = strtolower((string) request()->getHost());
+    $normalizeLocalAssetScheme = function (?string $url) use ($currentScheme, $currentHost): string {
+        $url = trim((string) $url);
+        if ($url === '' || preg_match('/^https?:\/\//i', $url) !== 1) {
+            return $url;
+        }
+
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return $url;
+        }
+
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $scheme = strtolower((string) ($parts['scheme'] ?? 'http'));
+        if ($host === '' || $host !== $currentHost || $scheme === $currentScheme) {
+            return $url;
+        }
+
+        $userInfo = '';
+        if (isset($parts['user'])) {
+            $userInfo = (string) $parts['user'];
+            if (isset($parts['pass'])) {
+                $userInfo .= ':'.(string) $parts['pass'];
+            }
+            $userInfo .= '@';
+        }
+
+        $port = isset($parts['port']) ? ':'.$parts['port'] : '';
+        $path = (string) ($parts['path'] ?? '');
+        $query = isset($parts['query']) ? '?'.$parts['query'] : '';
+        $fragment = isset($parts['fragment']) ? '#'.$parts['fragment'] : '';
+
+        return $currentScheme.'://'.$userInfo.$host.$port.$path.$query.$fragment;
+    };
+    $brandLogo = $normalizeLocalAssetScheme($brandLogo);
+    $brandFavicon = $normalizeLocalAssetScheme($brandFavicon);
     $topbarUser = auth()->user();
     $topbarUserName = trim((string) ($topbarUser?->name ?? 'User')) ?: 'User';
     $topbarInitial = strtoupper(substr($topbarUserName, 0, 1));
@@ -64,6 +101,9 @@
             $topbarUserAvatar = null;
         }
     }
+    $topbarMetricsTtlSeconds = max(15, min(300, (int) env('ADMIN_LAYOUT_METRICS_TTL_SECONDS', 45)));
+    $topbarMetricsTenantScope = (string) (session('active_tenant_id') ?? ($topbarUser?->tenant_id ?? 'platform'));
+    $topbarMetricsCachePrefix = 'admin.layout.metrics.'.$topbarMetricsTenantScope.'.';
 
     $securitySettingKeys = [
         'security.production_lock_mode',
@@ -79,18 +119,24 @@
         'devices.delete_cleanup_before_uninstall',
         'packages.download_url_mode',
     ];
-    $securitySettings = \App\Models\ControlPlaneSetting::query()
-        ->whereIn('key', $securitySettingKeys)
-        ->get(['key', 'value'])
-        ->mapWithKeys(function ($row) {
-            $val = is_array($row->value ?? null) ? ($row->value['value'] ?? null) : null;
-            return [$row->key => $val];
-        });
+    $securitySettings = collect(\Illuminate\Support\Facades\Cache::remember(
+        $topbarMetricsCachePrefix.'security-settings',
+        now()->addSeconds($topbarMetricsTtlSeconds),
+        function () use ($securitySettingKeys) {
+            return \App\Models\ControlPlaneSetting::query()
+                ->whereIn('key', $securitySettingKeys)
+                ->get(['key', 'value'])
+                ->mapWithKeys(function ($row) {
+                    $val = is_array($row->value ?? null) ? ($row->value['value'] ?? null) : null;
+                    return [$row->key => $val];
+                })
+                ->all();
+        }
+    ));
     $securityGet = function (string $key, mixed $default = null) use ($securitySettings) {
         return $securitySettings->has($key) ? $securitySettings->get($key) : $default;
     };
 
-    $securityProductionLockMode = (bool) $securityGet('security.production_lock_mode', false);
     $securitySignatureBypassEnabled = (bool) $securityGet('security.signature_bypass_enabled', filter_var((string) env('DMS_SIGNATURE_BYPASS', 'false'), FILTER_VALIDATE_BOOL));
     $securityAuthRequireMfa = (bool) $securityGet('auth.require_mfa', false);
     $securityAuthMaxAttempts = max(1, (int) $securityGet('auth.max_login_attempts', 5));
@@ -103,25 +149,36 @@
     $topbarKillSwitchEnabled = (bool) $securityGet('jobs.kill_switch', false);
     $topbarKillSwitchCardClass = $topbarKillSwitchEnabled
         ? 'kill-switch-card kill-switch-card-halted'
-        : 'kill-switch-card';
+        : 'kill-switch-card kill-switch-card-live';
     $topbarKillSwitchIconClass = $topbarKillSwitchEnabled
         ? 'kill-switch-icon-shell kill-switch-icon-shell-halted'
         : 'kill-switch-icon-shell';
-    $topbarKillSwitchIconTone = $topbarKillSwitchEnabled ? 'text-rose-700' : 'text-rose-600';
+    $topbarKillSwitchIconTone = $topbarKillSwitchEnabled ? 'text-rose-700' : 'text-emerald-700';
+    $topbarKillSwitchActionTone = $topbarKillSwitchEnabled ? 'text-rose-700' : 'text-emerald-700';
     $topbarKillSwitchActionChip = $topbarKillSwitchEnabled
         ? 'kill-switch-chip kill-switch-chip-restore'
         : 'kill-switch-chip kill-switch-chip-danger';
+    $topbarKillSwitchCardStyle = $topbarKillSwitchEnabled
+        ? 'border-color:#fb7185;background-color:#fff1f2;'
+        : 'border-color:#86efac;background-color:#f0fdf4;';
+    $topbarKillSwitchIconStyle = $topbarKillSwitchEnabled
+        ? 'border-color:#fb7185;background-color:#ffe4e6;'
+        : 'border-color:#86efac;background-color:#f0fdf4;';
+    $topbarKillSwitchChipStyle = $topbarKillSwitchEnabled
+        ? 'border-color:#be123c;background-color:#be123c;color:#ffffff;'
+        : 'border-color:#16a34a;background-color:#f0fdf4;color:#166534;';
     $topbarKillSwitchStatus = $topbarKillSwitchEnabled ? 'Dispatch Halted' : 'Dispatch Live';
     $topbarKillSwitchCardStatus = $topbarKillSwitchEnabled ? 'Halted' : 'Active';
     $topbarKillSwitchActionLabel = $topbarKillSwitchEnabled ? 'Restore Dispatch' : 'Engage Kill Switch';
     $topbarKillSwitchSummary = $topbarKillSwitchEnabled
-        ? 'No new commands can leave the control plane.'
-        : 'One action halts all new command dispatch.';
+        ? 'Dispatch is paused.'
+        : 'Halts new command dispatch.';
     $topbarKillSwitchModalTitle = $topbarKillSwitchEnabled ? 'Restore Command Dispatch' : 'Engage Emergency Kill Switch';
     $topbarKillSwitchModalDescription = $topbarKillSwitchEnabled
         ? 'Release the kill switch and allow new command dispatch to continue from the control plane.'
         : 'Immediately stop all new command dispatch from the control plane until an administrator explicitly restores it.';
     $topbarKillSwitchConfirmLabel = $topbarKillSwitchEnabled ? 'Restore Dispatch' : 'Engage Kill Switch';
+    $topbarKillSwitchConfirmPhrase = $topbarKillSwitchEnabled ? 'RESTORE DISPATCH' : 'PAUSE DISPATCH';
     $topbarKillSwitchBarClass = $topbarKillSwitchEnabled ? 'bg-rose-600' : 'bg-rose-500';
     $topbarKillSwitchBarWidth = $topbarKillSwitchEnabled ? 100 : 42;
     $securityMaxRetries = (int) $securityGet('jobs.max_retries', 3);
@@ -134,17 +191,24 @@
     $securitySessionSecure = (bool) config('session.secure', false);
     $securityAppEnv = strtolower((string) config('app.env', 'local'));
     $securityHttpsConfigured = str_starts_with(strtolower($securityAppUrl), 'https://');
-    $securityStaleActiveRuns = \App\Models\JobRun::query()
-        ->whereIn('status', ['pending', 'acked', 'running'])
-        ->where('updated_at', '<', now()->subMinutes(30))
-        ->count();
-    $securityRecentFailedRuns = \App\Models\JobRun::query()
-        ->whereIn('status', ['failed', 'non_compliant'])
-        ->where('updated_at', '>=', now()->subHours(24))
-        ->count();
+    $securityStaleActiveRuns = (int) \Illuminate\Support\Facades\Cache::remember(
+        $topbarMetricsCachePrefix.'stale-active-runs',
+        now()->addSeconds($topbarMetricsTtlSeconds),
+        fn () => \App\Models\JobRun::query()
+            ->whereIn('status', ['pending', 'acked', 'running'])
+            ->where('updated_at', '<', now()->subMinutes(30))
+            ->count()
+    );
+    $securityRecentFailedRuns = (int) \Illuminate\Support\Facades\Cache::remember(
+        $topbarMetricsCachePrefix.'recent-failed-runs',
+        now()->addSeconds($topbarMetricsTtlSeconds),
+        fn () => \App\Models\JobRun::query()
+            ->whereIn('status', ['failed', 'non_compliant'])
+            ->where('updated_at', '>=', now()->subHours(24))
+            ->count()
+    );
 
     $securityControls = [
-        ['status' => $securityProductionLockMode ? 'good' : 'warning', 'priority' => 'high'],
         ['status' => $securitySignatureBypassEnabled ? 'warning' : 'good', 'priority' => 'critical'],
         ['status' => $securityAuthRequireMfa ? 'good' : 'warning', 'priority' => 'critical'],
         ['status' => ($securityAuthMaxAttempts <= 8 && $securityAuthLockoutMinutes >= 10) ? 'good' : 'warning', 'priority' => 'high'],
@@ -183,14 +247,24 @@
             : ['text' => 'text-rose-700', 'bg' => 'bg-rose-50 border-rose-200', 'bar' => 'bg-rose-500']);
 
     $aiAccuracyWindowDays = 30;
-    $aiAccuracyReviewedTotal = \App\Models\BehaviorPolicyFeedback::query()
-        ->whereIn('decision', ['approved', 'edited', 'rejected', 'false_positive', 'false_negative'])
-        ->where('created_at', '>=', now()->subDays($aiAccuracyWindowDays))
-        ->count();
-    $aiAccuracyCorrectTotal = \App\Models\BehaviorPolicyFeedback::query()
-        ->whereIn('decision', ['approved', 'edited'])
-        ->where('created_at', '>=', now()->subDays($aiAccuracyWindowDays))
-        ->count();
+    $aiAccuracyStats = \Illuminate\Support\Facades\Cache::remember(
+        $topbarMetricsCachePrefix.'ai-accuracy-'.$aiAccuracyWindowDays.'d',
+        now()->addSeconds($topbarMetricsTtlSeconds),
+        function () use ($aiAccuracyWindowDays) {
+            $reviewed = \App\Models\BehaviorPolicyFeedback::query()
+                ->whereIn('decision', ['approved', 'edited', 'rejected', 'false_positive', 'false_negative'])
+                ->where('created_at', '>=', now()->subDays($aiAccuracyWindowDays))
+                ->count();
+            $correct = \App\Models\BehaviorPolicyFeedback::query()
+                ->whereIn('decision', ['approved', 'edited'])
+                ->where('created_at', '>=', now()->subDays($aiAccuracyWindowDays))
+                ->count();
+
+            return ['reviewed' => (int) $reviewed, 'correct' => (int) $correct];
+        }
+    );
+    $aiAccuracyReviewedTotal = (int) ($aiAccuracyStats['reviewed'] ?? 0);
+    $aiAccuracyCorrectTotal = (int) ($aiAccuracyStats['correct'] ?? 0);
     $topbarAiAccuracy = $aiAccuracyReviewedTotal > 0
         ? max(0, min(100, (int) round(($aiAccuracyCorrectTotal / $aiAccuracyReviewedTotal) * 100)))
         : null;
@@ -246,33 +320,59 @@
         return abs(time() - $timestamp) <= $maxAgeSeconds;
     };
 
-    $aiRuntimeQueueRunning = $runtimeHeartbeatIsFresh('queue-heartbeat') || $processExistsByPattern('artisan queue:work');
-    $aiRuntimeSchedulerRunning = $runtimeHeartbeatIsFresh('scheduler-heartbeat') || $processExistsByPattern('artisan schedule:work');
-    $aiRuntimeRunning = $aiRuntimeQueueRunning && $aiRuntimeSchedulerRunning;
+    $runtimeStatus = \Illuminate\Support\Facades\Cache::remember(
+        $topbarMetricsCachePrefix.'runtime-status',
+        now()->addSeconds($topbarMetricsTtlSeconds),
+        function () use ($runtimeHeartbeatIsFresh, $processExistsByPattern) {
+            $queueRunning = $runtimeHeartbeatIsFresh('queue-heartbeat') || $processExistsByPattern('artisan queue:work');
+            $schedulerRunning = $runtimeHeartbeatIsFresh('scheduler-heartbeat') || $processExistsByPattern('artisan schedule:work');
 
-    $agentBackendWorkdir = trim((string) env('AGENT_BACKEND_WORKDIR', ''));
-    if ($agentBackendWorkdir === '') {
-        $agentBackendWorkdir = base_path('agent-backend');
-    }
-    $agentBackendConfigured = is_dir($agentBackendWorkdir);
-    $agentBackendHost = (string) env('AGENT_BACKEND_HOST', '127.0.0.1');
-    $agentBackendPort = (int) env('AGENT_BACKEND_PORT', 8000);
-    $agentBackendRunning = false;
-    $agentBackendError = null;
-    if ($agentBackendConfigured) {
-        $agentErrno = 0;
-        $agentErrstr = '';
-        $agentConnection = @fsockopen($agentBackendHost, $agentBackendPort, $agentErrno, $agentErrstr, 1.2);
-        $agentBackendRunning = is_resource($agentConnection);
-        if ($agentBackendRunning) {
-            @fclose($agentConnection);
+            $agentBackendWorkdir = trim((string) env('AGENT_BACKEND_WORKDIR', ''));
+            if ($agentBackendWorkdir === '') {
+                $agentBackendWorkdir = base_path('agent-backend');
+            }
+            $agentBackendConfigured = is_dir($agentBackendWorkdir);
+            $agentBackendHost = (string) env('AGENT_BACKEND_HOST', '127.0.0.1');
+            $agentBackendPort = (int) env('AGENT_BACKEND_PORT', 8000);
+            $agentBackendRunning = false;
+            $agentBackendError = null;
+
+            if ($agentBackendConfigured) {
+                $agentErrno = 0;
+                $agentErrstr = '';
+                $agentConnection = @fsockopen($agentBackendHost, $agentBackendPort, $agentErrno, $agentErrstr, 1.2);
+                $agentBackendRunning = is_resource($agentConnection);
+                if ($agentBackendRunning) {
+                    @fclose($agentConnection);
+                }
+                $agentBackendError = $agentBackendRunning
+                    ? null
+                    : (trim($agentErrstr) !== '' ? trim($agentErrstr) : ('connect errno '.$agentErrno));
+            }
+
+            $runtimeRunning = $queueRunning && $schedulerRunning;
+            return [
+                'aiRuntimeQueueRunning' => $queueRunning,
+                'aiRuntimeSchedulerRunning' => $schedulerRunning,
+                'aiRuntimeRunning' => $runtimeRunning,
+                'agentBackendConfigured' => $agentBackendConfigured,
+                'agentBackendHost' => $agentBackendHost,
+                'agentBackendPort' => $agentBackendPort,
+                'agentBackendRunning' => $agentBackendRunning,
+                'agentBackendError' => $agentBackendError,
+                'showRuntimePopup' => ! $runtimeRunning || ($agentBackendConfigured && ! $agentBackendRunning),
+            ];
         }
-        $agentBackendError = $agentBackendRunning
-            ? null
-            : (trim($agentErrstr) !== '' ? trim($agentErrstr) : ('connect errno '.$agentErrno));
-    }
-
-    $showRuntimePopup = ! $aiRuntimeRunning || ($agentBackendConfigured && ! $agentBackendRunning);
+    );
+    $aiRuntimeQueueRunning = (bool) ($runtimeStatus['aiRuntimeQueueRunning'] ?? false);
+    $aiRuntimeSchedulerRunning = (bool) ($runtimeStatus['aiRuntimeSchedulerRunning'] ?? false);
+    $aiRuntimeRunning = (bool) ($runtimeStatus['aiRuntimeRunning'] ?? false);
+    $agentBackendConfigured = (bool) ($runtimeStatus['agentBackendConfigured'] ?? false);
+    $agentBackendHost = (string) ($runtimeStatus['agentBackendHost'] ?? '127.0.0.1');
+    $agentBackendPort = (int) ($runtimeStatus['agentBackendPort'] ?? 8000);
+    $agentBackendRunning = (bool) ($runtimeStatus['agentBackendRunning'] ?? false);
+    $agentBackendError = is_string($runtimeStatus['agentBackendError'] ?? null) ? $runtimeStatus['agentBackendError'] : null;
+    $showRuntimePopup = (bool) ($runtimeStatus['showRuntimePopup'] ?? false);
 @endphp
 <head>
     <meta charset="UTF-8" />
@@ -293,6 +393,10 @@
         --brand-primary-soft: {{ $brandPrimary }}1A;
         --brand-primary-soft-2: {{ $brandPrimary }}26;
         --brand-primary-border: {{ $brandPrimary }}66;
+        --brand-accent: {{ $brandAccent }};
+        --brand-accent-soft: {{ $brandAccent }}1A;
+        --brand-accent-soft-2: {{ $brandAccent }}26;
+        --brand-accent-border: {{ $brandAccent }}66;
         --brand-radius-base: {{ $brandRadiusPx }}px;
         --brand-radius-sm: max(2px, calc(var(--brand-radius-base) - 4px));
         --brand-radius-md: max(4px, calc(var(--brand-radius-base) - 2px));
@@ -326,6 +430,18 @@
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.devices') || request()->routeIs('admin.devices.show') || request()->routeIs('admin.devices.live') || request()->routeIs('admin.devices.update') || request()->routeIs('admin.devices.delete') || request()->routeIs('admin.devices.reenroll') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.devices') }}">Devices</a>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.groups*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.groups') }}">Groups</a>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.packages*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.packages') }}">Software Packages</a>
+            <details class="pt-2 group" {{ request()->routeIs('admin.assets*') ? 'open' : '' }}>
+                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.assets*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                    <span>Asset Management</span>
+                    <span class="expand-indicator text-xs"></span>
+                </summary>
+                <div class="mt-3 pl-2 space-y-2">
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets') }}">Asset Overview</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets.hardware') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.hardware') }}">Hardware Inventory</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets.software') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.software') }}">Software Inventory</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets.clients') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.clients') }}">Client Management</a>
+                </div>
+            </details>
 
             <details class="pt-2 group" {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'open' : '' }}>
                 <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
@@ -339,61 +455,21 @@
                 </div>
             </details>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
-            <details class="pt-2 group" {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'open' : '' }}>
-                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                    <span class="flex items-center gap-2">
-                        <span aria-hidden="true" class="text-current">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
-                                <path d="M4 6h16M4 12h10M4 18h7"></path>
-                                <circle cx="17" cy="12" r="3"></circle>
-                            </svg>
-                        </span>
-                        <span class="flex items-center gap-2">
-                            <span>Behaviour Center</span>
-                            <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700' }}">
-                                WIP
-                            </span>
-                        </span>
-                    </span>
+            <details class="pt-2 group" {{ request()->routeIs('admin.intelligence.*') ? 'open' : '' }}>
+                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.intelligence.*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                    <span>Endpoint Intelligence</span>
                     <span class="expand-indicator text-xs"></span>
                 </summary>
                 <div class="mt-3 pl-2 space-y-2">
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.behavior-ai*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-ai.index') }}">
-                        <span aria-hidden="true" class="text-current">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
-                                <rect x="7" y="7" width="10" height="10" rx="2"></rect>
-                                <path d="M10 10h4v4h-4zM9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"></path>
-                            </svg>
-                        </span>
-                        <span>AI Control Center</span>
-                    </a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.ai-power*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.ai-power.index') }}">
-                        <span aria-hidden="true" class="text-current">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
-                                <path d="M4 12h16M12 4v16"></path>
-                                <circle cx="12" cy="12" r="3"></circle>
-                            </svg>
-                        </span>
-                        <span>AI Power</span>
-                    </a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.behavior-baseline*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-baseline.index') }}">
-                        <span aria-hidden="true" class="text-current">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
-                                <path d="M4 12h16M12 4v16"></path>
-                                <circle cx="12" cy="12" r="8"></circle>
-                            </svg>
-                        </span>
-                        <span>Behavioral Baseline</span>
-                    </a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-remediation.index') }}">
-                        <span aria-hidden="true" class="text-current">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4">
-                                <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4 7-9V6l-7-3Z"></path>
-                                <path d="M8 12h8M12 8v8"></path>
-                            </svg>
-                        </span>
-                        <span>Autonomous Remediation</span>
-                    </a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.health*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.health') }}">Fleet Health</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.risk*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.risk') }}">Risk Dashboard</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.incidents*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.incidents') }}">Incidents</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.assistant*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.assistant') }}">AI Assistant</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.remediation') }}">Remediation</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.approvals*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.approvals') }}">Approvals</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.actions*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.actions') }}">Action History</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.autonomy*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomy') }}">Autonomy</a>
+                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.tuning*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.tuning') }}">Tuning</a>
                 </div>
             </details>
             <details class="pt-2 group" {{ request()->routeIs('admin.agent*') ? 'open' : '' }}>
@@ -474,47 +550,30 @@
                 </a>
                 <button
                     type="button"
-                    class="flex w-[198px] items-center gap-2 rounded-xl px-3 py-2 text-left {{ $topbarKillSwitchCardClass }}"
+                    class="topbar-kill-switch-card flex w-[198px] items-center gap-2 rounded-xl border bg-white px-3 py-2 text-left shadow-sm {{ $topbarKillSwitchCardClass }}"
+                    style="{{ $topbarKillSwitchCardStyle }}"
                     title="{{ $topbarKillSwitchModalTitle }}"
                     data-kill-switch-trigger="1"
                     data-kill-switch-enabled="{{ $topbarKillSwitchEnabled ? '0' : '1' }}"
                     data-kill-switch-title="{{ $topbarKillSwitchModalTitle }}"
                     data-kill-switch-description="{{ $topbarKillSwitchModalDescription }}"
                     data-kill-switch-confirm="{{ $topbarKillSwitchConfirmLabel }}"
+                    data-kill-switch-phrase="{{ $topbarKillSwitchConfirmPhrase }}"
                 >
-                    <span class="h-8 w-8 rounded-lg flex items-center justify-center {{ $topbarKillSwitchIconClass }}">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4 {{ $topbarKillSwitchIconTone }}">
+                    <span class="h-8 w-8 rounded-lg flex items-center justify-center {{ $topbarKillSwitchIconClass }}" style="{{ $topbarKillSwitchIconStyle }}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4 {{ $topbarKillSwitchIconTone }}">
                             <path d="M12 3v7"></path>
                             <path d="M7.8 6.8a7 7 0 1 0 8.4 0"></path>
                         </svg>
                     </span>
                     <div class="min-w-0 flex-1 leading-tight">
-                        <p class="text-[10px] uppercase tracking-wide text-rose-700">Kill Switch</p>
-                        <div class="mt-0.5 flex items-center gap-2">
-                            <p class="text-2xl font-semibold text-slate-900 leading-none">{{ $topbarKillSwitchCardStatus }}</p>
-                            <div class="h-1.5 flex-1 rounded-full bg-rose-100 overflow-hidden">
-                                <div class="h-full {{ $topbarKillSwitchBarClass }}" style="width: {{ $topbarKillSwitchBarWidth }}%"></div>
-                            </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <p class="text-[10px] uppercase tracking-wide text-slate-500">Kill Switch</p>
+                            <span class="{{ $topbarKillSwitchActionChip }}" style="{{ $topbarKillSwitchChipStyle }}">{{ $topbarKillSwitchCardStatus }}</span>
                         </div>
+                        <p class="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.08em] {{ $topbarKillSwitchActionTone }}">{{ $topbarKillSwitchActionLabel }}</p>
                     </div>
                 </button>
-                <a href="{{ route('admin.behavior-ai.index') }}" class="flex w-[198px] items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm" title="Open AI Control Center">
-                    <span class="h-8 w-8 rounded-lg border {{ $topbarAiTone['bg'] }} flex items-center justify-center">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4 {{ $topbarAiTone['text'] }}">
-                            <rect x="7" y="7" width="10" height="10" rx="2"></rect>
-                            <path d="M10 10h4v4h-4zM9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"></path>
-                        </svg>
-                    </span>
-                    <div class="min-w-0 flex-1 leading-tight">
-                        <p class="text-[10px] uppercase tracking-wide text-slate-500">AI Accuracy ({{ $aiAccuracyWindowDays }}d)</p>
-                        <div class="mt-0.5 flex items-center gap-2">
-                            <p class="text-2xl font-semibold text-slate-900 leading-none">{{ $topbarAiAccuracy !== null ? $topbarAiAccuracy.'%' : 'N/A' }}</p>
-                            <div class="h-1.5 flex-1 rounded-full bg-slate-200 overflow-hidden">
-                                <div class="h-full {{ $topbarAiTone['bar'] }}" style="width: {{ $topbarAiAccuracy ?? 0 }}%"></div>
-                            </div>
-                        </div>
-                    </div>
-                </a>
             </div>
             <div class="flex items-center gap-2">
                 <nav class="hidden md:flex items-center gap-1.5 px-0 py-0" aria-label="Top shortcuts">
@@ -535,7 +594,7 @@
                     </a>
                     <button
                         type="button"
-                        class="hidden h-9 w-9 rounded-full items-center justify-center transition md:flex lg:hidden {{ $topbarKillSwitchEnabled ? 'text-rose-700 hover:text-rose-800' : 'text-rose-600 hover:text-rose-700' }}"
+                        class="hidden h-9 w-9 rounded-full items-center justify-center transition md:flex lg:hidden {{ $topbarKillSwitchEnabled ? 'text-rose-700 hover:text-rose-800' : 'text-emerald-700 hover:text-emerald-800' }}"
                         title="Kill Switch: {{ $topbarKillSwitchStatus }}"
                         aria-label="Kill Switch"
                         data-kill-switch-trigger="1"
@@ -543,6 +602,7 @@
                         data-kill-switch-title="{{ $topbarKillSwitchModalTitle }}"
                         data-kill-switch-description="{{ $topbarKillSwitchModalDescription }}"
                         data-kill-switch-confirm="{{ $topbarKillSwitchConfirmLabel }}"
+                        data-kill-switch-phrase="{{ $topbarKillSwitchConfirmPhrase }}"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M12 3v7"/><path d="M7.8 6.8a7 7 0 1 0 8.4 0"/></svg>
                     </button>
@@ -552,7 +612,7 @@
                 </nav>
                 <button
                     type="button"
-                    class="inline-flex h-9 w-9 items-center justify-center rounded-full md:hidden {{ $topbarKillSwitchEnabled ? 'text-rose-700' : 'text-rose-600' }}"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-full md:hidden {{ $topbarKillSwitchEnabled ? 'text-rose-700' : 'text-emerald-700' }}"
                     title="Kill Switch: {{ $topbarKillSwitchStatus }}"
                     aria-label="Kill Switch"
                     data-kill-switch-trigger="1"
@@ -560,6 +620,7 @@
                     data-kill-switch-title="{{ $topbarKillSwitchModalTitle }}"
                     data-kill-switch-description="{{ $topbarKillSwitchModalDescription }}"
                     data-kill-switch-confirm="{{ $topbarKillSwitchConfirmLabel }}"
+                    data-kill-switch-phrase="{{ $topbarKillSwitchConfirmPhrase }}"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M12 3v7"/><path d="M7.8 6.8a7 7 0 1 0 8.4 0"/></svg>
                 </button>
@@ -612,6 +673,18 @@
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.devices') || request()->routeIs('admin.devices.show') || request()->routeIs('admin.devices.live') || request()->routeIs('admin.devices.update') || request()->routeIs('admin.devices.delete') || request()->routeIs('admin.devices.reenroll') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.devices') }}">Devices</a>
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.groups*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.groups') }}">Groups</a>
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.packages*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.packages') }}">Software Packages</a>
+                    <details class="pt-1 group" {{ request()->routeIs('admin.assets*') ? 'open' : '' }}>
+                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.assets*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                            <span>Asset Management</span>
+                            <span class="expand-indicator text-xs"></span>
+                        </summary>
+                        <div class="mt-3 pl-2 space-y-2">
+                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets') }}">Asset Overview</a>
+                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets.hardware') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.hardware') }}">Hardware Inventory</a>
+                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets.software') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.software') }}">Software Inventory</a>
+                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets.clients') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.clients') }}">Client Management</a>
+                        </div>
+                    </details>
 
                     <details class="pt-1 group" {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'open' : '' }}>
                         <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
@@ -626,27 +699,6 @@
                     </details>
 
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
-
-                    <details class="pt-1 group" {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'open' : '' }}>
-                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.behavior-ai*') || request()->routeIs('admin.ai-power*') || request()->routeIs('admin.behavior-baseline*') || request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                            <span>Behaviour Center</span>
-                            <span class="expand-indicator text-xs"></span>
-                        </summary>
-                        <div class="mt-3 pl-2 space-y-2">
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.behavior-ai*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-ai.index') }}">
-                                <span>AI Control Center</span>
-                            </a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.ai-power*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.ai-power.index') }}">
-                                <span>AI Power</span>
-                            </a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.behavior-baseline*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-baseline.index') }}">
-                                <span>Behavioral Baseline</span>
-                            </a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.behavior-remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.behavior-remediation.index') }}">
-                                <span>Autonomous Remediation</span>
-                            </a>
-                        </div>
-                    </details>
 
                     <details class="pt-1 group" {{ request()->routeIs('admin.agent*') ? 'open' : '' }}>
                         <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.agent*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
@@ -712,22 +764,7 @@
                 <button type="button" id="runtime-alert-close" class="rounded-md border border-amber-200 bg-white px-2 py-0.5 text-xs text-amber-700">x</button>
             </div>
             <div class="mt-4 space-y-3">
-                <div id="runtime-alert-ai-card" class="@if($aiRuntimeRunning) hidden @endif rounded-xl border border-amber-200 bg-white p-4">
-                    <p class="text-sm font-medium text-slate-900">Runtime Control</p>
-                    <p class="mt-1 text-xs text-slate-600">Start worker and scheduler when they are offline.</p>
-                    <div class="mt-2 space-y-1 text-xs text-slate-700">
-                        <p>Queue: <span id="global-runtime-queue-text">{{ $aiRuntimeQueueRunning ? 'running' : 'not running' }}</span></p>
-                        <p>Scheduler: <span id="global-runtime-scheduler-text">{{ $aiRuntimeSchedulerRunning ? 'running' : 'not running' }}</span></p>
-                    </div>
-                    <div class="mt-3 flex flex-wrap gap-2">
-                        <form method="POST" action="{{ route('admin.behavior-ai.runtime.start') }}">
-                            @csrf
-                            <button class="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white">Start AI Runtime</button>
-                        </form>
-                        <a href="{{ route('admin.behavior-ai.index') }}" class="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700">Open AI Control Center</a>
-                    </div>
-                </div>
-                <div id="runtime-alert-agent-card" class="@if(! $agentBackendConfigured || $agentBackendRunning) hidden @endif rounded-xl border border-amber-200 bg-white p-4">
+<div id="runtime-alert-agent-card" class="@if(! $agentBackendConfigured || $agentBackendRunning) hidden @endif rounded-xl border border-amber-200 bg-white p-4">
                     <p class="text-sm font-medium text-slate-900">Agent backend server is not running</p>
                     <p class="mt-1 text-xs text-slate-600">Policy/install actions that depend on it may fail.</p>
                     <p id="global-agent-backend-meta" class="mt-2 text-[11px] font-mono text-slate-500">{{ $agentBackendHost }}:{{ $agentBackendPort }}@if($agentBackendError) | {{ $agentBackendError }}@endif</p>
@@ -747,7 +784,7 @@
     </div>
 <div id="kill-switch-modal" class="modal-backdrop hidden fixed inset-0 z-[115] px-4">
     <div class="flex min-h-full items-center justify-center">
-        <div class="w-full max-w-md rounded-2xl border border-rose-200 bg-white">
+        <div class="w-full max-w-lg rounded-2xl border border-rose-200 bg-white">
             <div class="border-b border-slate-200 px-5 py-4">
                 <h3 id="kill-switch-modal-title" class="text-base font-semibold text-slate-900">Engage Emergency Kill Switch</h3>
                 <p class="mt-1 text-xs text-slate-600">This action requires admin password confirmation.</p>
@@ -755,10 +792,27 @@
             <form id="kill-switch-modal-form" method="POST" action="{{ route('admin.ops.kill-switch') }}">
                 @csrf
                 <div class="space-y-3 px-5 py-4">
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Current Dispatch State</p>
+                        <p id="kill-switch-modal-state" class="mt-1 text-sm font-semibold text-slate-900">Live</p>
+                    </div>
                     <div id="kill-switch-modal-warning" class="brand-modal-note rounded-lg px-3 py-2 text-xs">
                         Pause all new command dispatch from the control plane until you explicitly resume it.
                     </div>
+                    <div class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                        <p class="font-semibold text-slate-700">Impact</p>
+                        <ul class="mt-1 list-disc space-y-1 pl-4">
+                            <li>New command dispatch is blocked immediately.</li>
+                            <li>Existing in-flight runs are not retroactively canceled.</li>
+                            <li>Dispatch can only be restored by explicit admin action.</li>
+                        </ul>
+                    </div>
                     <input type="hidden" name="enabled" id="kill-switch-enabled" value="">
+                    <div>
+                        <label for="kill-switch-phrase" class="mb-1 block text-xs font-medium text-slate-600">Type confirmation phrase:</label>
+                        <input id="kill-switch-phrase" name="confirmation_phrase" type="text" class="brand-modal-input w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 uppercase tracking-wide" autocomplete="off" />
+                        <p class="mt-1 text-[11px] text-slate-500">Required phrase: <span id="kill-switch-phrase-target" class="font-mono font-semibold text-slate-700">PAUSE DISPATCH</span></p>
+                    </div>
                     <div>
                         <label for="kill-switch-password" class="mb-1 block text-xs font-medium text-slate-600">Enter your admin password to confirm:</label>
                         <input id="kill-switch-password" name="admin_password" type="password" class="brand-modal-input w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" autocomplete="current-password" />
@@ -767,7 +821,7 @@
                 </div>
                 <div class="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
                     <button id="kill-switch-cancel" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">Cancel</button>
-                    <button id="kill-switch-confirm" type="submit" class="brand-modal-action rounded-lg px-3 py-2 text-xs font-medium">Pause Dispatch</button>
+                    <button id="kill-switch-confirm" type="submit" class="brand-modal-action rounded-lg px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60" disabled>Pause Dispatch</button>
                 </div>
             </form>
         </div>
@@ -807,31 +861,17 @@
     (function () {
         const popup = document.getElementById('runtime-alert-popup');
         const closeBtn = document.getElementById('runtime-alert-close');
-        const aiCard = document.getElementById('runtime-alert-ai-card');
         const agentCard = document.getElementById('runtime-alert-agent-card');
-        const queueText = document.getElementById('global-runtime-queue-text');
-        const schedulerText = document.getElementById('global-runtime-scheduler-text');
         const agentMeta = document.getElementById('global-agent-backend-meta');
         const agentStatusLine = document.getElementById('agent-backend-status-line');
         const agentEndpointLine = document.getElementById('agent-backend-endpoint-line');
-        const behaviorQueueLine = document.getElementById('behavior-runtime-queue-line');
-        const behaviorSchedulerLine = document.getElementById('behavior-runtime-scheduler-line');
-        const runtimeStatusUrl = @json(route('admin.behavior-ai.runtime.status'));
         const backendStatusUrl = @json(route('admin.agent.backend.status'));
 
         let popupDismissed = false;
 
-        function setBadge(el, running) {
-            if (!el) return;
-            el.className = 'rounded-full px-2 py-0.5 ' + (running ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700');
-            el.textContent = running ? 'running' : 'not running';
-        }
-
         function syncPopupVisibility() {
             if (!popup) return;
-            const aiOffline = aiCard && !aiCard.classList.contains('hidden');
-            const agentOffline = agentCard && !agentCard.classList.contains('hidden');
-            const hasAlert = aiOffline || agentOffline;
+            const hasAlert = !!(agentCard && !agentCard.classList.contains('hidden'));
             popup.classList.toggle('hidden', !hasAlert || popupDismissed);
             if (!hasAlert) {
                 popupDismissed = false;
@@ -844,29 +884,6 @@
                 popupDismissed = true;
                 popup?.classList.add('hidden');
             });
-        }
-
-        async function pollRuntimeStatus() {
-            try {
-                const res = await fetch(runtimeStatusUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-                if (!res.ok) return;
-                const data = await res.json();
-                const queueRunning = !!data.queue_running;
-                const schedulerRunning = !!data.scheduler_running;
-
-                if (queueText) queueText.textContent = queueRunning ? 'running' : 'not running';
-                if (schedulerText) schedulerText.textContent = schedulerRunning ? 'running' : 'not running';
-                setBadge(behaviorQueueLine, queueRunning);
-                setBadge(behaviorSchedulerLine, schedulerRunning);
-
-                if (aiCard) {
-                    aiCard.classList.toggle('hidden', queueRunning && schedulerRunning);
-                }
-
-                syncPopupVisibility();
-            } catch (e) {
-                // Ignore transient polling failures.
-            }
         }
 
         async function pollAgentStatus() {
@@ -910,9 +927,7 @@
         }
 
         syncPopupVisibility();
-        pollRuntimeStatus();
         pollAgentStatus();
-        setInterval(pollRuntimeStatus, 10000);
         setInterval(pollAgentStatus, 10000);
     })();
 </script>
@@ -1003,8 +1018,11 @@
         const triggers = Array.from(document.querySelectorAll('[data-kill-switch-trigger]'));
         const modal = document.getElementById('kill-switch-modal');
         const titleNode = document.getElementById('kill-switch-modal-title');
+        const stateNode = document.getElementById('kill-switch-modal-state');
         const warningNode = document.getElementById('kill-switch-modal-warning');
         const enabledField = document.getElementById('kill-switch-enabled');
+        const phraseTarget = document.getElementById('kill-switch-phrase-target');
+        const phraseInput = document.getElementById('kill-switch-phrase');
         const passwordInput = document.getElementById('kill-switch-password');
         const errorNode = document.getElementById('kill-switch-modal-error');
         const cancelBtn = document.getElementById('kill-switch-cancel');
@@ -1013,32 +1031,56 @@
         const initialEnabled = @json(old('enabled'));
         const initialError = @json($errors->first('kill_switch'));
 
-        if (!modal || !titleNode || !warningNode || !enabledField || !passwordInput || !errorNode || !cancelBtn || !confirmBtn || !form || triggers.length === 0) {
+        if (!modal || !titleNode || !stateNode || !warningNode || !enabledField || !phraseTarget || !phraseInput || !passwordInput || !errorNode || !cancelBtn || !confirmBtn || !form || triggers.length === 0) {
             return;
+        }
+
+        let expectedPhrase = 'PAUSE DISPATCH';
+
+        function normalizePhrase(value) {
+            return String(value || '').trim().toUpperCase();
+        }
+
+        function syncSubmitAvailability() {
+            const validPhrase = normalizePhrase(phraseInput.value) === normalizePhrase(expectedPhrase);
+            const hasPassword = passwordInput.value.trim() !== '';
+            confirmBtn.disabled = !(validPhrase && hasPassword);
         }
 
         function closeModal() {
             modal.classList.add('hidden');
             enabledField.value = '';
+            phraseInput.value = '';
             passwordInput.value = '';
             errorNode.textContent = 'Password is required.';
             errorNode.classList.add('hidden');
+            confirmBtn.disabled = true;
             window.syncAdminModalState?.();
         }
 
         function openModal(options) {
             const enableSwitch = !!options.enableSwitch;
+            expectedPhrase = options.requiredPhrase || (enableSwitch ? 'PAUSE DISPATCH' : 'RESTORE DISPATCH');
             titleNode.textContent = options.title || (enableSwitch ? 'Engage Emergency Kill Switch' : 'Restore Command Dispatch');
+            stateNode.textContent = enableSwitch ? 'Live (new dispatch allowed)' : 'Halted (new dispatch blocked)';
             warningNode.textContent = options.description || (enableSwitch
                 ? 'Immediately stop all new command dispatch from the control plane until an administrator explicitly restores it.'
                 : 'Release the kill switch and allow new command dispatch to continue from the control plane.');
-            warningNode.className = 'brand-modal-note rounded-lg px-3 py-2 text-xs';
+            warningNode.className = enableSwitch
+                ? 'brand-modal-note rounded-lg px-3 py-2 text-xs'
+                : 'brand-modal-note-safe rounded-lg px-3 py-2 text-xs';
+            phraseTarget.textContent = expectedPhrase;
+            phraseInput.placeholder = expectedPhrase;
             enabledField.value = enableSwitch ? '1' : '0';
             confirmBtn.textContent = options.confirmLabel || (enableSwitch ? 'Engage Kill Switch' : 'Restore Dispatch');
-            confirmBtn.className = 'brand-modal-action rounded-lg px-3 py-2 text-xs font-medium';
+            confirmBtn.className = enableSwitch
+                ? 'brand-modal-action rounded-lg px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60'
+                : 'brand-modal-action-safe rounded-lg px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60';
+            phraseInput.value = '';
             errorNode.classList.add('hidden');
             modal.classList.remove('hidden');
-            passwordInput.focus();
+            confirmBtn.disabled = true;
+            phraseInput.focus();
             window.syncAdminModalState?.();
         }
 
@@ -1049,6 +1091,7 @@
                     title: trigger.dataset.killSwitchTitle || '',
                     description: trigger.dataset.killSwitchDescription || '',
                     confirmLabel: trigger.dataset.killSwitchConfirm || '',
+                    requiredPhrase: trigger.dataset.killSwitchPhrase || '',
                 });
             });
         });
@@ -1064,14 +1107,27 @@
                 closeModal();
             }
         });
+        phraseInput.addEventListener('input', syncSubmitAvailability);
+        passwordInput.addEventListener('input', syncSubmitAvailability);
         form.addEventListener('submit', function (event) {
-            if (passwordInput.value.trim() !== '') {
+            const hasPassword = passwordInput.value.trim() !== '';
+            const phraseMatches = normalizePhrase(phraseInput.value) === normalizePhrase(expectedPhrase);
+            if (hasPassword && phraseMatches) {
                 return;
             }
             event.preventDefault();
-            errorNode.textContent = 'Password is required.';
+            if (!phraseMatches) {
+                errorNode.textContent = `Type "${expectedPhrase}" to confirm this action.`;
+            } else {
+                errorNode.textContent = 'Password is required.';
+            }
             errorNode.classList.remove('hidden');
-            passwordInput.focus();
+            if (!phraseMatches) {
+                phraseInput.focus();
+            } else {
+                passwordInput.focus();
+            }
+            syncSubmitAvailability();
         });
 
         if (initialError) {
@@ -1082,9 +1138,11 @@
                     ? 'Immediately stop all new command dispatch from the control plane until an administrator explicitly restores it.'
                     : 'Release the kill switch and allow new command dispatch to continue from the control plane.',
                 confirmLabel: String(initialEnabled) === '1' ? 'Engage Kill Switch' : 'Restore Dispatch',
+                requiredPhrase: String(initialEnabled) === '1' ? 'PAUSE DISPATCH' : 'RESTORE DISPATCH',
             });
             errorNode.textContent = initialError;
             errorNode.classList.remove('hidden');
+            syncSubmitAvailability();
         }
     })();
 </script>
@@ -1176,6 +1234,11 @@
             'Groups': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M8 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M2.5 20a5.5 5.5 0 0 1 11 0"/><path d="M13 20a5 5 0 0 1 8.5-3.5"/></svg>',
             'Software Packages': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 4 7l8 4 8-4-8-4Z"/><path d="M4 7v10l8 4 8-4V7"/></svg>',
             'Application Management': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg>',
+            'Asset Management': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 20h10"/><path d="M8 9h8M8 13h8"/></svg>',
+            'Asset Overview': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>',
+            'Hardware Inventory': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 3v2M14 3v2M10 19v2M14 19v2M3 10h2M3 14h2M19 10h2M19 14h2"/></svg>',
+            'Software Inventory': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 4 7l8 4 8-4-8-4Z"/><path d="M4 7v10l8 4 8-4V7"/></svg>',
+            'Client Management': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M8 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M2.5 20a5.5 5.5 0 0 1 11 0"/><path d="M13 20a5 5 0 0 1 8.5-3.5"/></svg>',
             'Policies': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3v18"/><path d="M6 7h12"/><path d="M6 17h12"/><path d="M8.5 7a3.5 3.5 0 0 1 0 7"/><path d="M15.5 17a3.5 3.5 0 0 0 0-7"/></svg>',
             'Policy Catalog': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 0-3 3V4Z"/><path d="M8 8h7M8 12h7M8 16h5"/></svg>',
             'Categories': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M3 8h18"/><path d="M3 12h18"/><path d="M3 16h18"/></svg>',
@@ -1195,7 +1258,26 @@
             'Audit Logs': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v3l2 2"/></svg>',
             'Policy Center': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 4 7v6c0 5 3.5 7.8 8 9 4.5-1.2 8-4 8-9V7l-8-4Z"/></svg>',
             'Autonomous Remediation': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4 7-9V6l-7-3Z"/><path d="M8 12h8M12 8v8"/></svg>',
-            'Deployment Center': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 2v20"/><path d="M5 7h14"/><path d="M7 12h10"/><path d="M9 17h6"/></svg>'
+            'Deployment Center': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 2v20"/><path d="M5 7h14"/><path d="M7 12h10"/><path d="M9 17h6"/></svg>',
+            'Endpoint Intelligence': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="6" cy="12" r="1.5"/><circle cx="18" cy="6" r="1.5"/><circle cx="18" cy="18" r="1.5"/><path d="M7.5 12h5"/><path d="m14.5 12 2.2-4.1"/><path d="m14.5 12 2.2 4.1"/></svg>',
+            'Fleet Health': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 12h3l2-5 4 10 2-5h5"/><path d="M12 21c5-3.2 8-6.3 8-10.4A4.6 4.6 0 0 0 12 7a4.6 4.6 0 0 0-8 3.6C4 14.7 7 17.8 12 21Z"/></svg>',
+            'Fleet Health Overview': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 12h3l2-5 4 10 2-5h5"/><path d="M12 21c5-3.2 8-6.3 8-10.4A4.6 4.6 0 0 0 12 7a4.6 4.6 0 0 0-8 3.6C4 14.7 7 17.8 12 21Z"/></svg>',
+            'Risk Dashboard': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 5 6v5c0 5 3.2 8.5 7 10 3.8-1.5 7-5 7-10V6l-7-3Z"/><path d="M12 8v4"/><circle cx="12" cy="15.5" r="0.9" fill="currentColor" stroke="none"/></svg>',
+            'Risk & Threat Dashboard': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 5 6v5c0 5 3.2 8.5 7 10 3.8-1.5 7-5 7-10V6l-7-3Z"/><path d="M12 8v4"/><circle cx="12" cy="15.5" r="0.9" fill="currentColor" stroke="none"/></svg>',
+            'Incidents': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.2 7.2 15.6 17"/><path d="M15.7 8.8 12.9 15.6"/></svg>',
+            'Correlated Incident Explorer': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.2 7.2 15.6 17"/><path d="M15.7 8.8 12.9 15.6"/></svg>',
+            'AI Assistant': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 9.9 8.4 4 10.5l5.9 2.1L12 18l2.1-5.4 5.9-2.1-5.9-2.1L12 3Z"/><path d="M5 3v3"/><path d="M19 18v3"/><path d="M3 5h3"/><path d="M18 19h3"/></svg>',
+            'AI Ops Assistant': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 9.9 8.4 4 10.5l5.9 2.1L12 18l2.1-5.4 5.9-2.1-5.9-2.1L12 3Z"/><path d="M5 3v3"/><path d="M19 18v3"/><path d="M3 5h3"/><path d="M18 19h3"/></svg>',
+            'Remediation': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="m14.5 5.5 4 4"/><path d="M6.8 17.2 17 7a2.8 2.8 0 1 0-4-4L2.8 13.2a2 2 0 0 0-.5 1L2 20l5.8-.3a2 2 0 0 0 1-.5Z"/><path d="m12 8 4 4"/></svg>',
+            'Remediation Queue': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="m14.5 5.5 4 4"/><path d="M6.8 17.2 17 7a2.8 2.8 0 1 0-4-4L2.8 13.2a2 2 0 0 0-.5 1L2 20l5.8-.3a2 2 0 0 0 1-.5Z"/><path d="m12 8 4 4"/></svg>',
+            'Approvals': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 5 6v6c0 4.7 3 7.9 7 9 4-1.1 7-4.3 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>',
+            'Approval Center': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 5 6v6c0 4.7 3 7.9 7 9 4-1.1 7-4.3 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>',
+            'Action History': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>',
+            'Autonomy': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 7h16"/><path d="M4 17h16"/><path d="M7 7v10"/><path d="M17 7v10"/><circle cx="7" cy="11" r="2.5"/><circle cx="17" cy="13" r="2.5"/></svg>',
+            'Autonomy Policy Settings': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 7h16"/><path d="M4 17h16"/><path d="M7 7v10"/><path d="M17 7v10"/><circle cx="7" cy="11" r="2.5"/><circle cx="17" cy="13" r="2.5"/></svg>',
+            'Tuning': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 6h7"/><path d="M13 6h7"/><path d="M4 18h11"/><path d="M17 18h3"/><path d="M9 3v6"/><path d="M15 15v6"/><circle cx="12" cy="6" r="1.8"/><circle cx="16" cy="18" r="1.8"/></svg>',
+            'Engine / Rule Tuning': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 6h7"/><path d="M13 6h7"/><path d="M4 18h11"/><path d="M17 18h3"/><path d="M9 3v6"/><path d="M15 15v6"/><circle cx="12" cy="6" r="1.8"/><circle cx="16" cy="18" r="1.8"/></svg>',
+            'Device Executive Summary': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h5"/><path d="M9 12h6"/><path d="M9 16h6"/></svg>'
         };
 
         function cleanText(el) {
@@ -1259,3 +1341,4 @@
 </script>
 </body>
 </html>
+

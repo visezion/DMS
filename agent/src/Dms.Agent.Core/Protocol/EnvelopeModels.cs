@@ -63,6 +63,9 @@ public sealed class CheckinResponseDto
 
     [JsonPropertyName("commands")]
     public List<SignedCommandDto> Commands { get; init; } = [];
+
+    [JsonPropertyName("bootstrap")]
+    public BootstrapDto? Bootstrap { get; init; }
 }
 
 public sealed class KeysetResponseDto
@@ -81,6 +84,21 @@ public sealed class EnrollmentResponseDto
 {
     [JsonPropertyName("device_id")]
     public string DeviceId { get; init; } = string.Empty;
+
+    [JsonPropertyName("bootstrap")]
+    public BootstrapDto? Bootstrap { get; init; }
+}
+
+public sealed class BootstrapDto
+{
+    [JsonPropertyName("checkin_interval_seconds")]
+    public int? CheckinIntervalSeconds { get; init; }
+
+    [JsonPropertyName("nonce_window_seconds")]
+    public int? NonceWindowSeconds { get; init; }
+
+    [JsonPropertyName("behavior_ingest_token")]
+    public string? BehaviorIngestToken { get; init; }
 }
 
 public sealed class KeysetKeyDto

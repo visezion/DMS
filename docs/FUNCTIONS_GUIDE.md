@@ -2,7 +2,7 @@
 
 Complete functional inventory for the DMS workspace.
 
-Last updated: 2026-03-12
+Last updated: 2026-04-08
 
 ## Scope
 This guide covers:
@@ -173,17 +173,15 @@ Supported UI job types in current validation:
 - `DELETE /admin/access/roles/{roleId}` -> delete role
 - `PATCH /admin/access/users/{userId}/roles` -> assign user roles
 - `GET /admin/audit` -> audit log page
-- `GET /admin/behavior-ai` -> AI control center page for cases, runtime, and recommendations
-- `POST /admin/behavior-ai/recommendations/{recommendationId}/review` -> approve or reject recommendation
-- `POST /admin/behavior-ai/recommendations/approve-all-pending` -> approve all pending recommendations
-- `POST /admin/behavior-ai/runtime/start` -> start behavior AI runtime helpers
-- `GET /admin/behavior-ai/runtime/status` -> current behavior AI runtime status
-- `POST /admin/behavior-ai/train-now` -> queue dataset backfill plus model training
-- `POST /admin/behavior-ai/retrain` -> queue adaptive retraining from feedback
-- `POST /admin/behavior-ai/replay` -> replay queued or failed stream events
-- `GET /admin/behavior-alerts` -> full anomaly detection review page with filters and actions
-- `POST /admin/behavior-alerts/{alertId}/confirm` -> confirm anomaly and allow policy/alert follow-up
-- `POST /admin/behavior-alerts/{alertId}/dismiss` -> dismiss anomaly
+- `GET /admin/intelligence/health` -> fleet health overview
+- `GET /admin/intelligence/risk` -> risk dashboard
+- `GET /admin/intelligence/incidents` -> incident explorer
+- `GET /admin/intelligence/assistant` -> assistant workspace
+- `GET /admin/intelligence/remediation` -> remediation queue
+- `GET /admin/intelligence/approvals` -> approval center
+- `GET /admin/intelligence/actions` -> remediation action history
+- `GET /admin/intelligence/autonomy` -> autonomy policy page
+- `GET /admin/intelligence/tuning` -> intelligence engine tuning
 
 ### 1.11 Signed/External Downloads
 - `GET /agent/releases/{releaseId}/download` -> signed agent release download
@@ -255,12 +253,10 @@ Source: `backend/routes/console.php`
   - Prints an inspiring quote.
 - `php artisan dms:keys:rotate {kid?}`
   - Rotates/activates the command-signing key.
-- `php artisan dms:behavior:detect --minutes=60`
-  - Queues rule-based behavior anomaly detection.
 - `php artisan dms:behavior:dataset:backfill --days=30`
   - Rebuilds local AI training dataset JSONL from stored behavior logs.
-- `php artisan dms:behavior:train-ai --days=30 --min-events=200`
-  - Trains AI anomaly model from behavior dataset and saves model artifact.
+- `php artisan dms:approvals:sweep`
+  - Expires pending approval requests that crossed `expires_at` and reports SLA breaches.
 
 ## 4. Backend Script Functions
 Source folder: `backend/scripts`
@@ -338,27 +334,17 @@ Primary sources:
 ## 7. Update Rule
 When adding or changing any route/job type/script, update this file in the same PR so the functional inventory stays accurate.
 
-## 8. AI Anomaly Detection Ops
-- Detection modes:
-  - `rule` (default): z-score login-time rules.
-  - `ai`: model scoring from trained behavior model.
-- Rule-based detectors currently include:
-  - unusual login-time z-score
-  - off-hours login anomaly
-  - rare app launch (user/device baseline)
-  - suspicious process launch indicators
-  - sensitive file access pattern detection
-  - file-access burst anomaly
-- Admin toggle:
-  - `Settings` -> `Operations Controls` -> `Behavior Detection Mode`.
-- Required training flow:
-  1. Build dataset: `php artisan dms:behavior:dataset:backfill --days=30`
-  2. Train model: `php artisan dms:behavior:train-ai --days=30 --min-events=200`
-  3. Switch mode to AI in Admin Settings.
-- Periodic retraining recommendation:
-  - Weekly for stable fleets.
-  - Daily for rapidly changing endpoint behavior.
-  - Run with scheduler/Horizon worker active so classification jobs continue uninterrupted.
+## 8. AI/Intelligence Ops
+- Assistant recommendations are generated from current endpoint intelligence context and optional OpenAI responses.
+- Behavior telemetry ingestion endpoint:
+  - `POST /api/v1/device/behavior-log`
+  - Requires either `X-DMS-Behavior-Token` or a recent valid `checkin_id` fallback match.
+- Dataset utility:
+  - `php artisan dms:behavior:dataset:backfill --days=30`
+  - Rebuilds `storage/app/behavior_models/datasets/latest.jsonl` from stored behavior logs.
+- Approval hygiene utility:
+  - `php artisan dms:approvals:sweep`
+  - Expires stale pending approval requests and surfaces pending requests past SLA.
 
 ## 9. How Core Modules Work (Examples)
 

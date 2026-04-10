@@ -18,6 +18,7 @@ class KillSwitchToggleTest extends TestCase
         $this->actingAs($user)
             ->post(route('admin.ops.kill-switch'), [
                 'enabled' => '1',
+                'confirmation_phrase' => 'PAUSE DISPATCH',
                 'admin_password' => 'password',
             ])
             ->assertRedirect()
@@ -43,6 +44,7 @@ class KillSwitchToggleTest extends TestCase
             ->from(route('admin.dashboard'))
             ->post(route('admin.ops.kill-switch'), [
                 'enabled' => '1',
+                'confirmation_phrase' => 'PAUSE DISPATCH',
                 'admin_password' => 'wrong-password',
             ])
             ->assertRedirect(route('admin.dashboard'))

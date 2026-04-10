@@ -228,7 +228,7 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\hostfxr.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\hostpolicy.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\mscordaccore.dll
-C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\mscordaccore_amd64_amd64_8.0.2426.7010.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\mscordaccore_amd64_amd64_8.0.2526.11203.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\mscordbi.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\mscorrc.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\win-x64\msquic.dll

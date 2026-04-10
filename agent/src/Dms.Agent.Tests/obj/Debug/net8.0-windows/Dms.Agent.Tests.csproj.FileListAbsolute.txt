@@ -18,6 +18,7 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\Microsoft
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\Microsoft.TestPlatform.Utilities.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\Microsoft.VisualStudio.TestPlatform.Common.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\Newtonsoft.Json.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\System.Diagnostics.EventLog.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\xunit.abstractions.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\xunit.assert.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\xunit.core.dll
@@ -87,6 +88,8 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\zh-Hans\M
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\zh-Hant\Microsoft.TestPlatform.CommunicationUtilities.resources.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\zh-Hant\Microsoft.TestPlatform.CrossPlatEngine.resources.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\zh-Hant\Microsoft.VisualStudio.TestPlatform.Common.resources.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\runtimes\win\lib\net8.0\System.Diagnostics.EventLog.Messages.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\runtimes\win\lib\net8.0\System.Diagnostics.EventLog.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\Dms.Agent.Core.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\Dms.Agent.Core.pdb
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\obj\Debug\net8.0-windows\Dms.Agent.Tests.csproj.AssemblyReference.cache
@@ -101,6 +104,3 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\obj\Debug\net8.0-windows\refint\Dm
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\obj\Debug\net8.0-windows\Dms.Agent.Tests.pdb
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\obj\Debug\net8.0-windows\Dms.Agent.Tests.genruntimeconfig.cache
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\obj\Debug\net8.0-windows\ref\Dms.Agent.Tests.dll
-C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\System.Diagnostics.EventLog.dll
-C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\runtimes\win\lib\net8.0\System.Diagnostics.EventLog.Messages.dll
-C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Tests\bin\Debug\net8.0-windows\runtimes\win\lib\net8.0\System.Diagnostics.EventLog.dll

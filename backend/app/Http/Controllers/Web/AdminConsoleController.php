@@ -9,11 +9,9 @@ use App\Models\AuditLog;
 use App\Models\BehaviorAnomalyCase;
 use App\Models\BehaviorRemediationExecution;
 use App\Models\DeviceBehaviorDriftEvent;
-use App\Models\BehaviorPolicyRecommendation;
 use App\Models\ComplianceResult;
 use App\Models\ControlPlaneSetting;
 use App\Models\Device;
-use App\Models\DeviceBehaviorLog;
 use App\Models\DeviceGroup;
 use App\Models\DmsJob;
 use App\Models\EnrollmentToken;
@@ -220,9 +218,6 @@ class AdminConsoleController extends Controller
                 'job_success_rate' => $jobFinalCount > 0 ? round(($jobSuccessCount / $jobFinalCount) * 100, 1) : null,
                 'replay_rejects' => $replayRejects,
                 'last_key_rotation' => $lastKeyRotation,
-                'behavior_ai_cases_pending' => BehaviorAnomalyCase::query()->where('status', 'pending_review')->count(),
-                'behavior_ai_cases_total' => BehaviorAnomalyCase::query()->count(),
-                'behavior_ai_recommendations_pending' => BehaviorPolicyRecommendation::query()->where('status', 'pending')->count(),
                 'behavior_baseline_enabled' => $baselineTablesReady,
                 'behavior_baseline_drift_events_24h' => $baselineDriftEvents24h,
                 'behavior_baseline_drift_devices_7d' => $baselineDriftDevices7d,
@@ -236,7 +231,11 @@ class AdminConsoleController extends Controller
             ],
             'recent_jobs' => JobRun::query()->latest('updated_at')->limit(8)->get(),
             'recent_devices' => Device::query()->latest('updated_at')->limit(8)->get(),
-            'recent_behavior_ai_cases' => BehaviorAnomalyCase::query()->latest('detected_at')->limit(8)->get(),
+            'recent_anomaly_cases' => BehaviorAnomalyCase::query()
+                ->with('device:id,hostname')
+                ->latest('detected_at')
+                ->limit(8)
+                ->get(),
             'charts' => [
                 'job_trend' => $jobTrend,
                 'enrollment_trend' => $enrollmentTrend,
@@ -303,6 +302,280 @@ class AdminConsoleController extends Controller
                 ->paginate(20)
                 ->withQueryString(),
             'searchQuery' => $search,
+        ]);
+    }
+
+    public function assetsOverview(): View
+    {
+        $activeThreshold = now()->subMinutes(5);
+        $recentSnapshotThreshold = now()->subDays(7);
+        $devices = Device::query()->select(['id', 'last_seen_at', 'tags'])->get();
+
+        $totalDevices = $devices->count();
+        $activeDevices = $devices->filter(fn (Device $device) => $device->last_seen_at !== null && $device->last_seen_at->gte($activeThreshold))->count();
+        $inactiveDevices = max(0, $totalDevices - $activeDevices);
+
+        $hardwareSnapshots = 0;
+        $recentHardwareSnapshots = 0;
+        foreach ($devices as $device) {
+            $tags = is_array($device->tags) ? $device->tags : [];
+            $inventory = is_array($tags['inventory'] ?? null) ? $tags['inventory'] : [];
+            if ($inventory !== []) {
+                $hardwareSnapshots++;
+            }
+
+            $inventoryUpdatedAt = trim((string) ($tags['inventory_updated_at'] ?? ''));
+            if ($inventoryUpdatedAt === '') {
+                continue;
+            }
+
+            try {
+                if (\Carbon\Carbon::parse($inventoryUpdatedAt)->gte($recentSnapshotThreshold)) {
+                    $recentHardwareSnapshots++;
+                }
+            } catch (\Throwable) {
+                // Ignore malformed inventory timestamps.
+            }
+        }
+
+        $softwareSummary = $this->collectSoftwareInventorySummary();
+        $softwareRows = $softwareSummary['rows'];
+        $topSoftware = $softwareRows->take(8)->values();
+
+        $deploymentLinkedAssets = JobRun::query()
+            ->join('jobs', 'jobs.id', '=', 'job_runs.job_id')
+            ->whereIn('jobs.job_type', [
+                'install_package',
+                'install_msi',
+                'install_exe',
+                'install_custom',
+                'install_archive',
+                'uninstall_package',
+                'uninstall_msi',
+                'uninstall_exe',
+                'uninstall_archive',
+                'update_agent',
+                'reconcile_software_inventory',
+            ])
+            ->distinct('job_runs.device_id')
+            ->count('job_runs.device_id');
+
+        return view('admin.assets.overview', [
+            'metrics' => [
+                'devices_total' => $totalDevices,
+                'devices_active' => $activeDevices,
+                'devices_inactive' => $inactiveDevices,
+                'hardware_snapshots' => $hardwareSnapshots,
+                'hardware_snapshots_recent' => $recentHardwareSnapshots,
+                'software_titles_total' => $softwareRows->count(),
+                'software_installations_total' => (int) $softwareSummary['total_installations'],
+                'software_unauthorized_total' => $softwareRows->where('managed', false)->count(),
+                'deployment_linked_assets' => (int) $deploymentLinkedAssets,
+            ],
+            'topSoftware' => $topSoftware,
+        ]);
+    }
+
+    public function assetsHardwareInventory(Request $request): View
+    {
+        $search = trim((string) $request->query('q', ''));
+        $query = Device::query()->select([
+            'id',
+            'hostname',
+            'os_name',
+            'os_version',
+            'agent_version',
+            'serial_number',
+            'status',
+            'last_seen_at',
+            'tags',
+            'updated_at',
+        ]);
+
+        if ($search !== '') {
+            $query->where(function ($builder) use ($search) {
+                $like = '%'.$search.'%';
+                $builder->where('hostname', 'like', $like)
+                    ->orWhere('id', 'like', $like)
+                    ->orWhere('serial_number', 'like', $like)
+                    ->orWhere('os_name', 'like', $like)
+                    ->orWhere('os_version', 'like', $like);
+            });
+        }
+
+        $devices = $query->latest('updated_at')->paginate(25)->withQueryString();
+        $devices->getCollection()->transform(function (Device $device) {
+            $tags = is_array($device->tags) ? $device->tags : [];
+            $inventory = is_array($tags['inventory'] ?? null) ? $tags['inventory'] : [];
+            $disks = collect(data_get($inventory, 'disks', []))->filter(fn ($disk) => is_array($disk))->values();
+
+            return (object) [
+                'id' => $device->id,
+                'hostname' => $device->hostname,
+                'os_name' => $device->os_name,
+                'os_version' => $device->os_version,
+                'agent_version' => $device->agent_version,
+                'serial_number' => $device->serial_number,
+                'status' => $device->status,
+                'last_seen_at' => $device->last_seen_at,
+                'inventory_updated_at' => trim((string) ($tags['inventory_updated_at'] ?? '')),
+                'has_inventory' => $inventory !== [],
+                'cpu_model' => trim((string) data_get($inventory, 'cpu.model', '')),
+                'cpu_cores' => (int) data_get($inventory, 'cpu.logical_cores', 0),
+                'memory_total_bytes' => (int) data_get($inventory, 'memory.total_bytes', 0),
+                'disk_count' => $disks->count(),
+                'disk_total_bytes' => (int) $disks->sum(fn (array $disk) => (int) ($disk['total_bytes'] ?? 0)),
+            ];
+        });
+
+        return view('admin.assets.hardware-inventory', [
+            'devices' => $devices,
+            'searchQuery' => $search,
+        ]);
+    }
+
+    public function assetsSoftwareInventory(Request $request): View
+    {
+        $search = trim((string) $request->query('q', ''));
+        $summary = $this->collectSoftwareInventorySummary($search);
+
+        $rows = $summary['rows'];
+        $devicesBySoftwareCount = Device::query()
+            ->select(['id', 'hostname', 'status', 'last_seen_at', 'tags'])
+            ->latest('updated_at')
+            ->limit(50)
+            ->get()
+            ->map(function (Device $device) {
+                $tags = is_array($device->tags) ? $device->tags : [];
+                $inventory = is_array($tags['inventory'] ?? null) ? $tags['inventory'] : [];
+                $software = collect(data_get($inventory, 'installed_software', []))->filter(fn ($row) => is_array($row))->values();
+
+                return (object) [
+                    'id' => $device->id,
+                    'hostname' => $device->hostname,
+                    'status' => $device->status,
+                    'last_seen_at' => $device->last_seen_at,
+                    'software_count' => $software->count(),
+                    'inventory_updated_at' => trim((string) ($tags['inventory_updated_at'] ?? '')),
+                ];
+            })
+            ->sortByDesc('software_count')
+            ->take(20)
+            ->values();
+
+        return view('admin.assets.software-inventory', [
+            'searchQuery' => $search,
+            'softwareRows' => $rows->take(250)->values(),
+            'unauthorizedRows' => $rows->where('managed', false)->take(120)->values(),
+            'devicesBySoftwareCount' => $devicesBySoftwareCount,
+            'metrics' => [
+                'software_titles_total' => $rows->count(),
+                'software_installations_total' => (int) $summary['total_installations'],
+                'software_devices_total' => (int) $summary['devices_with_software'],
+                'software_unauthorized_total' => $rows->where('managed', false)->count(),
+            ],
+        ]);
+    }
+
+    public function assetsClientManagement(Request $request): View
+    {
+        $search = trim((string) $request->query('q', ''));
+        $activeThreshold = now()->subMinutes(5);
+
+        $baseQuery = Device::query()->select([
+            'id',
+            'hostname',
+            'os_name',
+            'os_version',
+            'agent_version',
+            'serial_number',
+            'status',
+            'last_seen_at',
+            'tags',
+            'updated_at',
+        ]);
+
+        if ($search !== '') {
+            $baseQuery->where(function ($builder) use ($search) {
+                $like = '%'.$search.'%';
+                $builder->where('hostname', 'like', $like)
+                    ->orWhere('id', 'like', $like)
+                    ->orWhere('serial_number', 'like', $like)
+                    ->orWhere('os_name', 'like', $like)
+                    ->orWhere('os_version', 'like', $like);
+            });
+        }
+
+        $matchedTotal = (clone $baseQuery)->count();
+        $activeCount = (clone $baseQuery)
+            ->whereNotNull('last_seen_at')
+            ->where('last_seen_at', '>=', $activeThreshold)
+            ->count();
+        $inactiveCount = max(0, $matchedTotal - $activeCount);
+
+        $clients = (clone $baseQuery)->latest('updated_at')->paginate(25)->withQueryString();
+        $deviceIds = $clients->getCollection()->pluck('id')->values();
+
+        $deploymentRunsByDevice = JobRun::query()
+            ->join('jobs', 'jobs.id', '=', 'job_runs.job_id')
+            ->whereIn('job_runs.device_id', $deviceIds)
+            ->whereIn('jobs.job_type', [
+                'install_package',
+                'install_msi',
+                'install_exe',
+                'install_custom',
+                'install_archive',
+                'uninstall_package',
+                'uninstall_msi',
+                'uninstall_exe',
+                'uninstall_archive',
+                'update_agent',
+                'reconcile_software_inventory',
+            ])
+            ->orderByDesc('job_runs.updated_at')
+            ->get([
+                'job_runs.device_id',
+                'job_runs.status',
+                'job_runs.updated_at',
+                'jobs.job_type',
+            ])
+            ->groupBy('device_id')
+            ->map(fn ($runs) => $runs->first());
+
+        $clients->getCollection()->transform(function (Device $device) use ($activeThreshold, $deploymentRunsByDevice) {
+            $tags = is_array($device->tags) ? $device->tags : [];
+            $inventory = is_array($tags['inventory'] ?? null) ? $tags['inventory'] : [];
+            $softwareCount = collect(data_get($inventory, 'installed_software', []))
+                ->filter(fn ($row) => is_array($row))
+                ->count();
+            $lastDeployment = $deploymentRunsByDevice->get($device->id);
+
+            return (object) [
+                'id' => $device->id,
+                'hostname' => $device->hostname,
+                'os_name' => $device->os_name,
+                'os_version' => $device->os_version,
+                'agent_version' => $device->agent_version,
+                'serial_number' => $device->serial_number,
+                'status' => $device->status,
+                'last_seen_at' => $device->last_seen_at,
+                'is_active' => $device->last_seen_at !== null && $device->last_seen_at->gte($activeThreshold),
+                'inventory_updated_at' => trim((string) ($tags['inventory_updated_at'] ?? '')),
+                'software_count' => $softwareCount,
+                'last_deployment_type' => (string) ($lastDeployment?->job_type ?? ''),
+                'last_deployment_status' => (string) ($lastDeployment?->status ?? ''),
+                'last_deployment_at' => $lastDeployment?->updated_at,
+            ];
+        });
+
+        return view('admin.assets.client-management', [
+            'clients' => $clients,
+            'searchQuery' => $search,
+            'metrics' => [
+                'matched_total' => $matchedTotal,
+                'active_total' => $activeCount,
+                'inactive_total' => $inactiveCount,
+            ],
         ]);
     }
 
@@ -492,187 +765,6 @@ class AdminConsoleController extends Controller
             'effective_policies' => $effectivePolicies,
             'device_packages' => $devicePackages,
         ]);
-    }
-
-    public function deviceBehaviorIntelligence(Request $request, string $deviceId): View
-    {
-        $device = Device::query()->findOrFail($deviceId);
-        $behaviorLogsTableReady = Schema::hasTable('device_behavior_logs');
-        $anomalyCasesTableReady = Schema::hasTable('behavior_anomaly_cases');
-
-        $historyEvents = collect();
-        $openAiTimeline = collect();
-        $historyPaginator = null;
-        $timelinePaginator = null;
-        $stats = [
-            'events_24h' => 0,
-            'events_7d' => 0,
-            'event_types_7d' => 0,
-            'anomaly_cases_7d' => 0,
-            'openai_verdicts_7d' => 0,
-        ];
-        $verdictDistribution = [
-            'normal' => 0,
-            'suspicious' => 0,
-            'malicious' => 0,
-            'inconclusive' => 0,
-        ];
-
-        if ($behaviorLogsTableReady) {
-            $historyPaginator = DeviceBehaviorLog::query()
-                ->where('device_id', $device->id)
-                ->orderByDesc('occurred_at')
-                ->paginate(40, ['*'], 'history_page')
-                ->withQueryString();
-
-            $historyEvents = $historyPaginator->getCollection()->map(function (DeviceBehaviorLog $event): array {
-                $metadata = is_array($event->metadata) ? $event->metadata : [];
-                $tagsRaw = is_array($metadata['tags'] ?? null) ? $metadata['tags'] : [];
-                $tags = array_values(array_filter(array_map(function ($tag): string {
-                    return is_scalar($tag) ? trim((string) $tag) : '';
-                }, $tagsRaw), fn (string $tag) => $tag !== ''));
-
-                return [
-                    'id' => (string) $event->id,
-                    'occurred_at' => $event->occurred_at,
-                    'occurred_at_human' => $event->occurred_at?->diffForHumans(),
-                    'event_type' => (string) ($event->event_type ?? 'unknown'),
-                    'user_name' => trim((string) ($event->user_name ?? '')),
-                    'process_name' => trim((string) ($event->process_name ?? '')),
-                    'file_path' => trim((string) ($event->file_path ?? '')),
-                    'tags' => array_slice($tags, 0, 8),
-                ];
-            });
-            $historyPaginator->setCollection($historyEvents);
-
-            $stats['events_24h'] = DeviceBehaviorLog::query()
-                ->where('device_id', $device->id)
-                ->where('occurred_at', '>=', now()->subDay())
-                ->count();
-            $stats['events_7d'] = DeviceBehaviorLog::query()
-                ->where('device_id', $device->id)
-                ->where('occurred_at', '>=', now()->subDays(7))
-                ->count();
-            $stats['event_types_7d'] = DeviceBehaviorLog::query()
-                ->where('device_id', $device->id)
-                ->where('occurred_at', '>=', now()->subDays(7))
-                ->distinct('event_type')
-                ->count('event_type');
-        }
-
-        if ($anomalyCasesTableReady) {
-            $timelinePaginator = BehaviorAnomalyCase::query()
-                ->where('device_id', $device->id)
-                ->whereNotNull('detected_at')
-                ->orderByDesc('detected_at')
-                ->paginate(30, ['*'], 'timeline_page')
-                ->withQueryString();
-
-            $openAiTimeline = $timelinePaginator->getCollection()->map(
-                fn (BehaviorAnomalyCase $case): array => $this->normalizeOpenAiTimelineEntry($case)
-            );
-            $timelinePaginator->setCollection($openAiTimeline);
-
-            $stats['anomaly_cases_7d'] = BehaviorAnomalyCase::query()
-                ->where('device_id', $device->id)
-                ->where('detected_at', '>=', now()->subDays(7))
-                ->count();
-            $stats['openai_verdicts_7d'] = BehaviorAnomalyCase::query()
-                ->where('device_id', $device->id)
-                ->where('detected_at', '>=', now()->subDays(7))
-                ->get(['context'])
-                ->filter(function (BehaviorAnomalyCase $case): bool {
-                    $context = is_array($case->context) ? $case->context : [];
-
-                    return is_array($context['openai'] ?? null);
-                })
-                ->count();
-
-            BehaviorAnomalyCase::query()
-                ->where('device_id', $device->id)
-                ->orderByDesc('detected_at')
-                ->limit(250)
-                ->get(['context'])
-                ->each(function (BehaviorAnomalyCase $case) use (&$verdictDistribution): void {
-                    $context = is_array($case->context) ? $case->context : [];
-                    $openAi = is_array($context['openai'] ?? null) ? $context['openai'] : [];
-                    $classification = $this->normalizeOpenAiClassification((string) ($openAi['classification'] ?? ''));
-                    $verdictDistribution[$classification] = ($verdictDistribution[$classification] ?? 0) + 1;
-                });
-        }
-
-        return view('admin.device-behavior-intelligence', [
-            'device' => $device,
-            'history_events' => $historyEvents,
-            'openai_timeline' => $openAiTimeline,
-            'history_paginator' => $historyPaginator,
-            'timeline_paginator' => $timelinePaginator,
-            'stats' => $stats,
-            'verdict_distribution' => $verdictDistribution,
-            'history_table_ready' => $behaviorLogsTableReady,
-            'timeline_table_ready' => $anomalyCasesTableReady,
-        ]);
-    }
-
-    /**
-     * @return array<string,mixed>
-     */
-    private function normalizeOpenAiTimelineEntry(BehaviorAnomalyCase $case): array
-    {
-        $context = is_array($case->context) ? $case->context : [];
-        $openAi = is_array($context['openai'] ?? null) ? $context['openai'] : [];
-
-        $classification = $this->normalizeOpenAiClassification((string) ($openAi['classification'] ?? ''));
-        $recommendedAction = $this->normalizeOpenAiAction((string) ($openAi['recommended_action'] ?? ''));
-        $confidence = max(0.0, min(1.0, (float) ($openAi['confidence'] ?? 0.0)));
-        $riskAdjustment = (float) ($openAi['risk_adjustment'] ?? data_get($context, 'risk.openai_adjustment', 0.0));
-        $riskAdjustment = max(-0.35, min(0.35, $riskAdjustment));
-        $summary = trim((string) ($openAi['summary'] ?? $case->summary ?? ''));
-        if ($summary === '') {
-            $summary = 'No OpenAI summary captured for this case.';
-        }
-
-        $markersRaw = is_array($openAi['behavior_markers'] ?? null) ? $openAi['behavior_markers'] : [];
-        $markers = array_values(array_filter(array_map(function ($marker): string {
-            return is_scalar($marker) ? mb_substr(trim((string) $marker), 0, 120) : '';
-        }, $markersRaw), fn (string $marker) => $marker !== ''));
-
-        return [
-            'id' => (string) $case->id,
-            'detected_at' => $case->detected_at,
-            'detected_at_human' => $case->detected_at?->diffForHumans(),
-            'risk_score' => round((float) ($case->risk_score ?? 0.0), 4),
-            'severity' => (string) ($case->severity ?? 'low'),
-            'status' => (string) ($case->status ?? 'pending_review'),
-            'classification' => $classification,
-            'classification_label' => ucfirst($classification),
-            'confidence_percent' => round($confidence * 100, 1),
-            'recommended_action' => $recommendedAction,
-            'recommended_action_label' => str_replace('_', ' ', ucfirst($recommendedAction)),
-            'risk_adjustment' => round($riskAdjustment, 4),
-            'summary' => mb_substr($summary, 0, 220),
-            'behavior_markers' => array_slice($markers, 0, 8),
-            'model' => trim((string) ($openAi['model'] ?? '')),
-            'generated_at' => trim((string) ($openAi['generated_at'] ?? '')),
-        ];
-    }
-
-    private function normalizeOpenAiClassification(string $classification): string
-    {
-        $normalized = mb_strtolower(trim($classification));
-
-        return in_array($normalized, ['normal', 'suspicious', 'malicious', 'inconclusive'], true)
-            ? $normalized
-            : 'inconclusive';
-    }
-
-    private function normalizeOpenAiAction(string $recommendedAction): string
-    {
-        $normalized = mb_strtolower(trim($recommendedAction));
-
-        return in_array($normalized, ['observe', 'notify', 'apply_policy'], true)
-            ? $normalized
-            : 'observe';
     }
 
     public function removeDevicePolicyAssignment(Request $request, string $deviceId, string $assignmentId, AuditLogger $auditLogger): RedirectResponse
@@ -4715,10 +4807,6 @@ POWERSHELL;
                 'auto_allow_run_command_hashes' => $this->settingBool('scripts.auto_allow_run_command_hashes', false),
                 'delete_cleanup_before_uninstall' => $this->settingBool('devices.delete_cleanup_before_uninstall', false),
                 'package_download_url_mode' => $this->settingString('packages.download_url_mode', 'public'),
-                'behavior_detection_mode' => 'ai',
-                'behavior_ai_threshold' => $this->settingString('behavior.ai_threshold', '0.82'),
-                'behavior_ai_model_path' => $this->settingString('behavior.ai_model_path', 'behavior_models/current-model.json'),
-                'behavior_ai_model_trained_at' => $this->settingString('behavior.ai_model_trained_at', 'not-trained'),
             ],
         ]);
     }
@@ -5114,11 +5202,9 @@ POWERSHELL;
             'auto_allow_run_command_hashes' => ['nullable', 'boolean'],
             'delete_cleanup_before_uninstall' => ['nullable', 'boolean'],
             'package_download_url_mode' => ['nullable', 'in:public,signed'],
-            'behavior_ai_threshold' => ['nullable', 'numeric', 'min:0.10', 'max:0.99'],
         ]);
 
         $settings = [
-            'jobs.kill_switch' => (bool) ($data['kill_switch'] ?? false),
             'jobs.max_retries' => (int) ($data['max_retries'] ?? 3),
             'jobs.base_backoff_seconds' => (int) ($data['base_backoff_seconds'] ?? 30),
             'scripts.allowed_sha256' => collect(preg_split('/\r\n|\r|\n/', (string) ($data['allowed_script_hashes'] ?? '')))
@@ -5129,9 +5215,10 @@ POWERSHELL;
             'scripts.auto_allow_run_command_hashes' => (bool) ($data['auto_allow_run_command_hashes'] ?? false),
             'devices.delete_cleanup_before_uninstall' => (bool) ($data['delete_cleanup_before_uninstall'] ?? false),
             'packages.download_url_mode' => (string) ($data['package_download_url_mode'] ?? 'public'),
-            'behavior.detection_mode' => 'ai',
-            'behavior.ai_threshold' => (string) ($data['behavior_ai_threshold'] ?? $this->settingString('behavior.ai_threshold', '0.82')),
         ];
+        if (array_key_exists('kill_switch', $data)) {
+            $settings['jobs.kill_switch'] = (bool) $data['kill_switch'];
+        }
 
         foreach ($settings as $key => $value) {
             ControlPlaneSetting::query()->updateOrCreate(
@@ -5149,17 +5236,26 @@ POWERSHELL;
     {
         $data = $request->validate([
             'enabled' => ['required', 'boolean'],
+            'confirmation_phrase' => ['required', 'string', 'max:120'],
             'admin_password' => ['required', 'string', 'max:255'],
         ]);
+
+        $enabled = (bool) $data['enabled'];
+        $expectedPhrase = $enabled ? 'PAUSE DISPATCH' : 'RESTORE DISPATCH';
+        $providedPhrase = strtoupper(trim((string) ($data['confirmation_phrase'] ?? '')));
+        if ($providedPhrase !== $expectedPhrase) {
+            return back()->withErrors([
+                'kill_switch' => 'Confirmation phrase mismatch. Type "'.$expectedPhrase.'" to continue.',
+            ])->withInput($request->except('admin_password'));
+        }
 
         $user = $request->user();
         if (! $user || ! Hash::check((string) $data['admin_password'], (string) $user->password)) {
             return back()->withErrors([
                 'kill_switch' => 'Admin password is incorrect.',
-            ]);
+            ])->withInput($request->except('admin_password'));
         }
 
-        $enabled = (bool) $data['enabled'];
         $previous = $this->settingBool('jobs.kill_switch', false);
 
         ControlPlaneSetting::query()->updateOrCreate(
@@ -6713,10 +6809,6 @@ CMD);
                 'allowed_script_hashes' => $this->settingArray('scripts.allowed_sha256', []),
                 'auto_allow_run_command_hashes' => $this->settingBool('scripts.auto_allow_run_command_hashes', false),
                 'delete_cleanup_before_uninstall' => $this->settingBool('devices.delete_cleanup_before_uninstall', false),
-                'behavior_detection_mode' => 'ai',
-                'behavior_ai_threshold' => $this->settingString('behavior.ai_threshold', '0.82'),
-                'behavior_ai_model_path' => $this->settingString('behavior.ai_model_path', 'behavior_models/current-model.json'),
-                'behavior_ai_model_trained_at' => $this->settingString('behavior.ai_model_trained_at', 'not-trained'),
             ],
             'signatureBypassEnabled' => $this->settingBool(
                 'security.signature_bypass_enabled',
@@ -6748,7 +6840,6 @@ CMD);
             filter_var((string) env('DMS_SIGNATURE_BYPASS', 'false'), FILTER_VALIDATE_BOOL)
         );
 
-        $productionLockMode = $this->settingBool('security.production_lock_mode', false);
         $authRequireMfa = $this->settingBool('auth.require_mfa', false);
         $authMaxAttempts = max(1, $this->settingInt('auth.max_login_attempts', 5));
         $authLockoutMinutes = max(1, $this->settingInt('auth.lockout_minutes', 15));
@@ -6776,16 +6867,6 @@ CMD);
             ->count();
 
         $controls = [
-            [
-                'title' => 'Enable Production Lock Mode',
-                'status' => $productionLockMode ? 'good' : 'warning',
-                'priority' => 'high',
-                'description' => $productionLockMode
-                    ? 'Production lock mode is enabled.'
-                    : 'Enable production lock mode to enforce strict command safety in production.',
-                'action_label' => 'Open Settings',
-                'action_route' => route('admin.settings'),
-            ],
             [
                 'title' => 'Disable signature bypass',
                 'status' => $signatureBypassEnabled ? 'warning' : 'good',
@@ -6941,12 +7022,14 @@ CMD);
     public function profile(Request $request): View
     {
         $user = $request->user();
+        $mfaPolicyRequired = $this->settingBool('auth.require_mfa', false);
         $pref = $this->settingArray('users.profile.'.$user->id, []);
         if (is_array($pref)) {
             $pref['avatar_url'] = $this->normalizeAvatarPath($pref['avatar_url'] ?? null);
         }
         $mfaSecretPlain = null;
         $mfaProvisioningUri = null;
+        $mfaSecretCorrupted = false;
         if (is_string($user->mfa_secret) && trim($user->mfa_secret) !== '') {
             try {
                 $mfaSecretPlain = Crypt::decryptString($user->mfa_secret);
@@ -6954,6 +7037,7 @@ CMD);
             } catch (\Throwable) {
                 $mfaSecretPlain = null;
                 $mfaProvisioningUri = null;
+                $mfaSecretCorrupted = true;
             }
         }
 
@@ -6967,6 +7051,8 @@ CMD);
             ], is_array($pref) ? $pref : []),
             'mfaSecretPlain' => $mfaSecretPlain,
             'mfaProvisioningUri' => $mfaProvisioningUri,
+            'mfaPolicyRequired' => $mfaPolicyRequired,
+            'mfaSecretCorrupted' => $mfaSecretCorrupted,
         ]);
     }
 
@@ -7072,6 +7158,13 @@ CMD);
     public function setupProfileMfa(Request $request, AuditLogger $auditLogger, TotpService $totpService): RedirectResponse
     {
         $user = $request->user();
+        $mfaPolicyRequired = $this->settingBool('auth.require_mfa', false);
+        if ($mfaPolicyRequired && (bool) $user->mfa_enabled) {
+            return back()->withErrors([
+                'profile_mfa' => 'MFA is required by admin policy. Secret rotation is blocked here to prevent account lockout. Ask a super-admin to temporarily relax policy before rotating.',
+            ]);
+        }
+
         $secret = $totpService->generateSecret();
         $before = ['mfa_enabled' => (bool) $user->mfa_enabled];
 
@@ -7090,7 +7183,7 @@ CMD);
     public function enableProfileMfa(Request $request, AuditLogger $auditLogger, TotpService $totpService): RedirectResponse
     {
         $data = $request->validate([
-            'code' => ['required', 'string', 'min:6', 'max:8'],
+            'code' => ['required', 'string', 'regex:/^\s*\d{6}\s*$/'],
         ]);
 
         $user = $request->user();
@@ -7121,6 +7214,12 @@ CMD);
 
     public function disableProfileMfa(Request $request, AuditLogger $auditLogger): RedirectResponse
     {
+        if ($this->settingBool('auth.require_mfa', false)) {
+            return back()->withErrors([
+                'profile_mfa' => 'MFA is required by admin policy and cannot be disabled from this profile.',
+            ]);
+        }
+
         $data = $request->validate([
             'password' => ['required', 'string', 'max:255'],
         ]);
@@ -9322,6 +9421,115 @@ CMD);
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    private function collectSoftwareInventorySummary(string $search = ''): array
+    {
+        $normalizedSearch = Str::lower(trim($search));
+
+        $managedNameLookup = PackageModel::query()
+            ->get(['name', 'slug'])
+            ->flatMap(function (PackageModel $package) {
+                return [
+                    Str::lower(trim((string) ($package->name ?? ''))),
+                    Str::lower(trim((string) ($package->slug ?? ''))),
+                ];
+            })
+            ->filter(fn (string $value) => $value !== '')
+            ->unique()
+            ->values()
+            ->flip()
+            ->all();
+
+        $softwareByName = [];
+        $devicesWithSoftware = 0;
+
+        foreach (Device::query()->select(['id', 'tags'])->cursor() as $device) {
+            $tags = is_array($device->tags) ? $device->tags : [];
+            $inventory = is_array($tags['inventory'] ?? null) ? $tags['inventory'] : [];
+            $installedSoftware = collect(data_get($inventory, 'installed_software', []))
+                ->filter(fn ($row) => is_array($row))
+                ->values();
+
+            if ($installedSoftware->isNotEmpty()) {
+                $devicesWithSoftware++;
+            }
+
+            foreach ($installedSoftware as $entry) {
+                $name = trim((string) ($entry['name'] ?? $entry['display_name'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
+
+                $normalizedName = Str::lower($name);
+                $normalizedSlug = Str::lower(Str::slug($name));
+                $publisher = trim((string) ($entry['publisher'] ?? ''));
+                $version = trim((string) ($entry['version'] ?? ''));
+                $isManaged = isset($managedNameLookup[$normalizedName]) || ($normalizedSlug !== '' && isset($managedNameLookup[$normalizedSlug]));
+
+                if (! isset($softwareByName[$normalizedName])) {
+                    $softwareByName[$normalizedName] = [
+                        'name' => $name,
+                        'publisher' => $publisher !== '' ? $publisher : null,
+                        'installations' => 0,
+                        'device_ids' => [],
+                        'versions' => [],
+                        'managed' => $isManaged,
+                    ];
+                }
+
+                $softwareByName[$normalizedName]['installations']++;
+                $softwareByName[$normalizedName]['device_ids'][$device->id] = true;
+                if ($publisher !== '' && $softwareByName[$normalizedName]['publisher'] === null) {
+                    $softwareByName[$normalizedName]['publisher'] = $publisher;
+                }
+                if ($version !== '' && count($softwareByName[$normalizedName]['versions']) < 8) {
+                    $softwareByName[$normalizedName]['versions'][$version] = true;
+                }
+                if ($isManaged) {
+                    $softwareByName[$normalizedName]['managed'] = true;
+                }
+            }
+        }
+
+        $rows = collect($softwareByName)
+            ->map(function (array $row) {
+                return [
+                    'name' => (string) $row['name'],
+                    'publisher' => is_string($row['publisher']) ? $row['publisher'] : '',
+                    'installations' => (int) $row['installations'],
+                    'devices' => count($row['device_ids']),
+                    'versions' => array_keys($row['versions']),
+                    'managed' => (bool) $row['managed'],
+                ];
+            })
+            ->sortByDesc('installations')
+            ->values();
+
+        if ($normalizedSearch !== '') {
+            $rows = $rows
+                ->filter(function (array $row) use ($normalizedSearch) {
+                    if (str_contains(Str::lower((string) ($row['name'] ?? '')), $normalizedSearch)) {
+                        return true;
+                    }
+                    if (str_contains(Str::lower((string) ($row['publisher'] ?? '')), $normalizedSearch)) {
+                        return true;
+                    }
+
+                    $versions = collect($row['versions'] ?? [])
+                        ->map(fn ($version) => Str::lower((string) $version))
+                        ->implode(' ');
+
+                    return $versions !== '' && str_contains($versions, $normalizedSearch);
+                })
+                ->values();
+        }
+
+        return [
+            'rows' => $rows,
+            'devices_with_software' => $devicesWithSoftware,
+            'total_installations' => (int) $rows->sum('installations'),
+        ];
     }
 
     private function resolvePackageArtifactStoragePath(PackageFile $file): ?string
