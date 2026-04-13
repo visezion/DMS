@@ -52,3 +52,9 @@ C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\Dms.A
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\Dms.Agent.Service.genruntimeconfig.cache
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\ref\Dms.Agent.Service.dll
 C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\obj\Release\net8.0-windows\Dms.Agent.Service.sourcelink.json
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\Microsoft.Win32.SystemEvents.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\System.Drawing.Common.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\runtimes\win\lib\net8.0\Microsoft.Win32.SystemEvents.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\Microsoft.MixedReality.WebRTC.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\runtimes\win10-x64\native\mrwebrtc.dll
+C:\xampp\htdocs\DMS\agent\src\Dms.Agent.Service\bin\Release\net8.0-windows\runtimes\win10-x86\native\mrwebrtc.dll

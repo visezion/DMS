@@ -22,6 +22,9 @@ use Illuminate\View\View;
 
 class AdminAuthController extends Controller
 {
+    private const LOGIN_CONTEXT_CACHE_DAYS = 90;
+    private const LOGIN_CONTEXT_MAX_ENTRIES = 12;
+
     public function loginForm(Request $request): View
     {
         $puzzleRequired = true;
@@ -176,7 +179,7 @@ class AdminAuthController extends Controller
             return back()->withErrors(['email' => 'Account is disabled.'])->onlyInput('email');
         }
 
-        $requireMfa = $this->settingBool('auth.require_mfa', false);
+        $requireMfa = $this->settingBool('auth.require_mfa', $this->defaultRequireMfa());
         $userHasMfa = (bool) $user->mfa_enabled && is_string($user->mfa_secret) && trim($user->mfa_secret) !== '';
         if ($requireMfa && ! $userHasMfa) {
             return back()->withErrors([
@@ -184,6 +187,20 @@ class AdminAuthController extends Controller
             ])->onlyInput('email');
         }
 
+        $contextRisk = $this->evaluateLoginContextRisk((int) $user->id, $request);
+        if (
+            $this->settingBool('auth.verify_new_context', $this->defaultVerifyNewContext())
+            && $contextRisk['requires_verification']
+            && ! $userHasMfa
+        ) {
+            $this->registerFailedAttempt($email, $ip, $policy);
+
+            return back()->withErrors([
+                'email' => 'Sign-in from a new IP/device requires MFA enrollment for this account.',
+            ])->onlyInput('email');
+        }
+
+        $pendingLoginContext = $this->buildLoginContextPayload($request);
         $this->clearLoginPuzzle($request);
         if ($userHasMfa) {
             $request->session()->invalidate();
@@ -192,6 +209,7 @@ class AdminAuthController extends Controller
             $request->session()->put('admin_mfa_user_id', (int) $user->id);
             $request->session()->put('admin_mfa_remember', true);
             $request->session()->put('admin_mfa_started_at', now()->toIso8601String());
+            $request->session()->put('admin_mfa_login_context', $pendingLoginContext);
 
             return redirect()->route('admin.login.mfa.form');
         }
@@ -199,6 +217,7 @@ class AdminAuthController extends Controller
         $this->clearFailedAttempts((string) $user->email, $ip);
         Auth::login($user, true);
         $request->session()->regenerate();
+        $this->rememberTrustedLoginContext((int) $user->id, $pendingLoginContext);
 
         return redirect()->route('admin.dashboard');
     }
@@ -261,7 +280,13 @@ class AdminAuthController extends Controller
 
         $this->clearFailedAttempts($email, $ip);
         Auth::login($user, (bool) $request->session()->get('admin_mfa_remember', true));
-        $request->session()->forget(['admin_mfa_user_id', 'admin_mfa_remember', 'admin_mfa_started_at']);
+        $pendingLoginContext = $request->session()->get('admin_mfa_login_context');
+        if (is_array($pendingLoginContext)) {
+            $this->rememberTrustedLoginContext((int) $user->id, $pendingLoginContext);
+        } else {
+            $this->rememberTrustedLoginContext((int) $user->id, $this->buildLoginContextPayload($request));
+        }
+        $request->session()->forget(['admin_mfa_user_id', 'admin_mfa_remember', 'admin_mfa_started_at', 'admin_mfa_login_context']);
         $request->session()->regenerate();
 
         return redirect()->route('admin.dashboard');
@@ -269,7 +294,7 @@ class AdminAuthController extends Controller
 
     public function cancelMfa(Request $request): RedirectResponse
     {
-        $request->session()->forget(['admin_mfa_user_id', 'admin_mfa_remember', 'admin_mfa_started_at']);
+        $request->session()->forget(['admin_mfa_user_id', 'admin_mfa_remember', 'admin_mfa_started_at', 'admin_mfa_login_context']);
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
@@ -291,6 +316,16 @@ class AdminAuthController extends Controller
             'max_login_attempts' => max(1, $this->settingInt('auth.max_login_attempts', 5)),
             'lockout_minutes' => max(1, $this->settingInt('auth.lockout_minutes', 15)),
         ];
+    }
+
+    private function defaultRequireMfa(): bool
+    {
+        return ! app()->environment(['local', 'testing']);
+    }
+
+    private function defaultVerifyNewContext(): bool
+    {
+        return ! app()->environment(['local', 'testing']);
     }
 
     private function settingInt(string $key, int $default): int
@@ -361,6 +396,126 @@ class AdminAuthController extends Controller
     {
         Cache::forget($this->lockoutAttemptKey($email, $ip));
         Cache::forget($this->lockoutUntilKey($email, $ip));
+    }
+
+    /**
+     * @return array{requires_verification:bool,new_ip:bool,new_device:bool}
+     */
+    private function evaluateLoginContextRisk(int $userId, Request $request): array
+    {
+        $contexts = Cache::get($this->trustedLoginContextKey($userId), []);
+        if (! is_array($contexts) || $contexts === []) {
+            return [
+                'requires_verification' => false,
+                'new_ip' => false,
+                'new_device' => false,
+            ];
+        }
+
+        $context = $this->buildLoginContextPayload($request);
+        $knownIpHashes = collect($contexts)
+            ->pluck('ip_hash')
+            ->filter(fn (mixed $value): bool => is_string($value) && $value !== '')
+            ->values()
+            ->all();
+        $knownDeviceHashes = collect($contexts)
+            ->pluck('device_hash')
+            ->filter(fn (mixed $value): bool => is_string($value) && $value !== '')
+            ->values()
+            ->all();
+
+        $newIp = ! in_array((string) $context['ip_hash'], $knownIpHashes, true);
+        $newDevice = ! in_array((string) $context['device_hash'], $knownDeviceHashes, true);
+
+        return [
+            'requires_verification' => $newIp || $newDevice,
+            'new_ip' => $newIp,
+            'new_device' => $newDevice,
+        ];
+    }
+
+    private function rememberTrustedLoginContext(int $userId, array $context): void
+    {
+        $contexts = Cache::get($this->trustedLoginContextKey($userId), []);
+        if (! is_array($contexts)) {
+            $contexts = [];
+        }
+
+        $deviceHash = (string) ($context['device_hash'] ?? '');
+        if ($deviceHash === '') {
+            return;
+        }
+
+        $nowIso = now()->toIso8601String();
+        $updated = false;
+        $ipHash = (string) ($context['ip_hash'] ?? '');
+        foreach ($contexts as $index => $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            if ((string) ($entry['device_hash'] ?? '') !== $deviceHash) {
+                continue;
+            }
+            if ((string) ($entry['ip_hash'] ?? '') !== $ipHash) {
+                continue;
+            }
+
+            $contexts[$index]['ip_hash'] = $ipHash;
+            $contexts[$index]['ip_preview'] = (string) ($context['ip_preview'] ?? '');
+            $contexts[$index]['user_agent'] = (string) ($context['user_agent'] ?? '');
+            $contexts[$index]['last_seen_at'] = $nowIso;
+            $updated = true;
+            break;
+        }
+
+        if (! $updated) {
+            $contexts[] = [
+                'device_hash' => $deviceHash,
+                'ip_hash' => $ipHash,
+                'ip_preview' => (string) ($context['ip_preview'] ?? ''),
+                'user_agent' => (string) ($context['user_agent'] ?? ''),
+                'first_seen_at' => $nowIso,
+                'last_seen_at' => $nowIso,
+            ];
+        }
+
+        $contexts = collect($contexts)
+            ->filter(fn (mixed $entry): bool => is_array($entry))
+            ->sortByDesc(fn (array $entry): string => (string) ($entry['last_seen_at'] ?? ''))
+            ->take(self::LOGIN_CONTEXT_MAX_ENTRIES)
+            ->values()
+            ->all();
+
+        Cache::put(
+            $this->trustedLoginContextKey($userId),
+            $contexts,
+            now()->addDays(self::LOGIN_CONTEXT_CACHE_DAYS)
+        );
+    }
+
+    /**
+     * @return array{device_hash:string,ip_hash:string,ip_preview:string,user_agent:string}
+     */
+    private function buildLoginContextPayload(Request $request): array
+    {
+        $ip = trim((string) $request->ip());
+        $ipPreview = $ip !== '' ? $ip : 'unknown';
+        $userAgent = substr(trim((string) $request->userAgent()), 0, 255);
+        $acceptLanguage = substr(trim((string) $request->header('Accept-Language', '')), 0, 160);
+        $secUa = substr(trim((string) $request->header('Sec-CH-UA', '')), 0, 200);
+        $platform = substr(trim((string) $request->header('Sec-CH-UA-Platform', '')), 0, 80);
+
+        return [
+            'device_hash' => hash('sha256', strtolower($userAgent.'|'.$acceptLanguage.'|'.$secUa.'|'.$platform)),
+            'ip_hash' => hash('sha256', $ipPreview),
+            'ip_preview' => $ipPreview,
+            'user_agent' => $userAgent !== '' ? $userAgent : 'unknown',
+        ];
+    }
+
+    private function trustedLoginContextKey(int $userId): string
+    {
+        return 'admin.auth.contexts:'.$userId;
     }
 
     private function issueCaptchaChallenge(Request $request): string

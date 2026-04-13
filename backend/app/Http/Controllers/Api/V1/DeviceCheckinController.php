@@ -16,11 +16,13 @@ use App\Models\ActionRollback;
 use App\Models\Policy;
 use App\Models\PolicyRule;
 use App\Models\PolicyVersion;
+use App\Models\RemoteSupportSession;
 use App\Models\RemediationActionResult;
 use App\Services\AuditLogger;
 use App\Services\CommandEnvelopeSigner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -157,13 +159,17 @@ class DeviceCheckinController extends Controller
         }
 
         $runs = JobRun::query()
-            ->where('device_id', $device->id)
-            ->whereIn('status', ['pending'])
+            ->join('jobs', 'jobs.id', '=', 'job_runs.job_id')
+            ->where('job_runs.device_id', $device->id)
+            ->where('job_runs.status', 'pending')
             ->where(function ($query) {
-                $query->whereNull('next_retry_at')->orWhere('next_retry_at', '<=', now());
+                $query->whereNull('job_runs.next_retry_at')->orWhere('job_runs.next_retry_at', '<=', now());
             })
-            ->orderBy('created_at')
-            ->orderBy('id')
+            ->orderByRaw("CASE WHEN jobs.job_type IN ('start_webrtc_session', 'start_live_stream') THEN 0 ELSE 1 END")
+            ->orderByDesc('jobs.priority')
+            ->orderBy('job_runs.created_at')
+            ->orderBy('job_runs.id')
+            ->select('job_runs.*')
             ->limit(10)
             ->get();
 
@@ -230,6 +236,165 @@ class DeviceCheckinController extends Controller
             'server_time' => now()->toIso8601String(),
             'commands' => $commands,
             'bootstrap' => $bootstrap,
+        ]);
+    }
+
+    public function remoteSupportLiveFrame(Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'device_id' => ['required', 'uuid'],
+            'session_id' => ['required', 'uuid'],
+            'captured_at_utc' => ['nullable', 'date'],
+            'mime_type' => ['nullable', 'string', 'max:64'],
+            'image_base64' => ['required', 'string', 'max:10485760'],
+            'byte_size' => ['nullable', 'integer', 'min:1', 'max:10485760'],
+            'checkin_id' => ['nullable', 'string', 'max:128'],
+        ]);
+
+        $device = Device::query()->findOrFail($payload['device_id']);
+        $auth = $this->ingestionAuth->authorizeBehaviorLogRequest($device, $request, [
+            'checkin_id' => (string) ($payload['checkin_id'] ?? ''),
+        ]);
+        if (! $auth['allowed']) {
+            return response()->json([
+                'message' => 'Remote live frame authentication failed.',
+                'reason' => $auth['reason'],
+            ], 401);
+        }
+
+        $session = RemoteSupportSession::query()
+            ->where('id', (string) $payload['session_id'])
+            ->where('device_id', $device->id)
+            ->where('status', 'active')
+            ->first();
+        if (! $session) {
+            return response()->json([
+                'ok' => false,
+                'reason' => 'remote_support_session_not_active',
+            ], 404);
+        }
+
+        $mimeType = strtolower(trim((string) ($payload['mime_type'] ?? 'image/jpeg')));
+        if (! str_starts_with($mimeType, 'image/')) {
+            $mimeType = 'image/jpeg';
+        }
+
+        $capturedAtIso = now()->toIso8601String();
+        if (! empty($payload['captured_at_utc'])) {
+            try {
+                $capturedAtIso = \Carbon\Carbon::parse((string) $payload['captured_at_utc'])->toIso8601String();
+            } catch (\Throwable) {
+                // Keep default current timestamp.
+            }
+        }
+
+        Cache::put(
+            $this->remoteSupportLiveFrameCacheKey($device->id, $session->id),
+            [
+                'session_id' => $session->id,
+                'device_id' => $device->id,
+                'mime_type' => $mimeType,
+                'image_base64' => (string) $payload['image_base64'],
+                'byte_size' => (int) ($payload['byte_size'] ?? 0),
+                'captured_at_iso' => $capturedAtIso,
+                'run_id' => 'live-'.substr((string) Str::uuid(), 0, 12),
+                'updated_at_iso' => now()->toIso8601String(),
+            ],
+            now()->addSeconds(90)
+        );
+        Cache::put(
+            $this->remoteSupportLiveSessionDeviceCacheKey($device->id),
+            $session->id,
+            now()->addSeconds(90)
+        );
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => $session->id,
+            'auth_mode' => $auth['auth_mode'],
+        ]);
+    }
+
+    public function remoteSupportWebRtcSignal(Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'device_id' => ['required', 'uuid'],
+            'session_id' => ['required', 'uuid'],
+            'type' => ['required', 'in:offer,answer,ice-candidate,renegotiate,bye,status,error,pong'],
+            'payload' => ['nullable', 'array'],
+            'checkin_id' => ['nullable', 'string', 'max:128'],
+        ]);
+
+        $auth = $this->authorizeRemoteSupportSessionRequest($request, $payload);
+        if (! $auth['allowed']) {
+            return response()->json(['message' => 'Remote WebRTC authentication failed.', 'reason' => $auth['reason']], 401);
+        }
+
+        $event = $this->appendRemoteSupportRealtimeEvent(
+            (string) $payload['session_id'],
+            'signals_agent_to_admin',
+            (string) $payload['type'],
+            is_array($payload['payload'] ?? null) ? $payload['payload'] : [],
+            'agent'
+        );
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => (string) $payload['session_id'],
+            'event' => $event,
+            'auth_mode' => $auth['auth_mode'],
+        ]);
+    }
+
+    public function remoteSupportWebRtcSignals(Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'device_id' => ['required', 'uuid'],
+            'session_id' => ['required', 'uuid'],
+            'since' => ['nullable', 'integer', 'min:0'],
+            'checkin_id' => ['nullable', 'string', 'max:128'],
+        ]);
+
+        $auth = $this->authorizeRemoteSupportSessionRequest($request, $payload);
+        if (! $auth['allowed']) {
+            return response()->json(['message' => 'Remote WebRTC authentication failed.', 'reason' => $auth['reason']], 401);
+        }
+
+        $since = (int) ($payload['since'] ?? 0);
+        $events = $this->readRemoteSupportRealtimeEvents((string) $payload['session_id'], 'signals_admin_to_agent', $since);
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => (string) $payload['session_id'],
+            'events' => $events,
+            'latest_seq' => (int) collect($events)->max(fn ($event) => (int) ($event['seq'] ?? 0)),
+            'auth_mode' => $auth['auth_mode'],
+        ]);
+    }
+
+    public function remoteSupportWebRtcInputs(Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'device_id' => ['required', 'uuid'],
+            'session_id' => ['required', 'uuid'],
+            'since' => ['nullable', 'integer', 'min:0'],
+            'checkin_id' => ['nullable', 'string', 'max:128'],
+        ]);
+
+        $auth = $this->authorizeRemoteSupportSessionRequest($request, $payload);
+        if (! $auth['allowed']) {
+            return response()->json(['message' => 'Remote WebRTC authentication failed.', 'reason' => $auth['reason']], 401);
+        }
+
+        $since = (int) ($payload['since'] ?? 0);
+        $events = $this->readRemoteSupportRealtimeEvents((string) $payload['session_id'], 'input_admin_to_agent', $since);
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => (string) $payload['session_id'],
+            'events' => $events,
+            'latest_seq' => (int) collect($events)->max(fn ($event) => (int) ($event['seq'] ?? 0)),
+            'auth_mode' => $auth['auth_mode'],
         ]);
     }
 
@@ -369,6 +534,23 @@ class DeviceCheckinController extends Controller
         $maxRetries = max(0, (int) ($this->settingInt('jobs.max_retries', 3)));
         $baseBackoffSeconds = max(5, (int) ($this->settingInt('jobs.base_backoff_seconds', 30)));
         $retryable = $status === 'failed' && ($attempt <= $maxRetries || $isTransient);
+
+        if (
+            $job
+            && in_array((string) $job->job_type, ['start_live_stream', 'start_webrtc_session'], true)
+            && strtoupper($lastError) === 'E_UNSUPPORTED'
+        ) {
+            $retryable = false;
+        }
+        if (
+            $job
+            && in_array((string) $job->job_type, ['start_live_stream', 'start_webrtc_session'], true)
+            && $status === 'failed'
+            && ! $isTransient
+        ) {
+            $retryable = false;
+        }
+
         $fallbackJobId = null;
         $isUnsupportedAgentUninstall = $job
             && $job->job_type === 'uninstall_agent'
@@ -1482,7 +1664,7 @@ class DeviceCheckinController extends Controller
      */
     private function bootstrapPayload(Device $device): array
     {
-        $checkinInterval = max(15, min(300, (int) config('services.endpoint_intelligence.checkin_interval_seconds', 60)));
+        $checkinInterval = $this->resolveDeviceCheckinIntervalSeconds($device);
         $nonceWindow = max(60, (int) config('services.endpoint_intelligence.nonce_window_seconds', 300));
 
         return [
@@ -1490,6 +1672,143 @@ class DeviceCheckinController extends Controller
             'nonce_window_seconds' => $nonceWindow,
             'behavior_ingest_token' => $this->ingestionAuth->ensureBehaviorIngestToken($device),
         ];
+    }
+
+    private function resolveDeviceCheckinIntervalSeconds(Device $device): int
+    {
+        $defaultInterval = max(15, min(300, (int) config('services.endpoint_intelligence.checkin_interval_seconds', 60)));
+        $remoteInterval = max(1, min(30, (int) config('services.remote_support.active_checkin_interval_seconds', 1)));
+        $activeWindowSeconds = max(5, min(300, (int) config('services.remote_support.active_capture_window_seconds', 45)));
+        $remoteSessionActive = RemoteSupportSession::query()
+            ->where('device_id', $device->id)
+            ->where('status', 'active')
+            ->exists();
+
+        $remoteCaptureActive = RemoteSupportSession::query()
+            ->where('device_id', $device->id)
+            ->where('status', 'active')
+            ->where('last_capture_requested_at', '>=', now()->subSeconds($activeWindowSeconds))
+            ->exists();
+
+        $remoteJobActive = JobRun::query()
+            ->join('jobs', 'jobs.id', '=', 'job_runs.job_id')
+            ->where('job_runs.device_id', $device->id)
+            ->whereIn('jobs.job_type', ['start_live_stream', 'start_webrtc_session'])
+            ->where(function ($query) {
+                $query
+                    ->whereIn('job_runs.status', ['acked', 'running'])
+                    ->orWhere(function ($pending) {
+                        $pending
+                            ->where('job_runs.status', 'pending')
+                            ->whereNull('job_runs.finished_at');
+                    });
+            })
+            ->exists();
+
+        $liveSessionCached = trim((string) Cache::get($this->remoteSupportLiveSessionDeviceCacheKey($device->id), '')) !== '';
+
+        if ($remoteSessionActive || $remoteCaptureActive || $remoteJobActive || $liveSessionCached) {
+            return $remoteInterval;
+        }
+
+        return $defaultInterval;
+    }
+
+    private function remoteSupportLiveFrameCacheKey(string $deviceId, string $sessionId): string
+    {
+        return 'remote_support:live_frame:'.$deviceId.':'.$sessionId;
+    }
+
+    private function remoteSupportLiveSessionDeviceCacheKey(string $deviceId): string
+    {
+        return 'remote_support:live_session_device:'.$deviceId;
+    }
+
+    private function remoteSupportRealtimeStreamCacheKey(string $sessionId, string $stream): string
+    {
+        return 'remote_support:realtime:'.$stream.':'.$sessionId;
+    }
+
+    private function remoteSupportRealtimeSeqCacheKey(string $sessionId, string $stream): string
+    {
+        return 'remote_support:realtime:seq:'.$stream.':'.$sessionId;
+    }
+
+    /**
+     * @param  array<string,mixed>  $payload
+     * @return array{allowed:bool,reason:string,auth_mode:?string}
+     */
+    private function authorizeRemoteSupportSessionRequest(Request $request, array $payload): array
+    {
+        $device = Device::query()->findOrFail((string) $payload['device_id']);
+        $auth = $this->ingestionAuth->authorizeBehaviorLogRequest($device, $request, [
+            'checkin_id' => (string) ($payload['checkin_id'] ?? ''),
+        ]);
+        if (! $auth['allowed']) {
+            return $auth;
+        }
+
+        $session = RemoteSupportSession::query()
+            ->where('id', (string) $payload['session_id'])
+            ->where('device_id', $device->id)
+            ->where('status', 'active')
+            ->first();
+        if (! $session) {
+            return ['allowed' => false, 'reason' => 'remote_support_session_not_active', 'auth_mode' => null];
+        }
+
+        return $auth;
+    }
+
+    /**
+     * @param  array<string,mixed>  $payload
+     * @return array<string,mixed>
+     */
+    private function appendRemoteSupportRealtimeEvent(string $sessionId, string $stream, string $type, array $payload, string $source): array
+    {
+        $seqKey = $this->remoteSupportRealtimeSeqCacheKey($sessionId, $stream);
+        $seq = (int) Cache::increment($seqKey);
+        if ($seq <= 0) {
+            $seq = 1;
+        }
+        Cache::put($seqKey, $seq, now()->addMinutes(30));
+
+        $key = $this->remoteSupportRealtimeStreamCacheKey($sessionId, $stream);
+        $events = Cache::get($key, []);
+        if (! is_array($events)) {
+            $events = [];
+        }
+
+        $event = [
+            'seq' => $seq,
+            'type' => $type,
+            'payload' => $payload,
+            'source' => $source,
+            'created_at_iso' => now()->toIso8601String(),
+        ];
+        $events[] = $event;
+        if (count($events) > 500) {
+            $events = array_slice($events, -500);
+        }
+
+        Cache::put($key, $events, now()->addMinutes(30));
+        return $event;
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function readRemoteSupportRealtimeEvents(string $sessionId, string $stream, int $since): array
+    {
+        $events = Cache::get($this->remoteSupportRealtimeStreamCacheKey($sessionId, $stream), []);
+        if (! is_array($events) || $events === []) {
+            return [];
+        }
+
+        return collect($events)
+            ->filter(fn ($event) => is_array($event) && (int) ($event['seq'] ?? 0) > $since)
+            ->values()
+            ->all();
     }
 
     private function signatureCompatCandidateCount(CommandEnvelopeSigner $signer): int

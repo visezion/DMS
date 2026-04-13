@@ -1,12 +1,44 @@
 using Dms.Agent.Core.Jobs;
+using Dms.Agent.Core.Jobs.Handlers;
 using Dms.Agent.Core.Runtime;
 using Dms.Agent.Core.Telemetry;
 using Dms.Agent.Core.Transport;
 using Dms.Agent.Service;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+int diagnosticsExitCode = AgentSelfDiagnostics.TryRunCli(args);
+if (diagnosticsExitCode != int.MinValue)
+{
+    Environment.ExitCode = diagnosticsExitCode;
+    return;
+}
+
+int screenCaptureHelperExitCode = ScreenCaptureHelperCli.TryRun(args);
+if (screenCaptureHelperExitCode != ScreenCaptureHelperCli.NotHandledExitCode)
+{
+    Environment.ExitCode = screenCaptureHelperExitCode;
+    return;
+}
+
+int webRtcHelperExitCode = WebRtcMediaHelperCli.TryRun(args);
+if (webRtcHelperExitCode != WebRtcMediaHelperCli.NotHandledExitCode)
+{
+    Environment.ExitCode = webRtcHelperExitCode;
+    return;
+}
 
 HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
+builder.Configuration.Sources.Clear();
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables();
+
+builder.Logging.ClearProviders();
+builder.Logging.AddEventLog();
+
 builder.Services.AddWindowsService(options => options.ServiceName = "DMS Agent");
 builder.Services.AddSingleton<ApiClient>();
 builder.Services.AddSingleton<JobProcessor>();

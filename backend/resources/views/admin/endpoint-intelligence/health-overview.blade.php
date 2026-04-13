@@ -2,6 +2,43 @@
     <div class="endpoint-intelligence-shell space-y-5">
     @include('admin.endpoint-intelligence.partials.metric-cards', ['metrics' => $metrics])
 
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Data Freshness</p>
+                <h3 class="mt-1 text-lg font-semibold text-slate-900">Current posture recency</h3>
+                <p class="mt-1 text-xs text-slate-500">
+                    Stale threshold: {{ data_get($freshness, 'stale_after_minutes', 120) }} minutes.
+                </p>
+            </div>
+        </div>
+        <div class="mt-4 grid gap-3 md:grid-cols-3">
+            <article class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p class="text-xs uppercase tracking-[0.16em] text-slate-500">Health Scores</p>
+                <p class="mt-2 text-sm font-semibold text-slate-900">{{ data_get($freshness, 'health_latest.age_human', 'No data yet') }}</p>
+                <p class="mt-1 text-xs text-slate-600">
+                    Stale devices: {{ data_get($freshness, 'stale_health_devices', 0) }} |
+                    Missing devices: {{ data_get($freshness, 'health_missing_devices', 0) }}
+                </p>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p class="text-xs uppercase tracking-[0.16em] text-slate-500">Risk Scores</p>
+                <p class="mt-2 text-sm font-semibold text-slate-900">{{ data_get($freshness, 'risk_latest.age_human', 'No data yet') }}</p>
+                <p class="mt-1 text-xs text-slate-600">
+                    Stale devices: {{ data_get($freshness, 'stale_risk_devices', 0) }} |
+                    Missing devices: {{ data_get($freshness, 'risk_missing_devices', 0) }}
+                </p>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p class="text-xs uppercase tracking-[0.16em] text-slate-500">Active Findings</p>
+                <p class="mt-2 text-sm font-semibold text-slate-900">{{ data_get($freshness, 'finding_latest.age_human', 'No active findings') }}</p>
+                <p class="mt-1 text-xs text-slate-600">
+                    Helps explain why device findings may still show "Updated 2 weeks ago" when no new evidence has arrived.
+                </p>
+            </article>
+        </div>
+    </section>
+
     <section class="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div class="flex flex-wrap items-start justify-between gap-3">
             <div>

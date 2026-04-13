@@ -11,6 +11,43 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+function Assert-PublishOutput {
+  param(
+    [Parameter(Mandatory = $true)][string]$PublishDir,
+    [Parameter(Mandatory = $true)][bool]$SelfContained
+  )
+
+  $requiredFiles = @(
+    "Dms.Agent.Service.exe",
+    "Dms.Agent.Service.dll",
+    "Dms.Agent.Core.dll",
+    "Dms.Agent.Service.deps.json",
+    "Microsoft.MixedReality.WebRTC.dll",
+    "mrwebrtc.dll"
+  )
+
+  if ($SelfContained) {
+    $requiredFiles += @(
+      "hostfxr.dll",
+      "hostpolicy.dll",
+      "coreclr.dll"
+    )
+  }
+
+  $missing = @()
+  foreach ($name in $requiredFiles) {
+    if (-not (Test-Path (Join-Path $PublishDir $name) -PathType Leaf)) {
+      $missing += $name
+    }
+  }
+
+  if ($missing.Count -gt 0) {
+    throw "Publish output is incomplete. Missing files: $($missing -join ', ')"
+  }
+}
+
 function Remove-OldArtifacts {
   param(
     [Parameter(Mandatory = $true)][string]$RootPath,
@@ -45,6 +82,40 @@ function Remove-OldArtifacts {
       catch {
         # Ignore locked artifacts; they will be retried on next run.
       }
+    }
+  }
+}
+
+function New-ZipWithRetry {
+  param(
+    [Parameter(Mandatory = $true)][string]$SourceDir,
+    [Parameter(Mandatory = $true)][string]$DestinationZipPath,
+    [Parameter(Mandatory = $false)][int]$MaxAttempts = 5
+  )
+
+  $tempZip = Join-Path ([System.IO.Path]::GetTempPath()) ("dms-agent-" + [Guid]::NewGuid().ToString("N") + ".zip")
+
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      if (Test-Path $tempZip) {
+        Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+      }
+
+      [System.IO.Compression.ZipFile]::CreateFromDirectory($SourceDir, $tempZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+
+      if (Test-Path $DestinationZipPath) {
+        Remove-Item $DestinationZipPath -Force -ErrorAction SilentlyContinue
+      }
+
+      Move-Item -Path $tempZip -Destination $DestinationZipPath -Force
+      return
+    }
+    catch {
+      if ($attempt -ge $MaxAttempts) {
+        throw
+      }
+
+      Start-Sleep -Milliseconds (1000 * $attempt)
     }
   }
 }
@@ -115,6 +186,7 @@ $env:NUGET_PLUGINS_CACHE_PATH = $nugetPluginCache
 $env:NUGET_COMMON_APPLICATION_DATA = $programData
 
 $sc = if ($SelfContained -eq "true") { "true" } else { "false" }
+$publishSingleFile = "false"
 $nugetConfigPath = Join-Path $dotnetHome "NuGet.Config"
 $nugetConfigXml = @"
 <?xml version="1.0" encoding="utf-8"?>
@@ -138,12 +210,14 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed with exit code $LASTEXITCODE" }
 
   $informationalVersion = "$safeVersion+$buildId"
-  & dotnet publish $restoreTarget -c Release -r $safeRuntime -p:PublishSingleFile=true -p:SelfContained=$sc -p:InformationalVersion=$informationalVersion -p:Version=$safeVersion --no-restore -o $publishDir --nologo
+  & dotnet publish $restoreTarget -c Release -r $safeRuntime -p:PublishSingleFile=$publishSingleFile -p:SelfContained=$sc -p:InformationalVersion=$informationalVersion -p:Version=$safeVersion --no-restore -o $publishDir --nologo
   if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
 
   if (!(Test-Path $publishDir)) {
     throw "Publish output folder missing: $publishDir"
   }
+
+  Assert-PublishOutput -PublishDir $publishDir -SelfContained ($sc -eq "true")
 
   New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $bundleDir "agent") -Force | Out-Null
@@ -157,25 +231,15 @@ try {
 DMS Agent Bundle
 Version: $safeVersion
 Runtime: $safeRuntime
+SelfContained: $sc
+PublishSingleFile: $publishSingleFile
 BuiltAt: $(Get-Date -Format o)
 "@
   Set-Content -Path (Join-Path $bundleDir "README.txt") -Value $readme
 
   $zipName = "dms-agent-$safeVersion-$safeRuntime-$buildId.zip"
   $zipPath = Join-Path $OutputRoot $zipName
-  $attempt = 0
-  while ($true) {
-    try {
-      if (Test-Path $zipPath) { Remove-Item $zipPath -Force -ErrorAction SilentlyContinue }
-      Compress-Archive -Path "$bundleDir\*" -DestinationPath $zipPath -Force
-      break
-    }
-    catch {
-      $attempt++
-      if ($attempt -ge 5) { throw }
-      Start-Sleep -Milliseconds (500 * $attempt)
-    }
-  }
+  New-ZipWithRetry -SourceDir $bundleDir -DestinationZipPath $zipPath
 
   Write-Output "Build completed. Artifact: $zipPath"
 }

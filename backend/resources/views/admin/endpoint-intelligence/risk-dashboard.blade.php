@@ -2,6 +2,25 @@
     <div class="endpoint-intelligence-shell space-y-5">
     @include('admin.endpoint-intelligence.partials.metric-cards', ['metrics' => $metrics])
 
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Risk Freshness</p>
+        <h3 class="mt-1 text-lg font-semibold text-slate-900">Latest scoring signal</h3>
+        <div class="mt-3 grid gap-3 md:grid-cols-3">
+            <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-xs uppercase tracking-[0.15em] text-slate-500">Latest Risk Update</p>
+                <p class="mt-1 text-sm font-semibold text-slate-900">{{ data_get($freshness, 'risk_latest.age_human', 'No data yet') }}</p>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-xs uppercase tracking-[0.15em] text-slate-500">Stale Risk Devices</p>
+                <p class="mt-1 text-sm font-semibold text-slate-900">{{ data_get($freshness, 'stale_risk_devices', 0) }}</p>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-xs uppercase tracking-[0.15em] text-slate-500">Missing Risk Scores</p>
+                <p class="mt-1 text-sm font-semibold text-slate-900">{{ data_get($freshness, 'risk_missing_devices', 0) }}</p>
+            </article>
+        </div>
+    </section>
+
     <section class="mt-5 grid gap-5 xl:grid-cols-[1.15fr,0.85fr]">
         <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div class="flex items-center justify-between">

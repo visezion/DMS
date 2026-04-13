@@ -1,1 +1,1 @@
-{}
+{"dotnetnuke.core":[{"url":"https://github.com/advisories/GHSA-ffq7-898w-9jc4","severity":2,"versions":"(, 10.2.2)"},{"url":"https://github.com/advisories/GHSA-fpj4-9qhx-5m6m","severity":1,"versions":"[6.0.0, 10.2.2)"},{"url":"https://github.com/advisories/GHSA-2rhw-gw3f-477j","severity":0,"versions":"[10.0.0, 10.2.2)"}]}

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Domain\Assistant\AssistantService;
 use App\Domain\Common\DeviceTelemetryDataBuilder;
+use App\Domain\EndpointIntelligence\CurrentPostureService;
 use App\Domain\Remediation\AutonomyPolicyUpsertService;
 use App\Domain\Remediation\RemediationPlannerService;
 use App\Http\Controllers\Controller;
@@ -37,12 +38,15 @@ class AdminEndpointIntelligenceController extends Controller
 {
     public function __construct(
         private readonly AutonomyPolicyUpsertService $autonomyPolicies,
+        private readonly CurrentPostureService $currentPosture,
     ) {
     }
 
     public function fleetHealthOverview(): View
     {
-        $latestScores = DeviceHealthScore::query()->latest('scored_at')->limit(80)->get();
+        $latestScores = $this->currentPosture->latestHealthScores();
+        $freshness = $this->currentPosture->fleetFreshness();
+
         $bandCounts = [
             'healthy' => $latestScores->where('band', 'healthy')->count(),
             'warning' => $latestScores->where('band', 'warning')->count(),
@@ -54,10 +58,8 @@ class AdminEndpointIntelligenceController extends Controller
             ->whereIn('id', $topUnhealthy->pluck('device_id')->filter()->unique()->values())
             ->pluck('hostname', 'id');
 
-        $priorityFindings = ThreatFinding::query()
-            ->whereIn('status', ['open', 'investigating'])
+        $priorityFindings = $this->currentPosture->activeFindingsQuery()
             ->whereIn('severity', ['high', 'critical'])
-            ->latest('last_seen_at')
             ->limit(8)
             ->get(['id', 'device_id', 'finding_type', 'severity', 'status', 'confidence', 'last_seen_at']);
         $priorityFindingDeviceNames = Device::query()
@@ -102,10 +104,14 @@ class AdminEndpointIntelligenceController extends Controller
 
         return view('admin.endpoint-intelligence.health-overview', [
             'metrics' => [
-                'fleet_average' => round((float) DeviceHealthScore::query()->avg('score'), 2),
+                'fleet_average' => round((float) $latestScores->avg('score'), 2),
                 'critical_devices' => $bandCounts['critical'],
-                'predicted_failures' => DeviceHealthScore::query()->where('predicted_failure_risk', '>=', 70)->count(),
+                'predicted_failures' => $latestScores->where('predicted_failure_risk', '>=', 70)->count(),
                 'active_devices' => Device::query()->where('status', 'online')->count(),
+                'freshness_health_age_min' => data_get($freshness, 'health_latest.age_minutes'),
+                'freshness_risk_age_min' => data_get($freshness, 'risk_latest.age_minutes'),
+                'stale_health_devices' => data_get($freshness, 'stale_health_devices', 0),
+                'missing_health_scores' => data_get($freshness, 'health_missing_devices', 0),
             ],
             'bandCounts' => $bandCounts,
             'topUnhealthy' => $topUnhealthy,
@@ -113,6 +119,7 @@ class AdminEndpointIntelligenceController extends Controller
             'priorityFindings' => $priorityFindings,
             'priorityFindingDeviceNames' => $priorityFindingDeviceNames,
             'flowCards' => $flowCards,
+            'freshness' => $freshness,
             'recentTrend' => DeviceHealthScore::query()->where('scored_at', '>=', now()->subDays(7))->orderBy('scored_at')->get(['device_id', 'score', 'band', 'scored_at']),
         ]);
     }
@@ -120,16 +127,21 @@ class AdminEndpointIntelligenceController extends Controller
     public function deviceHealthDetail(string $deviceId): View
     {
         $device = Device::query()->findOrFail($deviceId);
-        $health = DeviceHealthScore::query()->where('device_id', $deviceId)->latest('scored_at')->first();
-        $risk = DeviceRiskScore::query()->where('device_id', $deviceId)->latest('scored_at')->first();
+        $health = $this->currentPosture->latestHealthScoreForDevice($deviceId);
+        $risk = $this->currentPosture->latestRiskScoreForDevice($deviceId);
+        $freshness = $this->currentPosture->deviceFreshness($deviceId);
 
         return view('admin.endpoint-intelligence.device-health-detail', [
             'device' => $device,
             'health' => $health,
             'risk' => $risk,
             'healthTrend' => DeviceHealthScore::query()->where('device_id', $deviceId)->latest('scored_at')->limit(20)->get()->reverse()->values(),
-            'findings' => ThreatFinding::query()->where('device_id', $deviceId)->latest('last_seen_at')->limit(12)->get(),
+            'findings' => $this->currentPosture->activeFindingsQuery()
+                ->where('device_id', $deviceId)
+                ->limit(12)
+                ->get(),
             'timeline' => TimelineEvent::query()->where('device_id', $deviceId)->latest('occurred_at')->limit(25)->get(),
+            'freshness' => $freshness,
         ]);
     }
 
@@ -190,8 +202,13 @@ class AdminEndpointIntelligenceController extends Controller
 
     public function riskDashboard(): View
     {
-        $findings = ThreatFinding::query()->latest('last_seen_at')->limit(100)->get();
-        $topDevices = DeviceRiskScore::query()->latest('scored_at')->orderByDesc('score')->limit(15)->get();
+        $latestRiskScores = $this->currentPosture->latestRiskScores();
+        $findings = $this->currentPosture->activeFindingsQuery()->limit(100)->get();
+        $topDevices = $latestRiskScores
+            ->sortByDesc(fn (DeviceRiskScore $score): float => (float) $score->score)
+            ->take(15)
+            ->values();
+        $freshness = $this->currentPosture->fleetFreshness();
         $deviceIds = $findings
             ->pluck('device_id')
             ->merge($topDevices->pluck('device_id'))
@@ -204,14 +221,18 @@ class AdminEndpointIntelligenceController extends Controller
 
         return view('admin.endpoint-intelligence.risk-dashboard', [
             'metrics' => [
-                'fleet_risk_average' => round((float) DeviceRiskScore::query()->avg('score'), 2),
-                'open_findings' => ThreatFinding::query()->where('status', 'open')->count(),
-                'high_or_critical' => ThreatFinding::query()->whereIn('severity', ['high', 'critical'])->count(),
-                'devices_at_risk' => DeviceRiskScore::query()->where('score', '>=', 60)->count(),
+                'fleet_risk_average' => round((float) $latestRiskScores->avg('score'), 2),
+                'open_findings' => $this->currentPosture->activeFindingsQuery()->count(),
+                'high_or_critical' => $this->currentPosture->activeFindingsQuery()->whereIn('severity', ['high', 'critical'])->count(),
+                'devices_at_risk' => $latestRiskScores->where('score', '>=', 60)->count(),
+                'freshness_risk_age_min' => data_get($freshness, 'risk_latest.age_minutes'),
+                'stale_risk_devices' => data_get($freshness, 'stale_risk_devices', 0),
+                'missing_risk_scores' => data_get($freshness, 'risk_missing_devices', 0),
             ],
             'findings' => $findings,
             'topDevices' => $topDevices,
             'deviceNames' => $deviceNames,
+            'freshness' => $freshness,
         ]);
     }
 
@@ -562,12 +583,18 @@ class AdminEndpointIntelligenceController extends Controller
 
     public function engineTuning(): View
     {
+        $freshness = $this->currentPosture->fleetFreshness();
+
         return view('admin.endpoint-intelligence.tuning', [
             'metrics' => [
                 'health_scores_7d' => DeviceHealthScore::query()->where('created_at', '>=', now()->subDays(7))->count(),
                 'risk_scores_7d' => DeviceRiskScore::query()->where('created_at', '>=', now()->subDays(7))->count(),
                 'findings_reviewed_7d' => ThreatFinding::query()->whereNotNull('reviewed_at')->where('reviewed_at', '>=', now()->subDays(7))->count(),
                 'assistant_sessions_7d' => AssistantSession::query()->where('created_at', '>=', now()->subDays(7))->count(),
+                'stale_health_devices' => data_get($freshness, 'stale_health_devices', 0),
+                'stale_risk_devices' => data_get($freshness, 'stale_risk_devices', 0),
+                'health_latest_age_min' => data_get($freshness, 'health_latest.age_minutes'),
+                'risk_latest_age_min' => data_get($freshness, 'risk_latest.age_minutes'),
             ],
             'suggestions' => [
                 ['engine' => 'Health', 'suggestion' => 'Tune disk pressure penalty for kiosk devices with small system partitions.', 'status' => 'review'],
@@ -575,6 +602,7 @@ class AdminEndpointIntelligenceController extends Controller
                 ['engine' => 'Assistant', 'suggestion' => 'Add grounded examples for remediation summaries with rollback-safe recommendations.', 'status' => 'review'],
                 ['engine' => 'Remediation', 'suggestion' => 'Allow semi-auto inventory reruns for medium confidence device-health degradations.', 'status' => 'review'],
             ],
+            'freshness' => $freshness,
         ]);
     }
 
@@ -584,9 +612,12 @@ class AdminEndpointIntelligenceController extends Controller
 
         return view('admin.endpoint-intelligence.executive-summary', [
             'device' => $device,
-            'health' => DeviceHealthScore::query()->where('device_id', $deviceId)->latest('scored_at')->first(),
-            'risk' => DeviceRiskScore::query()->where('device_id', $deviceId)->latest('scored_at')->first(),
-            'findings' => ThreatFinding::query()->where('device_id', $deviceId)->latest('last_seen_at')->limit(10)->get(),
+            'health' => $this->currentPosture->latestHealthScoreForDevice($deviceId),
+            'risk' => $this->currentPosture->latestRiskScoreForDevice($deviceId),
+            'findings' => $this->currentPosture->activeFindingsQuery()
+                ->where('device_id', $deviceId)
+                ->limit(10)
+                ->get(),
             'incident' => CorrelatedIncident::query()->where('primary_device_id', $deviceId)->where('status', 'open')->latest('opened_at')->first(),
             'recentActions' => RemediationActionResult::query()
                 ->whereIn('action_id', RemediationAction::query()->where('target_device_id', $deviceId)->pluck('id'))

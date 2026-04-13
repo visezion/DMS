@@ -516,6 +516,317 @@ class PolicyAndSoftwareLifecycleTest extends TestCase
         );
     }
 
+    public function test_device_deploy_accepts_extensionless_exe_artifact_name(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Tester',
+            'email' => 'tester-device-deploy-extensionless@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        $device = Device::query()->create([
+            'id' => (string) Str::uuid(),
+            'hostname' => 'TEST-DEVICE-DEPLOY-01',
+            'os_name' => 'Windows',
+            'os_version' => '10.0.19045',
+            'agent_version' => '2.0.2',
+            'status' => 'online',
+        ]);
+
+        $package = PackageModel::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => 'Remote Notepad++',
+            'slug' => 'remote-notepad',
+            'publisher' => 'Remote Publisher',
+            'package_type' => 'exe',
+            'is_active' => true,
+        ]);
+        $version = PackageVersion::query()->create([
+            'id' => (string) Str::uuid(),
+            'package_id' => $package->id,
+            'version' => '8.9.2',
+            'channel' => 'stable',
+            'install_args' => ['silent_args' => '/S'],
+            'uninstall_args' => ['command' => '"C:\\Program Files\\Remote Notepad++\\uninstall.exe" /S'],
+            'detection_rules' => ['type' => 'registry', 'value' => 'HKLM\\SOFTWARE\\RemoteNotepad'],
+            'is_deprecated' => false,
+        ]);
+        PackageFile::query()->create([
+            'id' => (string) Str::uuid(),
+            'package_version_id' => $version->id,
+            'file_name' => 'download',
+            'source_uri' => 'https://example.invalid/download',
+            'size_bytes' => 1024,
+            'sha256' => str_repeat('b', 64),
+            'signature_metadata' => [],
+        ]);
+
+        $response = $this->post(route('admin.packages.versions.deploy', $version->id), [
+            'target_scope' => 'device',
+            'target_id' => $device->id,
+            'priority' => 100,
+            'stagger_seconds' => 0,
+            'expires_hours' => 24,
+            'public_base_url' => 'http://10.10.10.10',
+        ]);
+        $response->assertRedirect();
+        $response->assertSessionDoesntHaveErrors(['package_deploy']);
+
+        $job = DmsJob::query()
+            ->where('target_type', 'device')
+            ->where('target_id', $device->id)
+            ->where('payload->package_version_id', $version->id)
+            ->latest('created_at')
+            ->first();
+        $this->assertNotNull($job, 'Expected device install job to be queued.');
+        $this->assertSame('install_exe', (string) $job->job_type);
+        $payload = is_array($job->payload) ? $job->payload : [];
+        $this->assertSame('download.exe', (string) ($payload['file_name'] ?? ''));
+    }
+
+    public function test_group_assignment_accepts_extensionless_exe_artifact_name(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Tester',
+            'email' => 'tester-group-deploy-extensionless@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        $device = Device::query()->create([
+            'id' => (string) Str::uuid(),
+            'hostname' => 'TEST-DEVICE-GROUP-01',
+            'os_name' => 'Windows',
+            'os_version' => '10.0.19045',
+            'agent_version' => '2.0.2',
+            'status' => 'online',
+        ]);
+
+        $group = DeviceGroup::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => 'QA Group Extensionless Deploy',
+            'description' => 'Group extensionless artifact deploy test',
+        ]);
+        DB::table('device_group_memberships')->insert([
+            'device_group_id' => $group->id,
+            'device_id' => $device->id,
+            'created_at' => now(),
+        ]);
+
+        $package = PackageModel::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => 'Remote Notepad++ Group',
+            'slug' => 'remote-notepad-group',
+            'publisher' => 'Remote Publisher',
+            'package_type' => 'exe',
+            'is_active' => true,
+        ]);
+        $version = PackageVersion::query()->create([
+            'id' => (string) Str::uuid(),
+            'package_id' => $package->id,
+            'version' => '8.9.2',
+            'channel' => 'stable',
+            'install_args' => ['silent_args' => '/S'],
+            'uninstall_args' => ['command' => '"C:\\Program Files\\Remote Notepad++\\uninstall.exe" /S'],
+            'detection_rules' => ['type' => 'registry', 'value' => 'HKLM\\SOFTWARE\\RemoteNotepad'],
+            'is_deprecated' => false,
+        ]);
+        PackageFile::query()->create([
+            'id' => (string) Str::uuid(),
+            'package_version_id' => $version->id,
+            'file_name' => 'download',
+            'source_uri' => 'https://example.invalid/download',
+            'size_bytes' => 1024,
+            'sha256' => str_repeat('c', 64),
+            'signature_metadata' => [],
+        ]);
+
+        $response = $this->post(route('admin.groups.packages.add', $group->id), [
+            'package_version_id' => $version->id,
+            'priority' => 100,
+            'stagger_seconds' => 0,
+            'expires_hours' => 24,
+            'public_base_url' => 'http://10.10.10.10',
+        ]);
+        $response->assertRedirect();
+        $response->assertSessionDoesntHaveErrors(['group_package']);
+
+        $job = DmsJob::query()
+            ->where('target_type', 'group')
+            ->where('target_id', $group->id)
+            ->where('payload->package_version_id', $version->id)
+            ->latest('created_at')
+            ->first();
+        $this->assertNotNull($job, 'Expected group install job to be queued.');
+        $this->assertSame('install_exe', (string) $job->job_type);
+        $payload = is_array($job->payload) ? $job->payload : [];
+        $this->assertSame('download.exe', (string) ($payload['file_name'] ?? ''));
+    }
+
+    public function test_software_inventory_matches_notepad_architecture_variant_to_managed_package(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Tester',
+            'email' => 'tester-software-managed-match@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        PackageModel::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => 'Remote Notepad++',
+            'slug' => 'remote-notepad',
+            'publisher' => null,
+            'package_type' => 'exe',
+            'is_active' => true,
+        ]);
+
+        Device::query()->create([
+            'id' => (string) Str::uuid(),
+            'hostname' => 'TEST-NPP-MANAGED-01',
+            'os_name' => 'Windows',
+            'os_version' => '10.0.19045',
+            'agent_version' => '2.0.2',
+            'status' => 'online',
+            'tags' => [
+                'inventory' => [
+                    'installed_software' => [
+                        [
+                            'name' => 'Notepad++ (64-bit x64)',
+                            'publisher' => 'Notepad++ Team',
+                            'version' => '8.9.3',
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $controller = app(\App\Http\Controllers\Web\AdminConsoleController::class);
+        $method = new \ReflectionMethod($controller, 'collectSoftwareInventorySummary');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($controller, '');
+        $rows = $summary['rows'] ?? collect();
+        if (is_array($rows)) {
+            $rows = collect($rows);
+        }
+
+        $notepadRow = $rows->first(function ($row) {
+            return is_array($row) && str_contains(strtolower((string) ($row['name'] ?? '')), 'notepad++');
+        });
+
+        $this->assertNotNull($notepadRow, 'Expected Notepad++ inventory row to be present.');
+        $this->assertTrue((bool) ($notepadRow['managed'] ?? false), 'Expected Notepad++ architecture variant to be marked as managed.');
+    }
+
+    public function test_policy_catalog_includes_recurring_power_schedule_preset(): void
+    {
+        $controller = app(\App\Http\Controllers\Web\AdminConsoleController::class);
+        $method = new \ReflectionMethod($controller, 'policyCatalog');
+        $method->setAccessible(true);
+
+        $catalog = $method->invoke($controller);
+        $rows = is_array($catalog) ? collect($catalog) : collect();
+        $preset = $rows->first(function ($item) {
+            return is_array($item) && (($item['key'] ?? null) === 'recurring_power_schedule');
+        });
+
+        $this->assertNotNull($preset, 'Expected recurring_power_schedule preset in policy catalog.');
+        $this->assertSame('scheduled_task', (string) ($preset['rule_type'] ?? ''));
+        $this->assertSame('daily', (string) (($preset['rule_json']['schedule'] ?? '')));
+        $this->assertSame('23:00', (string) (($preset['rule_json']['time'] ?? '')));
+        $this->assertSame('DmsRecurringPowerSchedule', (string) (($preset['rule_json']['task_name'] ?? '')));
+    }
+
+    public function test_policy_detail_shows_scheduled_task_builder_gui(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Tester',
+            'email' => 'tester-policy-detail-scheduled-ui@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        $policy = Policy::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => 'Scheduled Power Policy',
+            'slug' => 'scheduled-power-policy',
+            'category' => 'operations/maintenance',
+            'status' => 'draft',
+        ]);
+
+        $this->get(route('admin.policies.show', $policy->id))
+            ->assertOk()
+            ->assertSee('Scheduled Task Builder')
+            ->assertSee('Task Template')
+            ->assertSee('Power: Daily Shutdown')
+            ->assertSee('custom command');
+    }
+
+    public function test_scheduled_task_dispatch_payload_escapes_embedded_quotes(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Tester',
+            'email' => 'tester-scheduled-task-dispatch@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        $device = Device::query()->create([
+            'id' => (string) Str::uuid(),
+            'hostname' => 'TEST-SCHEDULED-TASK-DISPATCH',
+            'os_name' => 'Windows',
+            'os_version' => '10.0.19045',
+            'agent_version' => '2.0.2',
+            'status' => 'online',
+        ]);
+
+        $version = $this->createPolicyVersionWithSingleRule(
+            $user,
+            'Lab Daily Reboot',
+            'lab-daily-reboot-dispatch-test',
+            'scheduled_task',
+            [
+                'task_name' => 'LabDailyReboot',
+                'ensure' => 'present',
+                'schedule' => 'daily',
+                'time' => '01:34',
+                'command' => 'shutdown.exe /r /t 60 /f /c "Daily non-persistent lab reset"',
+            ]
+        );
+
+        $this->post(route('admin.policies.versions.assignments.create', [$version->policy_id, $version->id]), [
+            'target_type' => 'device',
+            'target_id' => $device->id,
+            'queue_job' => 1,
+        ])->assertRedirect();
+
+        $job = DmsJob::query()
+            ->where('job_type', 'apply_policy')
+            ->where('target_type', 'device')
+            ->where('target_id', $device->id)
+            ->where('payload->policy_version_id', $version->id)
+            ->whereNull('payload->cleanup')
+            ->latest('created_at')
+            ->first();
+
+        $this->assertNotNull($job, 'Expected apply_policy job for scheduled_task assignment.');
+        $payload = is_array($job->payload) ? $job->payload : [];
+        $rules = is_array($payload['rules'] ?? null) ? $payload['rules'] : [];
+        $this->assertNotEmpty($rules);
+
+        $rule = is_array($rules[0] ?? null) ? $rules[0] : [];
+        $this->assertSame('scheduled_task', strtolower((string) ($rule['type'] ?? '')));
+        $command = (string) (($rule['config']['command'] ?? ''));
+        $this->assertStringContainsString('\\"Daily non-persistent lab reset\\"', $command);
+    }
+
     public function test_installed_device_ids_excludes_device_after_successful_uninstall(): void
     {
         $user = User::query()->create([

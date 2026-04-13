@@ -50,12 +50,19 @@ return [
     ],
 
     'endpoint_intelligence' => [
+        'queue' => env('DMS_INTELLIGENCE_QUEUE', 'default'),
         'dispatch_debounce_seconds' => (int) env('DMS_INTELLIGENCE_DISPATCH_DEBOUNCE_SECONDS', 45),
         'finding_stale_minutes' => (int) env('DMS_FINDING_STALE_MINUTES', 30),
+        'freshness_stale_minutes' => (int) env('DMS_INTELLIGENCE_FRESHNESS_STALE_MINUTES', 120),
         'allow_behavior_checkin_fallback' => (bool) env('DMS_BEHAVIOR_LOG_ALLOW_CHECKIN_FALLBACK', true),
         'behavior_checkin_fallback_window_minutes' => (int) env('DMS_BEHAVIOR_LOG_CHECKIN_FALLBACK_WINDOW_MINUTES', 15),
         'checkin_interval_seconds' => (int) env('DMS_CHECKIN_INTERVAL_SECONDS', 60),
         'nonce_window_seconds' => (int) env('DMS_NONCE_WINDOW_SECONDS', 300),
+    ],
+
+    'remote_support' => [
+        'active_checkin_interval_seconds' => (int) env('DMS_REMOTE_SUPPORT_ACTIVE_CHECKIN_INTERVAL_SECONDS', 1),
+        'active_capture_window_seconds' => (int) env('DMS_REMOTE_SUPPORT_ACTIVE_CAPTURE_WINDOW_SECONDS', 45),
     ],
 
 ];

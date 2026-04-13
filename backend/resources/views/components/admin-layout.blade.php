@@ -138,7 +138,8 @@
     };
 
     $securitySignatureBypassEnabled = (bool) $securityGet('security.signature_bypass_enabled', filter_var((string) env('DMS_SIGNATURE_BYPASS', 'false'), FILTER_VALIDATE_BOOL));
-    $securityAuthRequireMfa = (bool) $securityGet('auth.require_mfa', false);
+    $securityDefaultRequireMfa = !app()->environment(['local', 'testing']);
+    $securityAuthRequireMfa = (bool) $securityGet('auth.require_mfa', $securityDefaultRequireMfa);
     $securityAuthMaxAttempts = max(1, (int) $securityGet('auth.max_login_attempts', 5));
     $securityAuthLockoutMinutes = max(1, (int) $securityGet('auth.lockout_minutes', 15));
     $securityAutoAllow = (bool) $securityGet('scripts.auto_allow_run_command_hashes', false);
@@ -428,6 +429,7 @@
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.enroll-devices*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.enroll-devices') }}">Enroll Devices</a>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.dashboard') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.dashboard') }}">Overview</a>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.devices') || request()->routeIs('admin.devices.show') || request()->routeIs('admin.devices.live') || request()->routeIs('admin.devices.update') || request()->routeIs('admin.devices.delete') || request()->routeIs('admin.devices.reenroll') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.devices') }}">Devices</a>
+            <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.remote-support*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.remote-support') }}">Remote Support</a>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.groups*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.groups') }}">Groups</a>
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.packages*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.packages') }}">Software Packages</a>
             <details class="pt-2 group" {{ request()->routeIs('admin.assets*') ? 'open' : '' }}>
@@ -671,6 +673,7 @@
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.enroll-devices*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.enroll-devices') }}">Enroll Devices</a>
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.dashboard') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.dashboard') }}">Overview</a>
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.devices') || request()->routeIs('admin.devices.show') || request()->routeIs('admin.devices.live') || request()->routeIs('admin.devices.update') || request()->routeIs('admin.devices.delete') || request()->routeIs('admin.devices.reenroll') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.devices') }}">Devices</a>
+                    <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.remote-support*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.remote-support') }}">Remote Support</a>
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.groups*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.groups') }}">Groups</a>
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.packages*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.packages') }}">Software Packages</a>
                     <details class="pt-1 group" {{ request()->routeIs('admin.assets*') ? 'open' : '' }}>
@@ -1231,6 +1234,7 @@
         const iconMap = {
             'Overview': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>',
             'Devices': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="4" y="3" width="16" height="12" rx="2"/><path d="M8 21h8M12 15v6"/></svg>',
+            'Remote Support': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/><path d="m9 10 2-2-2-2"/><path d="m15 10-2-2 2-2"/></svg>',
             'Groups': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M8 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M2.5 20a5.5 5.5 0 0 1 11 0"/><path d="M13 20a5 5 0 0 1 8.5-3.5"/></svg>',
             'Software Packages': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 4 7l8 4 8-4-8-4Z"/><path d="M4 7v10l8 4 8-4V7"/></svg>',
             'Application Management': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg>',

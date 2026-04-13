@@ -19,6 +19,36 @@
         </article>
     </section>
 
+    <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Intelligence Freshness</p>
+                <h3 class="mt-1 text-base font-semibold text-slate-900">Signal recency for this endpoint</h3>
+            </div>
+            <p class="text-xs text-slate-500">Stale threshold: {{ data_get($freshness, 'stale_after_minutes', 120) }} minutes</p>
+        </div>
+        <div class="mt-3 grid gap-3 md:grid-cols-3">
+            <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-xs uppercase tracking-[0.15em] text-slate-500">Health</p>
+                <p class="mt-1 text-sm font-semibold {{ data_get($freshness, 'health.is_stale') ? 'text-amber-700' : 'text-slate-900' }}">
+                    {{ data_get($freshness, 'health.age_human', 'No data yet') }}
+                </p>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-xs uppercase tracking-[0.15em] text-slate-500">Risk</p>
+                <p class="mt-1 text-sm font-semibold {{ data_get($freshness, 'risk.is_stale') ? 'text-amber-700' : 'text-slate-900' }}">
+                    {{ data_get($freshness, 'risk.age_human', 'No data yet') }}
+                </p>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-xs uppercase tracking-[0.15em] text-slate-500">Active Findings</p>
+                <p class="mt-1 text-sm font-semibold {{ data_get($freshness, 'finding.is_stale') ? 'text-amber-700' : 'text-slate-900' }}">
+                    {{ data_get($freshness, 'finding.age_human', 'No active findings') }}
+                </p>
+            </article>
+        </div>
+    </section>
+
     <section class="mt-5 grid gap-5 xl:grid-cols-[1.1fr,0.9fr]">
         <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div class="flex items-center justify-between">

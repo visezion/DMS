@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Net;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using Dms.Agent.Core.Protocol;
@@ -22,6 +23,14 @@ public sealed class ApiClient
     private string? _behaviorIngestToken;
     private string? _lastCheckinId;
     private const string EmptyDeviceId = "00000000-0000-0000-0000-000000000000";
+    private static readonly HttpStatusCode[] RetryableStatusCodes =
+    [
+        HttpStatusCode.RequestTimeout,
+        HttpStatusCode.TooManyRequests,
+        HttpStatusCode.BadGateway,
+        HttpStatusCode.ServiceUnavailable,
+        HttpStatusCode.GatewayTimeout,
+    ];
 
     public ApiClient()
     {
@@ -33,10 +42,7 @@ public sealed class ApiClient
         _behaviorIngestTokenPath = Path.Combine(_bootstrapConfiguration.DmsDirectory, "behavior-ingest-token.txt");
         _behaviorIngestToken = ResolveBehaviorIngestToken();
 
-        _httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(_bootstrapConfiguration.ResolvedApiBaseUrl)
-        };
+        _httpClient = CreateHttpClient(_bootstrapConfiguration.ResolvedApiBaseUrl);
         _bootstrapConfiguration.WriteBootstrapState();
     }
 
@@ -50,7 +56,7 @@ public sealed class ApiClient
         var inventory = await DeviceInventoryCollector.CollectAsync(cancellationToken);
         string? serialNumber = ResolveSerialNumber(inventory);
         var runtimeDiagnostics = CollectRuntimeDiagnostics();
-        HttpResponseMessage response = await _httpClient.PostAsJsonAsync("device/checkin", new
+        HttpResponseMessage response = await SendWithRetryAsync(ct => _httpClient.PostAsJsonAsync("device/checkin", new
         {
             device_id = deviceId,
             agent_version = agentVersion,
@@ -63,14 +69,15 @@ public sealed class ApiClient
             inventory,
             runtime_diagnostics = runtimeDiagnostics,
             uwf_status = BuildUwfStatus(runtimeDiagnostics),
-        }, cancellationToken);
+        }, ct), cancellationToken);
 
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound && !string.IsNullOrWhiteSpace(ResolveEnrollmentToken()))
         {
+            response.Dispose();
             ClearPersistedDeviceId();
             deviceId = await EnsureEnrolledAsync(cancellationToken);
             runtimeDiagnostics = CollectRuntimeDiagnostics();
-            response = await _httpClient.PostAsJsonAsync("device/checkin", new
+            response = await SendWithRetryAsync(ct => _httpClient.PostAsJsonAsync("device/checkin", new
             {
                 device_id = deviceId,
                 agent_version = agentVersion,
@@ -83,7 +90,7 @@ public sealed class ApiClient
                 inventory,
                 runtime_diagnostics = runtimeDiagnostics,
                 uwf_status = BuildUwfStatus(runtimeDiagnostics),
-            }, cancellationToken);
+            }, ct), cancellationToken);
         }
 
         response.EnsureSuccessStatusCode();
@@ -96,7 +103,7 @@ public sealed class ApiClient
 
     public async Task<List<KeysetKeyDto>> GetKeysetAsync(CancellationToken cancellationToken)
     {
-        HttpResponseMessage response = await _httpClient.GetAsync("device/keyset", cancellationToken);
+        HttpResponseMessage response = await SendWithRetryAsync(ct => _httpClient.GetAsync("device/keyset", ct), cancellationToken);
         response.EnsureSuccessStatusCode();
 
         KeysetResponseDto? keyset = await response.Content.ReadFromJsonAsync<KeysetResponseDto>(cancellationToken: cancellationToken);
@@ -106,7 +113,10 @@ public sealed class ApiClient
     public async Task AckAsync(string jobRunId, CancellationToken cancellationToken)
     {
         string deviceId = ResolveDeviceId();
-        await _httpClient.PostAsJsonAsync("device/job-ack", new { job_run_id = jobRunId, device_id = deviceId }, cancellationToken);
+        using HttpResponseMessage response = await SendWithRetryAsync(
+            ct => _httpClient.PostAsJsonAsync("device/job-ack", new { job_run_id = jobRunId, device_id = deviceId }, ct),
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task ResultAsync(
@@ -118,7 +128,7 @@ public sealed class ApiClient
         CancellationToken cancellationToken)
     {
         string deviceId = ResolveDeviceId();
-        await _httpClient.PostAsJsonAsync("device/job-result", new
+        using HttpResponseMessage response = await SendWithRetryAsync(ct => _httpClient.PostAsJsonAsync("device/job-result", new
         {
             job_run_id = jobRunId,
             device_id = deviceId,
@@ -133,7 +143,8 @@ public sealed class ApiClient
             action_token = resultMeta?.GetValueOrDefault("action_token"),
             idempotency_key = resultMeta?.GetValueOrDefault("idempotency_key"),
             checkin_id = _lastCheckinId,
-        }, cancellationToken);
+        }, ct), cancellationToken);
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task PostBehaviorEventsAsync(IReadOnlyList<BehaviorEventDto> events, CancellationToken cancellationToken)
@@ -165,20 +176,150 @@ public sealed class ApiClient
             }),
         };
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "device/behavior-log")
-        {
-            Content = JsonContent.Create(payload),
-        };
-
         string token = ResolveBehaviorIngestToken();
-        if (!string.IsNullOrWhiteSpace(token))
+        HttpResponseMessage response = await SendWithRetryAsync(ct =>
         {
-            request.Headers.TryAddWithoutValidation("X-DMS-Behavior-Token", token);
-        }
+            HttpRequestMessage request = new(HttpMethod.Post, "device/behavior-log")
+            {
+                Content = JsonContent.Create(payload),
+            };
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                request.Headers.TryAddWithoutValidation("X-DMS-Behavior-Token", token);
+            }
 
-        HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken);
+            return _httpClient.SendAsync(request, ct);
+        }, cancellationToken);
 
         response.EnsureSuccessStatusCode();
+    }
+
+    public async Task PostRemoteSupportLiveFrameAsync(
+        string sessionId,
+        string imageBase64,
+        string mimeType,
+        int byteSize,
+        DateTimeOffset capturedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        string deviceId = ResolveDeviceId();
+        if (deviceId == EmptyDeviceId)
+        {
+            deviceId = await EnsureEnrolledAsync(cancellationToken);
+        }
+
+        string token = ResolveBehaviorIngestToken();
+        HttpResponseMessage response = await SendWithRetryAsync(ct =>
+        {
+            HttpRequestMessage request = new(HttpMethod.Post, "device/remote-support/live-frame")
+            {
+                Content = JsonContent.Create(new
+                {
+                    device_id = deviceId,
+                    checkin_id = _lastCheckinId,
+                    session_id = sessionId,
+                    captured_at_utc = capturedAtUtc.ToUniversalTime().ToString("O"),
+                    mime_type = mimeType,
+                    image_base64 = imageBase64,
+                    byte_size = byteSize,
+                }),
+            };
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                request.Headers.TryAddWithoutValidation("X-DMS-Behavior-Token", token);
+            }
+
+            return _httpClient.SendAsync(request, ct);
+        }, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task PostRemoteSupportWebRtcSignalAsync(
+        string sessionId,
+        string type,
+        Dictionary<string, object?> payload,
+        CancellationToken cancellationToken)
+    {
+        string deviceId = ResolveDeviceId();
+        if (deviceId == EmptyDeviceId)
+        {
+            deviceId = await EnsureEnrolledAsync(cancellationToken);
+        }
+
+        string token = ResolveBehaviorIngestToken();
+        HttpResponseMessage response = await SendWithRetryAsync(ct =>
+        {
+            HttpRequestMessage request = new(HttpMethod.Post, "device/remote-support/webrtc/signal")
+            {
+                Content = JsonContent.Create(new
+                {
+                    device_id = deviceId,
+                    checkin_id = _lastCheckinId,
+                    session_id = sessionId,
+                    type,
+                    payload,
+                }),
+            };
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                request.Headers.TryAddWithoutValidation("X-DMS-Behavior-Token", token);
+            }
+
+            return _httpClient.SendAsync(request, ct);
+        }, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<RemoteSupportRealtimePollResponseDto> GetRemoteSupportWebRtcSignalsAsync(
+        string sessionId,
+        long since,
+        CancellationToken cancellationToken)
+    {
+        return await GetRemoteSupportRealtimePollAsync("device/remote-support/webrtc/signals", sessionId, since, cancellationToken);
+    }
+
+    public async Task<RemoteSupportRealtimePollResponseDto> GetRemoteSupportWebRtcInputsAsync(
+        string sessionId,
+        long since,
+        CancellationToken cancellationToken)
+    {
+        return await GetRemoteSupportRealtimePollAsync("device/remote-support/webrtc/inputs", sessionId, since, cancellationToken);
+    }
+
+    private async Task<RemoteSupportRealtimePollResponseDto> GetRemoteSupportRealtimePollAsync(
+        string endpoint,
+        string sessionId,
+        long since,
+        CancellationToken cancellationToken)
+    {
+        string deviceId = ResolveDeviceId();
+        if (deviceId == EmptyDeviceId)
+        {
+            deviceId = await EnsureEnrolledAsync(cancellationToken);
+        }
+
+        string checkinId = _lastCheckinId ?? string.Empty;
+        string path = endpoint
+            + "?device_id=" + Uri.EscapeDataString(deviceId)
+            + "&session_id=" + Uri.EscapeDataString(sessionId)
+            + "&since=" + since.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + "&checkin_id=" + Uri.EscapeDataString(checkinId);
+
+        string token = ResolveBehaviorIngestToken();
+        HttpResponseMessage response = await SendWithRetryAsync(ct =>
+        {
+            HttpRequestMessage request = new(HttpMethod.Get, path);
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                request.Headers.TryAddWithoutValidation("X-DMS-Behavior-Token", token);
+            }
+
+            return _httpClient.SendAsync(request, ct);
+        }, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        RemoteSupportRealtimePollResponseDto? payload = await response.Content.ReadFromJsonAsync<RemoteSupportRealtimePollResponseDto>(cancellationToken: cancellationToken);
+        return payload ?? new RemoteSupportRealtimePollResponseDto();
     }
 
     private async Task<string> EnsureEnrolledAsync(CancellationToken cancellationToken)
@@ -216,7 +357,9 @@ public sealed class ApiClient
             }
         };
 
-        HttpResponseMessage enrollResponse = await _httpClient.PostAsJsonAsync("device/enroll", enrollPayload, cancellationToken);
+        HttpResponseMessage enrollResponse = await SendWithRetryAsync(
+            ct => _httpClient.PostAsJsonAsync("device/enroll", enrollPayload, ct),
+            cancellationToken);
         if (!enrollResponse.IsSuccessStatusCode)
         {
             string responseBody = await SafeReadResponseContentAsync(enrollResponse, cancellationToken);
@@ -410,6 +553,93 @@ public sealed class ApiClient
         _behaviorIngestToken = normalized;
         Directory.CreateDirectory(_bootstrapConfiguration.DmsDirectory);
         File.WriteAllText(_behaviorIngestTokenPath, normalized);
+    }
+
+    private static HttpClient CreateHttpClient(string baseAddress)
+    {
+        SocketsHttpHandler handler = new()
+        {
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+            ConnectTimeout = TimeSpan.FromSeconds(10),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
+            UseCookies = false,
+        };
+
+        return new HttpClient(handler)
+        {
+            BaseAddress = new Uri(baseAddress),
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+    }
+
+    private static async Task<HttpResponseMessage> SendWithRetryAsync(
+        Func<CancellationToken, Task<HttpResponseMessage>> send,
+        CancellationToken cancellationToken,
+        int maxAttempts = 3)
+    {
+        HttpResponseMessage? lastResponse = null;
+        Exception? lastException = null;
+
+        for (int attempt = 1; attempt <= Math.Max(1, maxAttempts); attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                HttpResponseMessage response = await send(cancellationToken);
+                if (!ShouldRetry(response.StatusCode) || attempt >= maxAttempts)
+                {
+                    return response;
+                }
+
+                lastResponse?.Dispose();
+                lastResponse = response;
+            }
+            catch (Exception ex) when (IsTransientException(ex, cancellationToken) && attempt < maxAttempts)
+            {
+                lastException = ex;
+            }
+
+            if (attempt < maxAttempts)
+            {
+                await Task.Delay(ResolveRetryDelay(attempt), cancellationToken);
+            }
+        }
+
+        if (lastResponse is not null)
+        {
+            return lastResponse;
+        }
+
+        throw lastException ?? new HttpRequestException("HTTP operation failed after retries.");
+    }
+
+    private static bool ShouldRetry(HttpStatusCode statusCode)
+    {
+        if ((int)statusCode >= 500)
+        {
+            return true;
+        }
+
+        return RetryableStatusCodes.Contains(statusCode);
+    }
+
+    private static bool IsTransientException(Exception exception, CancellationToken cancellationToken)
+    {
+        return exception switch
+        {
+            HttpRequestException => true,
+            TaskCanceledException when !cancellationToken.IsCancellationRequested => true,
+            OperationCanceledException when !cancellationToken.IsCancellationRequested => true,
+            _ => false,
+        };
+    }
+
+    private static TimeSpan ResolveRetryDelay(int attempt)
+    {
+        int seconds = Math.Min(8, 1 << Math.Max(0, attempt - 1));
+        return TimeSpan.FromSeconds(seconds);
     }
 
     private static async Task<string> SafeReadResponseContentAsync(HttpResponseMessage response, CancellationToken cancellationToken)
@@ -772,6 +1002,10 @@ public sealed class ApiClient
             ["collected_at"] = DateTimeOffset.UtcNow.ToString("O"),
             ["signature_bypass_enabled"] = ReadBool("DMS_SIGNATURE_BYPASS"),
             ["signature_debug_enabled"] = ReadBool("DMS_SIGNATURE_DEBUG"),
+            ["webrtc_media_pipeline"] = WebRtcMediaPipelineCapability.IsAdvertisedEnabled(),
+            ["webrtc_media_pipeline_build"] = WebRtcMediaPipelineCapability.IsBuildImplemented(),
+            ["webrtc_media_pipeline_configured"] = WebRtcMediaPipelineCapability.IsConfiguredEnabled(),
+            ["webrtc_signaling_enabled"] = true,
             ["process_id"] = Environment.ProcessId,
             ["process_path"] = Environment.ProcessPath,
             ["machine_name"] = Environment.MachineName,

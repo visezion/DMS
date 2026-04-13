@@ -6,7 +6,7 @@ public sealed class AgentBootstrapConfiguration
 {
     private const string DefaultApiBaseUrl = "http://localhost/api/v1/";
     private const int FallbackCheckinIntervalSeconds = 60;
-    private const int MinCheckinIntervalSeconds = 15;
+    private const int MinCheckinIntervalSeconds = 1;
     private const int MaxCheckinIntervalSeconds = 300;
 
     private AgentBootstrapConfiguration(
@@ -95,8 +95,7 @@ public sealed class AgentBootstrapConfiguration
         }
 
         int clamped = Math.Clamp(seconds.Value, MinCheckinIntervalSeconds, MaxCheckinIntervalSeconds);
-        Directory.CreateDirectory(DmsDirectory);
-        File.WriteAllText(CheckinIntervalPath, clamped.ToString());
+        WriteAtomically(CheckinIntervalPath, clamped.ToString());
     }
 
     public void WriteBootstrapState()
@@ -316,9 +315,114 @@ public sealed class AgentBootstrapConfiguration
 
     private static void WriteAtomically(string path, string contents)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        string tempPath = path + ".tmp";
-        File.WriteAllText(tempPath, contents);
-        File.Move(tempPath, path, true);
+        string? directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+        }
+        catch
+        {
+            return;
+        }
+
+        string tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(tempPath, contents);
+
+            try
+            {
+                File.Move(tempPath, path, true);
+                return;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                if (!TryClearReadOnlyAttribute(path))
+                {
+                    return;
+                }
+
+                try
+                {
+                    File.Move(tempPath, path, true);
+                    return;
+                }
+                catch
+                {
+                    // Fall through to direct write fallback.
+                }
+            }
+            catch (IOException)
+            {
+                // Fall through to direct write fallback.
+            }
+
+            TryWriteText(path, contents);
+        }
+        catch
+        {
+            // Never block agent startup/check-in on diagnostics/state persistence.
+        }
+        finally
+        {
+            TryDeleteFile(tempPath);
+        }
+    }
+
+    private static bool TryWriteText(string path, string contents)
+    {
+        try
+        {
+            File.WriteAllText(path, contents);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryClearReadOnlyAttribute(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return true;
+            }
+
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReadOnly) == 0)
+            {
+                return true;
+            }
+
+            File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup.
+        }
     }
 }

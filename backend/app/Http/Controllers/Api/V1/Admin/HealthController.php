@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Domain\EndpointIntelligence\CurrentPostureService;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\DeviceHealthScore;
@@ -11,10 +12,15 @@ use Illuminate\Http\Request;
 
 class HealthController extends Controller
 {
+    public function __construct(
+        private readonly CurrentPostureService $currentPosture,
+    ) {
+    }
+
     public function summary(string $deviceId): JsonResponse
     {
         $device = Device::query()->findOrFail($deviceId);
-        $health = DeviceHealthScore::query()->where('device_id', $device->id)->latest('scored_at')->first();
+        $health = $this->currentPosture->latestHealthScoreForDevice($device->id);
 
         return response()->json([
             'device' => $device,
@@ -37,13 +43,14 @@ class HealthController extends Controller
     public function unhealthy(Request $request): JsonResponse
     {
         $bands = array_values(array_filter(explode(',', (string) $request->query('bands', 'critical,degraded'))));
-        $scores = DeviceHealthScore::query()
-            ->whereIn('band', $bands)
-            ->orderBy('score')
-            ->orderByDesc('scored_at')
-            ->limit(100)
+        $scores = $this->currentPosture->latestHealthScoresQuery()
+            ->whereIn('device_health_scores.band', $bands)
+            ->orderBy('device_health_scores.score')
+            ->orderByDesc('device_health_scores.scored_at')
+            ->limit(120)
             ->get()
             ->unique('device_id')
+            ->take(100)
             ->values();
 
         return response()->json($scores);
@@ -52,10 +59,15 @@ class HealthController extends Controller
     public function compare(string $deviceId): JsonResponse
     {
         $device = Device::query()->findOrFail($deviceId);
-        $current = DeviceHealthScore::query()->where('device_id', $device->id)->latest('scored_at')->first();
-        $fleetAverage = round((float) DeviceHealthScore::query()->avg('score'), 2);
-        $peerAverage = round((float) DeviceHealthScore::query()
-            ->whereIn('device_id', Device::query()->where('os_name', $device->os_name)->pluck('id'))
+        $current = $this->currentPosture->latestHealthScoreForDevice($device->id);
+        $latestScores = $this->currentPosture->latestHealthScores();
+        $fleetAverage = round((float) $latestScores->avg('score'), 2);
+        $peerIds = Device::query()
+            ->where('os_name', $device->os_name)
+            ->pluck('id')
+            ->values();
+        $peerAverage = round((float) $latestScores
+            ->whereIn('device_id', $peerIds)
             ->avg('score'), 2);
 
         return response()->json([

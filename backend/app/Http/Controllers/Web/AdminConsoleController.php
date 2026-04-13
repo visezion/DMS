@@ -28,6 +28,7 @@ use App\Models\PolicyVersion;
 use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\RemoteSupportSession;
 use App\Support\TenantContext;
 use App\Services\AgentBuildService;
 use App\Services\AuditLogger;
@@ -265,6 +266,19 @@ class AdminConsoleController extends Controller
                 'auto_allow_run_command_hashes' => $this->settingBool('scripts.auto_allow_run_command_hashes', false),
                 'delete_cleanup_before_uninstall' => $this->settingBool('devices.delete_cleanup_before_uninstall', false),
                 'package_download_url_mode' => $this->settingString('packages.download_url_mode', 'public'),
+                'remote_support_capture_max_dimension' => $this->settingInt('remote_support.capture_max_dimension', 1920),
+                'remote_support_capture_jpeg_quality' => $this->settingInt('remote_support.capture_jpeg_quality', 75),
+                'remote_support_live_fps' => $this->settingInt('remote_support.live_fps', 12),
+                'remote_support_capture_interval_seconds' => $this->settingInt('remote_support.capture_interval_seconds', 1),
+                'remote_support_live_duration_seconds' => $this->settingInt('remote_support.live_duration_seconds', 120),
+                'remote_support_webrtc_signal_poll_interval_ms' => $this->settingInt('remote_support.webrtc_signal_poll_interval_ms', 200),
+                'remote_support_webrtc_input_flush_interval_ms' => $this->settingInt('remote_support.webrtc_input_flush_interval_ms', 33),
+                'remote_support_webrtc_input_batch_max' => $this->settingInt('remote_support.webrtc_input_batch_max', 32),
+                'remote_support_webrtc_admin_token_ttl_minutes' => $this->settingInt('remote_support.webrtc_admin_token_ttl_minutes', 30),
+                'remote_support_webrtc_stun_urls' => $this->settingString('remote_support.webrtc_stun_urls', ''),
+                'remote_support_webrtc_turn_urls' => $this->settingString('remote_support.webrtc_turn_urls', ''),
+                'remote_support_webrtc_turn_username' => $this->settingString('remote_support.webrtc_turn_username', ''),
+                'remote_support_webrtc_turn_credential' => $this->settingString('remote_support.webrtc_turn_credential', ''),
             ],
         ]);
     }
@@ -303,6 +317,566 @@ class AdminConsoleController extends Controller
                 ->withQueryString(),
             'searchQuery' => $search,
         ]);
+    }
+
+    public function remoteSupport(Request $request): View
+    {
+        $search = trim((string) $request->query('q', ''));
+
+        $devicesQuery = Device::query();
+        if ($search !== '') {
+            $devicesQuery->where(function ($query) use ($search) {
+                $like = '%'.$search.'%';
+                $query->where('hostname', 'like', $like)
+                    ->orWhere('id', 'like', $like)
+                    ->orWhere('meshcentral_device_id', 'like', $like)
+                    ->orWhere('os_name', 'like', $like)
+                    ->orWhere('os_version', 'like', $like);
+            });
+        }
+
+        return view('admin.remote-support', [
+            'devices' => $devicesQuery
+                ->latest('updated_at')
+                ->paginate(20)
+                ->withQueryString(),
+            'searchQuery' => $search,
+        ]);
+    }
+
+    public function remoteSupportSession(string $deviceId): View
+    {
+        $device = Device::query()->findOrFail($deviceId);
+        $session = $this->findOrCreateRemoteSupportSession($device);
+
+        $isOnline = $device->last_seen_at !== null && $device->last_seen_at->gt(now()->subMinutes(2));
+        $status = in_array($device->status, ['pending', 'quarantined'], true)
+            ? $device->status
+            : ($isOnline ? 'online' : 'offline');
+
+        $frame = Cache::get($this->remoteSupportLiveFrameCacheKey($device->id, $session->id));
+        $lastFrameAt = $session->last_frame_received_at;
+        if (is_array($frame) && ! empty($frame['captured_at_iso'])) {
+            try {
+                $lastFrameAt = \Carbon\Carbon::parse((string) $frame['captured_at_iso']);
+            } catch (\Throwable) {
+                // Keep persisted timestamp if cache timestamp is malformed.
+            }
+        }
+
+        return view('admin.remote-support-session', [
+            'device' => $device,
+            'session' => $session,
+            'effectiveStatus' => $status,
+            'meshId' => $device->meshcentral_device_id ?: 'Not set',
+            'webRtcCapability' => (bool) data_get($device->tags ?? [], 'runtime_diagnostics.webrtc_media_pipeline', false),
+            'remoteMethod' => ((bool) data_get($device->tags ?? [], 'runtime_diagnostics.webrtc_media_pipeline', false)) ? 'webrtc' : 'live',
+            'lastFrameAt' => $lastFrameAt,
+            'frameAvailable' => is_array($frame) && ! empty($frame['image_base64']),
+            'webrtcSignalPollIntervalMs' => max(120, min(2000, $this->settingInt('remote_support.webrtc_signal_poll_interval_ms', 200))),
+            'webrtcInputFlushIntervalMs' => max(16, min(1000, $this->settingInt('remote_support.webrtc_input_flush_interval_ms', 33))),
+            'webrtcInputBatchMax' => max(1, min(100, $this->settingInt('remote_support.webrtc_input_batch_max', 32))),
+        ]);
+    }
+
+    public function remoteSupportQueueCapture(Request $request, string $deviceId): JsonResponse
+    {
+        $device = Device::query()->findOrFail($deviceId);
+        $session = $this->findOrCreateRemoteSupportSession($device);
+
+        if ($device->last_seen_at === null || $device->last_seen_at->lte(now()->subMinutes(2))) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Device is offline.',
+            ], 409);
+        }
+
+        $existingJob = $this->findRecentRemoteSupportJob($device, $session, 'start_live_stream');
+        if ($existingJob) {
+            return response()->json([
+                'ok' => true,
+                'session_id' => $session->id,
+                'job_id' => $existingJob->id,
+                'mode' => 'live',
+                'reused' => true,
+            ]);
+        }
+
+        $maxDimension = max(640, min(3840, (int) $this->settingInt('remote_support.capture_max_dimension', 1366)));
+        $jpegQuality = max(25, min(95, (int) $this->settingInt('remote_support.capture_jpeg_quality', 60)));
+        $fps = max(1, min(20, (int) $this->settingInt('remote_support.live_fps', 8)));
+        $durationSeconds = max(20, min(600, (int) config('services.remote_support.active_capture_window_seconds', 45)));
+
+        $job = DB::transaction(function () use ($device, $session, $maxDimension, $jpegQuality, $fps, $durationSeconds) {
+            $job = DmsJob::query()->create([
+                'id' => (string) Str::uuid(),
+                'tenant_id' => $session->tenant_id,
+                'job_type' => 'start_live_stream',
+                'status' => 'queued',
+                'priority' => 1000,
+                'payload' => [
+                    'session_id' => $session->id,
+                    'max_dimension' => $maxDimension,
+                    'jpeg_quality' => $jpegQuality,
+                    'fps' => $fps,
+                    'duration_seconds' => $durationSeconds,
+                    'image_format' => 'jpeg',
+                ],
+                'target_type' => 'device',
+                'target_id' => $device->id,
+                'created_by' => auth()->id(),
+            ]);
+
+            JobRun::query()->create([
+                'id' => (string) Str::uuid(),
+                'job_id' => $job->id,
+                'device_id' => $device->id,
+                'status' => 'pending',
+                'next_retry_at' => null,
+            ]);
+
+            $session->forceFill([
+                'last_capture_requested_at' => now(),
+                'meta' => array_merge(is_array($session->meta) ? $session->meta : [], [
+                    'method' => 'live',
+                    'last_live_job_id' => $job->id,
+                ]),
+            ])->save();
+
+            return $job;
+        });
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => $session->id,
+            'job_id' => $job->id,
+            'mode' => 'live',
+            'reused' => false,
+        ]);
+    }
+
+    public function remoteSupportLatestFrame(string $deviceId): JsonResponse
+    {
+        $device = Device::query()->findOrFail($deviceId);
+        $session = $this->findOrCreateRemoteSupportSession($device);
+        $frame = Cache::get($this->remoteSupportLiveFrameCacheKey($device->id, $session->id));
+
+        if (! is_array($frame) || empty($frame['image_base64'])) {
+            return response()->json([
+                'ok' => false,
+                'session_id' => $session->id,
+                'message' => 'Waiting for first frame...',
+            ], 404);
+        }
+
+        if (! empty($frame['captured_at_iso'])) {
+            try {
+                $capturedAt = \Carbon\Carbon::parse((string) $frame['captured_at_iso']);
+                if ($session->last_frame_received_at?->ne($capturedAt)) {
+                    $session->forceFill(['last_frame_received_at' => $capturedAt])->save();
+                }
+            } catch (\Throwable) {
+                // Ignore malformed cache timestamp.
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => $session->id,
+            'frame' => $frame,
+        ]);
+    }
+
+    public function remoteSupportRealtimeBootstrap(Request $request, string $sessionId): JsonResponse
+    {
+        $session = RemoteSupportSession::query()->findOrFail($sessionId);
+        $device = Device::query()->findOrFail($session->device_id);
+        $capable = (bool) data_get($device->tags ?? [], 'runtime_diagnostics.webrtc_media_pipeline', false);
+        $durationSeconds = max(20, min(600, $this->settingInt('remote_support.live_duration_seconds', 120)));
+        $maxDimension = max(640, min(3840, $this->settingInt('remote_support.capture_max_dimension', 1920)));
+        $jpegQuality = max(25, min(95, $this->settingInt('remote_support.capture_jpeg_quality', 75)));
+        $fps = max(1, min(20, $this->settingInt('remote_support.live_fps', 12)));
+
+        if (! $capable) {
+            $live = $this->queueOrReuseRemoteSupportLiveJob($device, $session, $maxDimension, $jpegQuality, $fps, $durationSeconds);
+
+            return response()->json([
+                'ok' => true,
+                'session_id' => $session->id,
+                'mode' => 'live_fallback',
+                'job_id' => $live->id,
+                'message' => 'WebRTC unavailable. Falling back to live frames.',
+            ]);
+        }
+
+        $this->clearRemoteSupportRealtimeState($session->id);
+        $job = $this->queueOrReuseRemoteSupportWebRtcJob($device, $session, $durationSeconds, $maxDimension);
+
+        $session->forceFill([
+            'meta' => array_merge(is_array($session->meta) ? $session->meta : [], [
+                'method' => 'webrtc',
+                'last_webrtc_job_id' => $job->id,
+            ]),
+        ])->save();
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => $session->id,
+            'mode' => 'webrtc',
+            'job_id' => $job->id,
+            'signal_poll_interval_ms' => max(120, min(2000, $this->settingInt('remote_support.webrtc_signal_poll_interval_ms', 200))),
+            'input_flush_interval_ms' => max(16, min(1000, $this->settingInt('remote_support.webrtc_input_flush_interval_ms', 33))),
+            'input_batch_max' => max(1, min(100, $this->settingInt('remote_support.webrtc_input_batch_max', 32))),
+            'ice_servers' => $this->remoteSupportIceServers(),
+        ]);
+    }
+
+    public function remoteSupportRealtimePushSignal(Request $request, string $sessionId): JsonResponse
+    {
+        $session = RemoteSupportSession::query()->findOrFail($sessionId);
+        $payload = $request->validate([
+            'type' => ['required', 'in:offer,answer,ice-candidate,renegotiate,bye,status,error,pong'],
+            'payload' => ['nullable', 'array'],
+        ]);
+
+        $event = $this->appendRemoteSupportRealtimeEvent(
+            $session->id,
+            'signals_admin_to_agent',
+            (string) $payload['type'],
+            is_array($payload['payload'] ?? null) ? $payload['payload'] : [],
+            'admin'
+        );
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => $session->id,
+            'event' => $event,
+        ]);
+    }
+
+    public function remoteSupportRealtimePullSignals(Request $request, string $sessionId): JsonResponse
+    {
+        $session = RemoteSupportSession::query()->findOrFail($sessionId);
+        $validated = $request->validate([
+            'since' => ['nullable', 'integer', 'min:0'],
+        ]);
+        $since = (int) ($validated['since'] ?? 0);
+        $events = $this->readRemoteSupportRealtimeEvents($session->id, 'signals_agent_to_admin', $since);
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => $session->id,
+            'events' => $events,
+            'latest_seq' => (int) collect($events)->max(fn ($event) => (int) ($event['seq'] ?? 0)),
+        ]);
+    }
+
+    public function remoteSupportRealtimePushInput(Request $request, string $sessionId): JsonResponse
+    {
+        $session = RemoteSupportSession::query()->findOrFail($sessionId);
+        $validated = $request->validate([
+            'type' => ['nullable', 'string', 'max:64'],
+            'payload' => ['nullable', 'array'],
+            'events' => ['nullable', 'array'],
+        ]);
+
+        $events = [];
+        if (is_array($validated['events'] ?? null)) {
+            foreach ($validated['events'] as $event) {
+                if (! is_array($event)) {
+                    continue;
+                }
+                $type = trim((string) ($event['type'] ?? ''));
+                if ($type === '') {
+                    continue;
+                }
+                $events[] = $this->appendRemoteSupportRealtimeEvent(
+                    $session->id,
+                    'input_admin_to_agent',
+                    $type,
+                    is_array($event['payload'] ?? null) ? $event['payload'] : [],
+                    'admin'
+                );
+            }
+        } else {
+            $type = trim((string) ($validated['type'] ?? ''));
+            if ($type !== '') {
+                $events[] = $this->appendRemoteSupportRealtimeEvent(
+                    $session->id,
+                    'input_admin_to_agent',
+                    $type,
+                    is_array($validated['payload'] ?? null) ? $validated['payload'] : [],
+                    'admin'
+                );
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'session_id' => $session->id,
+            'events' => $events,
+            'latest_seq' => (int) collect($events)->max(fn ($event) => (int) ($event['seq'] ?? 0)),
+        ]);
+    }
+
+    public function remoteSupportCloseSession(Request $request, string $sessionId): RedirectResponse
+    {
+        $session = RemoteSupportSession::query()->findOrFail($sessionId);
+        $session->update(['status' => 'closed']);
+        $this->clearRemoteSupportRealtimeState($session->id);
+        Cache::forget($this->remoteSupportLiveFrameCacheKey($session->device_id, $session->id));
+
+        return redirect()
+            ->route('admin.remote-support')
+            ->with('status', 'Remote support session closed.');
+    }
+
+    private function findOrCreateRemoteSupportSession(Device $device): RemoteSupportSession
+    {
+        $tenantId = app(TenantContext::class)->tenantId();
+
+        $session = RemoteSupportSession::query()
+            ->when($tenantId, fn ($query) => $query->where('tenant_id', $tenantId))
+            ->where('device_id', $device->id)
+            ->where('status', 'active')
+            ->latest('updated_at')
+            ->first();
+
+        if ($session) {
+            return $session;
+        }
+
+        return RemoteSupportSession::query()->create([
+            'tenant_id' => $tenantId,
+            'device_id' => $device->id,
+            'requested_by' => auth()->id(),
+            'status' => 'active',
+            'meta' => [],
+        ]);
+    }
+
+    private function findRecentRemoteSupportJob(Device $device, RemoteSupportSession $session, string $jobType): ?DmsJob
+    {
+        return DmsJob::query()
+            ->where('job_type', $jobType)
+            ->where('target_type', 'device')
+            ->where('target_id', $device->id)
+            ->whereIn('status', ['queued', 'running'])
+            ->where('created_at', '>=', now()->subSeconds(20))
+            ->latest('created_at')
+            ->get()
+            ->first(function (DmsJob $job) use ($session) {
+                return (string) data_get($job->payload, 'session_id', '') === $session->id;
+            });
+    }
+
+    private function queueOrReuseRemoteSupportLiveJob(
+        Device $device,
+        RemoteSupportSession $session,
+        int $maxDimension,
+        int $jpegQuality,
+        int $fps,
+        int $durationSeconds
+    ): DmsJob {
+        $existingJob = $this->findRecentRemoteSupportJob($device, $session, 'start_live_stream');
+        if ($existingJob) {
+            return $existingJob;
+        }
+
+        return DB::transaction(function () use ($device, $session, $maxDimension, $jpegQuality, $fps, $durationSeconds) {
+            $job = DmsJob::query()->create([
+                'id' => (string) Str::uuid(),
+                'tenant_id' => $session->tenant_id,
+                'job_type' => 'start_live_stream',
+                'status' => 'queued',
+                'priority' => 1000,
+                'payload' => [
+                    'session_id' => $session->id,
+                    'max_dimension' => $maxDimension,
+                    'jpeg_quality' => $jpegQuality,
+                    'fps' => $fps,
+                    'duration_seconds' => $durationSeconds,
+                    'image_format' => 'jpeg',
+                ],
+                'target_type' => 'device',
+                'target_id' => $device->id,
+                'created_by' => auth()->id(),
+            ]);
+
+            JobRun::query()->create([
+                'id' => (string) Str::uuid(),
+                'job_id' => $job->id,
+                'device_id' => $device->id,
+                'status' => 'pending',
+                'next_retry_at' => null,
+            ]);
+
+            $session->forceFill([
+                'last_capture_requested_at' => now(),
+                'meta' => array_merge(is_array($session->meta) ? $session->meta : [], [
+                    'method' => 'live',
+                    'last_live_job_id' => $job->id,
+                ]),
+            ])->save();
+
+            return $job;
+        });
+    }
+
+    private function queueOrReuseRemoteSupportWebRtcJob(
+        Device $device,
+        RemoteSupportSession $session,
+        int $durationSeconds,
+        int $maxDimension
+    ): DmsJob {
+        $existingJob = $this->findRecentRemoteSupportJob($device, $session, 'start_webrtc_session');
+        if ($existingJob) {
+            return $existingJob;
+        }
+
+        return DB::transaction(function () use ($device, $session, $durationSeconds, $maxDimension) {
+            $job = DmsJob::query()->create([
+                'id' => (string) Str::uuid(),
+                'tenant_id' => $session->tenant_id,
+                'job_type' => 'start_webrtc_session',
+                'status' => 'queued',
+                'priority' => 1100,
+                'payload' => [
+                    'session_id' => $session->id,
+                    'duration_seconds' => $durationSeconds,
+                    'max_dimension' => $maxDimension,
+                    'ice_servers' => $this->remoteSupportIceServers(),
+                    'transport' => 'webrtc_v1',
+                ],
+                'target_type' => 'device',
+                'target_id' => $device->id,
+                'created_by' => auth()->id(),
+            ]);
+
+            JobRun::query()->create([
+                'id' => (string) Str::uuid(),
+                'job_id' => $job->id,
+                'device_id' => $device->id,
+                'status' => 'pending',
+                'next_retry_at' => null,
+            ]);
+
+            return $job;
+        });
+    }
+
+    /**
+     * @return array<int,array{urls:array<int,string>,username:?string,credential:?string}>
+     */
+    private function remoteSupportIceServers(): array
+    {
+        $stunUrls = collect(explode(',', (string) $this->settingString('remote_support.webrtc_stun_urls', '')))
+            ->map(fn ($value) => trim((string) $value))
+            ->filter()
+            ->values()
+            ->all();
+
+        $turnUrls = collect(explode(',', (string) $this->settingString('remote_support.webrtc_turn_urls', '')))
+            ->map(fn ($value) => trim((string) $value))
+            ->filter()
+            ->values()
+            ->all();
+
+        $servers = [];
+        if ($stunUrls !== []) {
+            $servers[] = [
+                'urls' => $stunUrls,
+                'username' => null,
+                'credential' => null,
+            ];
+        }
+
+        if ($turnUrls !== []) {
+            $servers[] = [
+                'urls' => $turnUrls,
+                'username' => $this->settingString('remote_support.webrtc_turn_username', ''),
+                'credential' => $this->settingString('remote_support.webrtc_turn_credential', ''),
+            ];
+        }
+
+        return $servers;
+    }
+
+    /**
+     * @param  array<string,mixed>  $payload
+     * @return array<string,mixed>
+     */
+    private function appendRemoteSupportRealtimeEvent(string $sessionId, string $stream, string $type, array $payload, string $source): array
+    {
+        $seqKey = $this->remoteSupportRealtimeSeqCacheKey($sessionId, $stream);
+        $seq = (int) Cache::increment($seqKey);
+        if ($seq <= 0) {
+            $seq = 1;
+        }
+
+        Cache::put($seqKey, $seq, now()->addMinutes(30));
+
+        $key = $this->remoteSupportRealtimeStreamCacheKey($sessionId, $stream);
+        $events = Cache::get($key, []);
+        if (! is_array($events)) {
+            $events = [];
+        }
+
+        $event = [
+            'seq' => $seq,
+            'type' => $type,
+            'payload' => $payload,
+            'source' => $source,
+            'created_at_iso' => now()->toIso8601String(),
+        ];
+
+        $events[] = $event;
+        if (count($events) > 500) {
+            $events = array_slice($events, -500);
+        }
+
+        Cache::put($key, $events, now()->addMinutes(30));
+
+        return $event;
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function readRemoteSupportRealtimeEvents(string $sessionId, string $stream, int $since): array
+    {
+        $events = Cache::get($this->remoteSupportRealtimeStreamCacheKey($sessionId, $stream), []);
+        if (! is_array($events) || $events === []) {
+            return [];
+        }
+
+        return collect($events)
+            ->filter(fn ($event) => is_array($event) && (int) ($event['seq'] ?? 0) > $since)
+            ->values()
+            ->all();
+    }
+
+    private function remoteSupportRealtimeStreamCacheKey(string $sessionId, string $stream): string
+    {
+        return 'remote_support:realtime:'.$stream.':'.$sessionId;
+    }
+
+    private function remoteSupportRealtimeSeqCacheKey(string $sessionId, string $stream): string
+    {
+        return 'remote_support:realtime:seq:'.$stream.':'.$sessionId;
+    }
+
+    private function clearRemoteSupportRealtimeState(string $sessionId): void
+    {
+        foreach (['signals_admin_to_agent', 'signals_agent_to_admin', 'input_admin_to_agent'] as $stream) {
+            Cache::forget($this->remoteSupportRealtimeStreamCacheKey($sessionId, $stream));
+            Cache::forget($this->remoteSupportRealtimeSeqCacheKey($sessionId, $stream));
+        }
+    }
+
+    private function remoteSupportLiveFrameCacheKey(string $deviceId, string $sessionId): string
+    {
+        return 'remote_support:live_frame:'.$deviceId.':'.$sessionId;
     }
 
     public function assetsOverview(): View
@@ -5202,6 +5776,19 @@ POWERSHELL;
             'auto_allow_run_command_hashes' => ['nullable', 'boolean'],
             'delete_cleanup_before_uninstall' => ['nullable', 'boolean'],
             'package_download_url_mode' => ['nullable', 'in:public,signed'],
+            'remote_support_capture_max_dimension' => ['nullable', 'integer', 'min:640', 'max:3840'],
+            'remote_support_capture_jpeg_quality' => ['nullable', 'integer', 'min:25', 'max:95'],
+            'remote_support_live_fps' => ['nullable', 'integer', 'min:1', 'max:20'],
+            'remote_support_capture_interval_seconds' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'remote_support_live_duration_seconds' => ['nullable', 'integer', 'min:20', 'max:600'],
+            'remote_support_webrtc_signal_poll_interval_ms' => ['nullable', 'integer', 'min:120', 'max:2000'],
+            'remote_support_webrtc_input_flush_interval_ms' => ['nullable', 'integer', 'min:16', 'max:1000'],
+            'remote_support_webrtc_input_batch_max' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'remote_support_webrtc_admin_token_ttl_minutes' => ['nullable', 'integer', 'min:5', 'max:180'],
+            'remote_support_webrtc_stun_urls' => ['nullable', 'string', 'max:2000'],
+            'remote_support_webrtc_turn_urls' => ['nullable', 'string', 'max:2000'],
+            'remote_support_webrtc_turn_username' => ['nullable', 'string', 'max:255'],
+            'remote_support_webrtc_turn_credential' => ['nullable', 'string', 'max:255'],
         ]);
 
         $settings = [
@@ -5215,6 +5802,19 @@ POWERSHELL;
             'scripts.auto_allow_run_command_hashes' => (bool) ($data['auto_allow_run_command_hashes'] ?? false),
             'devices.delete_cleanup_before_uninstall' => (bool) ($data['delete_cleanup_before_uninstall'] ?? false),
             'packages.download_url_mode' => (string) ($data['package_download_url_mode'] ?? 'public'),
+            'remote_support.capture_max_dimension' => (int) ($data['remote_support_capture_max_dimension'] ?? 1920),
+            'remote_support.capture_jpeg_quality' => (int) ($data['remote_support_capture_jpeg_quality'] ?? 75),
+            'remote_support.live_fps' => (int) ($data['remote_support_live_fps'] ?? 12),
+            'remote_support.capture_interval_seconds' => (int) ($data['remote_support_capture_interval_seconds'] ?? 1),
+            'remote_support.live_duration_seconds' => (int) ($data['remote_support_live_duration_seconds'] ?? 120),
+            'remote_support.webrtc_signal_poll_interval_ms' => (int) ($data['remote_support_webrtc_signal_poll_interval_ms'] ?? 200),
+            'remote_support.webrtc_input_flush_interval_ms' => (int) ($data['remote_support_webrtc_input_flush_interval_ms'] ?? 33),
+            'remote_support.webrtc_input_batch_max' => (int) ($data['remote_support_webrtc_input_batch_max'] ?? 32),
+            'remote_support.webrtc_admin_token_ttl_minutes' => (int) ($data['remote_support_webrtc_admin_token_ttl_minutes'] ?? 30),
+            'remote_support.webrtc_stun_urls' => trim((string) ($data['remote_support_webrtc_stun_urls'] ?? '')),
+            'remote_support.webrtc_turn_urls' => trim((string) ($data['remote_support_webrtc_turn_urls'] ?? '')),
+            'remote_support.webrtc_turn_username' => trim((string) ($data['remote_support_webrtc_turn_username'] ?? '')),
+            'remote_support.webrtc_turn_credential' => trim((string) ($data['remote_support_webrtc_turn_credential'] ?? '')),
         ];
         if (array_key_exists('kill_switch', $data)) {
             $settings['jobs.kill_switch'] = (bool) $data['kill_switch'];

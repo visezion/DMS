@@ -78,6 +78,23 @@ public sealed class ApiClientBootstrapConfigurationTests : IDisposable
         Assert.Equal("file", reloaded.CheckinIntervalSource);
     }
 
+    [Fact]
+    public void WriteBootstrapState_DoesNotThrow_WhenTargetFileIsLocked()
+    {
+        AgentBootstrapConfiguration configuration = AgentBootstrapConfiguration.Load(_programDataRoot, _baseDirectory);
+        Directory.CreateDirectory(configuration.DiagnosticsDirectory);
+        File.WriteAllText(configuration.BootstrapStatePath, "{}");
+
+        using FileStream locked = new(
+            configuration.BootstrapStatePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+
+        Exception? error = Record.Exception(configuration.WriteBootstrapState);
+        Assert.Null(error);
+    }
+
     public void Dispose()
     {
         foreach ((string key, string? value) in _originalValues)

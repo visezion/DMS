@@ -33,6 +33,7 @@ trap cleanup EXIT
 trap on_terminate INT TERM
 
 cd "$ROOT_DIR"
-php artisan queue:work redis --queue=horizon,default --sleep=1 --tries=3 --timeout=120 &
+QUEUES="${DMS_WORKER_QUEUES:-default,health_compute,horizon}"
+php artisan queue:work redis --queue="$QUEUES" --sleep=1 --tries=3 --timeout=120 &
 WORKER_PID=$!
 wait "$WORKER_PID"

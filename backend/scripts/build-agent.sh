@@ -6,6 +6,44 @@ fail() {
   exit 1
 }
 
+assert_publish_output() {
+  publish_dir="$1"
+  self_contained="$2"
+
+  required_files="
+Dms.Agent.Service.exe
+Dms.Agent.Service.dll
+Dms.Agent.Core.dll
+Dms.Agent.Service.deps.json
+Microsoft.MixedReality.WebRTC.dll
+mrwebrtc.dll
+"
+
+  if [ "$self_contained" = "true" ]; then
+    required_files="$required_files
+hostfxr.dll
+hostpolicy.dll
+coreclr.dll
+"
+  fi
+
+  missing=""
+  printf '%s' "$required_files" | while IFS= read -r file_name; do
+    [ -n "$file_name" ] || continue
+    if [ ! -f "$publish_dir/$file_name" ]; then
+      printf '%s\n' "$file_name"
+    fi
+  done > "$publish_dir/.missing-required-files"
+
+  if [ -s "$publish_dir/.missing-required-files" ]; then
+    missing="$(tr '\n' ',' < "$publish_dir/.missing-required-files" | sed 's/,$//')"
+    rm -f "$publish_dir/.missing-required-files"
+    fail "Publish output is incomplete. Missing files: $missing"
+  fi
+
+  rm -f "$publish_dir/.missing-required-files"
+}
+
 sanitize_token() {
   token="$(printf '%s' "$1" | tr -c '0-9A-Za-z._-' '-' | sed -e 's/^-*//' -e 's/-*$//')"
   if [ -n "$token" ]; then
@@ -117,6 +155,7 @@ self_contained="$(printf '%s' "$self_contained" | tr '[:upper:]' '[:lower:]')"
 if [ "$self_contained" != "true" ] && [ "$self_contained" != "false" ]; then
   self_contained="true"
 fi
+publish_single_file="false"
 
 retention_days="$(sanitize_int "$retention_days" "7")"
 retention_count="$(sanitize_int "$retention_count" "10")"
@@ -189,7 +228,7 @@ dotnet restore "$restore_target" \
 dotnet publish "$restore_target" \
   -c Release \
   -r "$safe_runtime" \
-  -p:PublishSingleFile=true \
+  -p:PublishSingleFile="$publish_single_file" \
   -p:SelfContained="$self_contained" \
   -p:InformationalVersion="$safe_version+$build_id" \
   -p:Version="$safe_version" \
@@ -198,6 +237,7 @@ dotnet publish "$restore_target" \
   --nologo
 
 [ -d "$publish_dir" ] || fail "Publish output folder missing: $publish_dir"
+assert_publish_output "$publish_dir" "$self_contained"
 cp -R "$publish_dir"/. "$bundle_dir/agent/"
 
 installer_dir="$agent_root/installer"
@@ -209,6 +249,8 @@ cat > "$bundle_dir/README.txt" <<EOF
 DMS Agent Bundle
 Version: $safe_version
 Runtime: $safe_runtime
+SelfContained: $self_contained
+PublishSingleFile: $publish_single_file
 BuiltAt: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF
 

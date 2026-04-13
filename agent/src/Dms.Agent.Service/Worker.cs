@@ -22,6 +22,7 @@ public sealed class Worker(
     private static readonly string LastSuccessPath = Path.Combine(DiagnosticsDir, "last-success.txt");
     private static readonly string LastErrorPath = Path.Combine(DiagnosticsDir, "last-error.txt");
     private static readonly string LastHeartbeatPath = Path.Combine(DiagnosticsDir, "last-heartbeat.txt");
+    private static readonly string CommunicationStatePath = Path.Combine(DiagnosticsDir, "communication-state.json");
     private readonly BehaviorEventSpool _behaviorEventSpool = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,8 +51,10 @@ public sealed class Worker(
             logger.LogError(ex, "Startup restore manifest apply failed");
         }
 
+        int consecutiveFailureCount = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
+            bool cycleSucceeded = false;
             try
             {
                 bool completed = false;
@@ -93,15 +96,19 @@ public sealed class Worker(
                         }
 
                         completed = true;
+                        cycleSucceeded = true;
+                        consecutiveFailureCount = 0;
                         WriteDiagnosticsFile(LastSuccessPath, $"utc={DateTimeOffset.UtcNow:O}{Environment.NewLine}attempt={attempt}");
+                        WriteCommunicationState("online", attempt, consecutiveFailureCount, null);
                         break;
                     }
                     catch (Exception ex)
                     {
                         lastException = ex;
                         logger.LogWarning(ex, "Agent check-in attempt {Attempt} failed", attempt);
+                        WriteCommunicationState("degraded", attempt, consecutiveFailureCount + 1, ex.Message);
                         if (attempt < 3) {
-                            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+                            await Task.Delay(ResolveAttemptRetryDelay(attempt), stoppingToken);
                         }
                     }
                 }
@@ -113,6 +120,7 @@ public sealed class Worker(
             }
             catch (Exception ex)
             {
+                consecutiveFailureCount++;
                 logger.LogError(ex, "Agent loop failed");
                 var message = new StringBuilder()
                     .AppendLine($"utc={DateTimeOffset.UtcNow:O}")
@@ -121,19 +129,50 @@ public sealed class Worker(
                     .AppendLine($"stack={ex.StackTrace}")
                     .ToString();
                 WriteDiagnosticsFile(LastErrorPath, message);
+                WriteCommunicationState("offline", 3, consecutiveFailureCount, ex.Message);
             }
             finally
             {
                 WriteDiagnosticsFile(LastHeartbeatPath, $"utc={DateTimeOffset.UtcNow:O}");
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(ResolveCheckinIntervalSeconds()), stoppingToken);
+            int delaySeconds = cycleSucceeded
+                ? ResolveCheckinIntervalSeconds()
+                : ResolveRecoveryDelaySeconds(consecutiveFailureCount);
+            await Task.Delay(TimeSpan.FromSeconds(delaySeconds), stoppingToken);
         }
     }
 
     private static int ResolveCheckinIntervalSeconds()
     {
         return AgentBootstrapConfiguration.Load().CheckinIntervalSeconds;
+    }
+
+    private static TimeSpan ResolveAttemptRetryDelay(int attempt)
+    {
+        int seconds = Math.Min(15, 3 * Math.Max(1, attempt));
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    private static int ResolveRecoveryDelaySeconds(int consecutiveFailureCount)
+    {
+        int normalized = Math.Max(1, consecutiveFailureCount);
+        return Math.Min(60, 5 * normalized);
+    }
+
+    private static void WriteCommunicationState(string state, int attempt, int consecutiveFailures, string? lastError)
+    {
+        string payload = $$"""
+        {
+          "utc": "{{DateTimeOffset.UtcNow:O}}",
+          "state": "{{state}}",
+          "attempt": {{attempt}},
+          "consecutive_failures": {{consecutiveFailures}},
+          "checkin_interval_seconds": {{ResolveCheckinIntervalSeconds()}},
+          "last_error": {{System.Text.Json.JsonSerializer.Serialize(lastError)}}
+        }
+        """;
+        WriteDiagnosticsFile(CommunicationStatePath, payload);
     }
 
     private static void WriteDiagnosticsFile(string path, string content)

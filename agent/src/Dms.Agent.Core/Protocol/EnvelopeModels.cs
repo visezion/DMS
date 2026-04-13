@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Dms.Agent.Core.Protocol;
@@ -114,6 +115,39 @@ public sealed class KeysetKeyDto
 
     [JsonPropertyName("public_key_base64")]
     public string PublicKeyBase64 { get; init; } = string.Empty;
+}
+
+public sealed class RemoteSupportRealtimeEventDto
+{
+    [JsonPropertyName("seq")]
+    public long Seq { get; init; }
+
+    [JsonPropertyName("type")]
+    public string Type { get; init; } = string.Empty;
+
+    [JsonPropertyName("payload")]
+    public JsonElement Payload { get; init; }
+
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = string.Empty;
+
+    [JsonPropertyName("created_at_iso")]
+    public string CreatedAtIso { get; init; } = string.Empty;
+}
+
+public sealed class RemoteSupportRealtimePollResponseDto
+{
+    [JsonPropertyName("ok")]
+    public bool Ok { get; init; }
+
+    [JsonPropertyName("session_id")]
+    public string SessionId { get; init; } = string.Empty;
+
+    [JsonPropertyName("events")]
+    public List<RemoteSupportRealtimeEventDto> Events { get; init; } = [];
+
+    [JsonPropertyName("latest_seq")]
+    public long LatestSeq { get; init; }
 }
 
 public static class ErrorCodes

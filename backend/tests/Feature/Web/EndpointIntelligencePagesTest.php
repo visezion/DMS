@@ -15,6 +15,7 @@ use App\Models\RemediationPlan;
 use App\Models\ApprovalRequest;
 use App\Models\AssistantMessage;
 use App\Models\AssistantSession;
+use App\Models\ThreatFinding;
 use App\Models\OperatorConversation;
 use App\Models\Role;
 use App\Models\TimelineEvent;
@@ -212,7 +213,92 @@ class EndpointIntelligencePagesTest extends TestCase
             ->get('/admin/intelligence/assistant?new=1')
             ->assertOk()
             ->assertDontSee($messageToken)
-            ->assertSee('Ask anything about devices, groups, packages, health, risk, incidents, or remediation.');
+            ->assertSee('Start with a direct question. Keep one issue per message for faster and clearer results.');
+    }
+
+    public function test_risk_dashboard_shows_active_findings_and_latest_risk_scores_only(): void
+    {
+        $user = User::factory()->create();
+
+        $deviceA = Device::query()->create([
+            'id' => (string) Str::uuid(),
+            'hostname' => 'RISK-LATEST-A',
+            'os_name' => 'Windows 11 Pro',
+            'os_version' => '24H2',
+            'agent_version' => '1.0.0',
+            'status' => 'online',
+        ]);
+
+        $deviceB = Device::query()->create([
+            'id' => (string) Str::uuid(),
+            'hostname' => 'RISK-LATEST-B',
+            'os_name' => 'Windows 11 Pro',
+            'os_version' => '24H2',
+            'agent_version' => '1.0.0',
+            'status' => 'online',
+        ]);
+
+        DeviceRiskScore::query()->create([
+            'id' => (string) Str::uuid(),
+            'device_id' => $deviceA->id,
+            'score' => 99.99,
+            'severity' => 'critical',
+            'confidence' => 88.00,
+            'factor_breakdown' => [],
+            'scored_at' => now()->subDays(3),
+        ]);
+        DeviceRiskScore::query()->create([
+            'id' => (string) Str::uuid(),
+            'device_id' => $deviceA->id,
+            'score' => 12.34,
+            'severity' => 'low',
+            'confidence' => 88.00,
+            'factor_breakdown' => [],
+            'scored_at' => now()->subMinutes(5),
+        ]);
+        DeviceRiskScore::query()->create([
+            'id' => (string) Str::uuid(),
+            'device_id' => $deviceB->id,
+            'score' => 88.88,
+            'severity' => 'high',
+            'confidence' => 88.00,
+            'factor_breakdown' => [],
+            'scored_at' => now()->subMinutes(4),
+        ]);
+
+        ThreatFinding::query()->create([
+            'id' => (string) Str::uuid(),
+            'device_id' => $deviceA->id,
+            'finding_type' => 'defender_disabled',
+            'severity' => 'high',
+            'confidence' => 0.95,
+            'status' => 'open',
+            'fingerprint' => 'risk-open-'.Str::random(6),
+            'evidence' => ['summary' => 'Active open finding'],
+            'first_seen_at' => now()->subHour(),
+            'last_seen_at' => now()->subMinutes(3),
+        ]);
+        ThreatFinding::query()->create([
+            'id' => (string) Str::uuid(),
+            'device_id' => $deviceB->id,
+            'finding_type' => 'old_resolved',
+            'severity' => 'medium',
+            'confidence' => 0.70,
+            'status' => 'resolved',
+            'fingerprint' => 'risk-resolved-'.Str::random(6),
+            'evidence' => ['summary' => 'Resolved historical finding'],
+            'first_seen_at' => now()->subDays(10),
+            'last_seen_at' => now()->subDays(9),
+        ]);
+
+        $this->actingAs($user)
+            ->get('/admin/intelligence/risk')
+            ->assertOk()
+            ->assertSee('Active open finding')
+            ->assertDontSee('Resolved historical finding')
+            ->assertSee('88.88')
+            ->assertSee('12.34')
+            ->assertDontSee('99.99');
     }
 
     public function test_telemetry_detail_page_shows_collector_error_banner_and_partial_coverage(): void

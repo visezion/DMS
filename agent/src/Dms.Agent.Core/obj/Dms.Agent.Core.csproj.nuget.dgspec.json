@@ -49,9 +49,17 @@
               "target": "Package",
               "version": "[2.5.1, )"
             },
+            "Microsoft.MixedReality.WebRTC": {
+              "target": "Package",
+              "version": "[2.0.2, )"
+            },
             "System.Diagnostics.EventLog": {
               "target": "Package",
               "version": "[8.0.0, )"
+            },
+            "System.Drawing.Common": {
+              "target": "Package",
+              "version": "[8.0.12, )"
             }
           },
           "imports": [
@@ -84,7 +92,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.104/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.104\\RuntimeIdentifierGraph.json"
         }
       }
     }

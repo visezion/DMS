@@ -121,7 +121,8 @@ public sealed class AgentTamperProtection
         await File.WriteAllTextAsync(_watchdogScriptPath, scriptBody, cancellationToken);
 
         string taskCommand = $"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{_watchdogScriptPath}\"";
-        string args = $"/Create /TN \"{_watchdogTaskName}\" /SC MINUTE /MO 2 /RU SYSTEM /RL HIGHEST /TR \"{taskCommand}\" /F";
+        string escapedTaskCommand = ProcessRunner.EscapeForSchtasksTaskRun(taskCommand);
+        string args = $"/Create /TN \"{_watchdogTaskName}\" /SC MINUTE /MO 2 /RU SYSTEM /RL HIGHEST /TR \"{escapedTaskCommand}\" /F";
         var result = await ProcessRunner.RunAsync("schtasks.exe", args, cancellationToken);
 
         return new Dictionary<string, object?>

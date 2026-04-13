@@ -133,6 +133,14 @@
             ['type' => 'jobs', 'eyebrow' => 'Recent Job Runs', 'title' => 'Latest execution traffic', 'route' => route('admin.jobs'), 'cta' => 'Open Jobs'],
             ['type' => 'risk', 'eyebrow' => 'Behavior Oversight', 'title' => 'Recent anomaly review feed', 'route' => route('admin.intelligence.risk'), 'cta' => 'Open Risk'],
         ];
+        $freshnessThreshold = (int) data_get($intelligenceFreshness ?? [], 'stale_after_minutes', 120);
+        $healthFreshnessAge = (string) data_get($intelligenceFreshness ?? [], 'health_latest.age_human', 'No data yet');
+        $riskFreshnessAge = (string) data_get($intelligenceFreshness ?? [], 'risk_latest.age_human', 'No data yet');
+        $findingFreshnessAge = (string) data_get($intelligenceFreshness ?? [], 'finding_latest.age_human', 'No active findings');
+        $staleHealthDevices = (int) data_get($intelligenceFreshness ?? [], 'stale_health_devices', 0);
+        $staleRiskDevices = (int) data_get($intelligenceFreshness ?? [], 'stale_risk_devices', 0);
+        $missingHealthDevices = (int) data_get($intelligenceFreshness ?? [], 'health_missing_devices', 0);
+        $missingRiskDevices = (int) data_get($intelligenceFreshness ?? [], 'risk_missing_devices', 0);
     @endphp
 <div id="admin-dashboard-root" class="space-y-4">
         <section class="hero-surface rounded-[1.5rem] p-4 lg:p-5">
@@ -231,7 +239,13 @@
                         <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Live Endpoint Intelligence</p>
                         <h3 class="mt-1 text-xl font-semibold text-slate-900">Projection, risk, incidents</h3>
                     </div>
-                    <a href="{{ route('admin.intelligence.assistant') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Assistant</a>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-600">
+                            Freshness threshold {{ $freshnessThreshold }} min
+                        </span>
+                        <a href="{{ route('admin.intelligence.health') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Health</a>
+                        <a href="{{ route('admin.intelligence.assistant') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Assistant</a>
+                    </div>
                 </div>
 
                 <div class="mt-4 grid gap-3 sm:grid-cols-3">
@@ -253,6 +267,24 @@
                         <p class="text-[11px] uppercase tracking-wide text-slate-500">Incident Load</p>
                         <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $incidentDailyAverage }} / day</p>
                         <p class="text-xs text-slate-500">Based on last 7 days anomaly feed</p>
+                    </div>
+                </div>
+
+                <div class="mt-3 grid gap-3 sm:grid-cols-3">
+                    <div class="metric-card rounded-[1rem] p-3.5">
+                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Health Freshness</p>
+                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $healthFreshnessAge }}</p>
+                        <p class="text-xs text-slate-500">Stale {{ $staleHealthDevices }} | missing {{ $missingHealthDevices }}</p>
+                    </div>
+                    <div class="metric-card rounded-[1rem] p-3.5">
+                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Risk Freshness</p>
+                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $riskFreshnessAge }}</p>
+                        <p class="text-xs text-slate-500">Stale {{ $staleRiskDevices }} | missing {{ $missingRiskDevices }}</p>
+                    </div>
+                    <div class="metric-card rounded-[1rem] p-3.5">
+                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Findings Freshness</p>
+                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $findingFreshnessAge }}</p>
+                        <p class="text-xs text-slate-500">Older findings can remain visible until new telemetry/check-ins arrive.</p>
                     </div>
                 </div>
 

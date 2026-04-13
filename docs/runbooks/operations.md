@@ -4,10 +4,32 @@
 - Queue depth and worker health.
 - Device online/offline deltas.
 - Failed job runs and top error codes.
+- Endpoint Intelligence freshness:
+  - `Health -> Data Freshness`: verify `stale_*` and `missing_*` counts stay low.
+  - `Risk -> Risk Freshness`: verify latest risk update is within SLO.
+  - If findings show "Updated 2 weeks ago", confirm this matches last telemetry/check-in time for that endpoint.
 - Time sanity:
   - `APP_TIMEZONE` is set in `backend/.env` (recommended: `UTC`).
   - `php artisan tinker --execute="echo now()->toIso8601String();"`
   - Verify server clock/NTP is in sync.
+
+## Endpoint Intelligence freshness SLO breach
+Use this when health/risk data freshness exceeds `DMS_INTELLIGENCE_FRESHNESS_STALE_MINUTES`.
+
+1. Verify worker coverage includes the intelligence queue:
+   - `backend/scripts/runtime/queue-worker.sh`
+   - Queue list should include `default` and `health_compute`.
+2. Confirm dispatch pipeline is running:
+   - Check recent device check-ins.
+   - Check `BuildDeviceIntelligenceJob` enqueue/consume rates.
+3. Validate endpoint telemetry is still arriving:
+   - `Endpoint Intelligence -> Telemetry Detail` for affected endpoints.
+4. Check for stale-only-noisy findings:
+   - Findings can remain open with old `last_seen_at` if no fresh telemetry arrived.
+5. Recover in stages:
+   - Restore queue workers.
+   - Force telemetry collection/check-in on a pilot device.
+   - Confirm freshness cards move from stale to current before broad restart.
 
 ## Incident: package deployment failures spike
 1. Pause new install jobs.

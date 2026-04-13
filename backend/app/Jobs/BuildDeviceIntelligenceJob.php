@@ -31,7 +31,8 @@ class BuildDeviceIntelligenceJob implements ShouldQueue
     public function __construct(
         public readonly string $deviceId
     ) {
-        $this->onQueue('health_compute');
+        $queue = trim((string) config('services.endpoint_intelligence.queue', 'default'));
+        $this->onQueue($queue !== '' ? $queue : 'default');
     }
 
     public function middleware(): array

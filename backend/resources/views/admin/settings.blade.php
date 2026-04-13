@@ -80,6 +80,11 @@
                         <input type="checkbox" name="require_mfa" value="1" @checked((bool) ($authPolicy['require_mfa'] ?? false)) class="rounded border-slate-300">
                         Enforce admin MFA (require MFA for all admin logins)
                     </label>
+                    <label class="mt-2 inline-flex items-center gap-2 text-sm text-slate-700">
+                        <input type="hidden" name="verify_new_context" value="0">
+                        <input type="checkbox" name="verify_new_context" value="1" @checked((bool) ($authPolicy['verify_new_context'] ?? false)) class="rounded border-slate-300">
+                        Verify new IP/device context (blocks non-MFA accounts on unfamiliar sign-ins)
+                    </label>
                     <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
                             <label class="text-xs uppercase text-slate-500">Max Login Attempts</label>
@@ -211,6 +216,154 @@
                         <option value="signed" @selected(($ops['package_download_url_mode'] ?? 'public') === 'signed')>Signed (expires by deploy window)</option>
                     </select>
                     <p class="mt-1 text-xs text-slate-500">External source URLs always use their original URL.</p>
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Inbuilt Remote Method</label>
+                    <input
+                        type="text"
+                        value="WebRTC (RDP-style)"
+                        class="mt-1 w-full rounded border border-slate-300 bg-slate-100 px-2 py-2 text-sm text-slate-700"
+                        readonly
+                    />
+                    <p class="mt-1 text-xs text-slate-500">Snapshot-era controls are removed from UI. Inbuilt remote support uses WebRTC transport only.</p>
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Fallback Max Dimension (px)</label>
+                    <input
+                        name="remote_support_capture_max_dimension"
+                        type="number"
+                        min="640"
+                        max="3840"
+                        value="{{ (int) ($ops['remote_support_capture_max_dimension'] ?? 1920) }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                    <p class="mt-1 text-xs text-slate-500">Used by live-frame fallback when WebRTC media is unavailable.</p>
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Fallback JPEG Quality</label>
+                    <input
+                        name="remote_support_capture_jpeg_quality"
+                        type="number"
+                        min="25"
+                        max="95"
+                        value="{{ (int) ($ops['remote_support_capture_jpeg_quality'] ?? 75) }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Fallback Capture FPS</label>
+                    <input
+                        name="remote_support_live_fps"
+                        type="number"
+                        min="1"
+                        max="20"
+                        value="{{ (int) ($ops['remote_support_live_fps'] ?? 12) }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Fallback Capture Interval (sec)</label>
+                    <input
+                        name="remote_support_capture_interval_seconds"
+                        type="number"
+                        min="1"
+                        max="30"
+                        value="{{ (int) ($ops['remote_support_capture_interval_seconds'] ?? 1) }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Live Session Duration (sec)</label>
+                    <input
+                        name="remote_support_live_duration_seconds"
+                        type="number"
+                        min="20"
+                        max="600"
+                        value="{{ (int) ($ops['remote_support_live_duration_seconds'] ?? 120) }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Signal Poll Interval (ms)</label>
+                    <input
+                        name="remote_support_webrtc_signal_poll_interval_ms"
+                        type="number"
+                        min="120"
+                        max="2000"
+                        value="{{ (int) ($ops['remote_support_webrtc_signal_poll_interval_ms'] ?? 200) }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Input Flush Interval (ms)</label>
+                    <input
+                        name="remote_support_webrtc_input_flush_interval_ms"
+                        type="number"
+                        min="16"
+                        max="1000"
+                        value="{{ (int) ($ops['remote_support_webrtc_input_flush_interval_ms'] ?? 33) }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Input Batch Max</label>
+                    <input
+                        name="remote_support_webrtc_input_batch_max"
+                        type="number"
+                        min="1"
+                        max="100"
+                        value="{{ (int) ($ops['remote_support_webrtc_input_batch_max'] ?? 32) }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">Admin Session Token TTL (min)</label>
+                    <input
+                        name="remote_support_webrtc_admin_token_ttl_minutes"
+                        type="number"
+                        min="5"
+                        max="180"
+                        value="{{ (int) ($ops['remote_support_webrtc_admin_token_ttl_minutes'] ?? 30) }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div class="md:col-span-2">
+                    <label class="text-xs uppercase text-slate-500">STUN URLs (comma-separated)</label>
+                    <input
+                        name="remote_support_webrtc_stun_urls"
+                        type="text"
+                        value="{{ (string) ($ops['remote_support_webrtc_stun_urls'] ?? '') }}"
+                        placeholder="stun:stun.l.google.com:19302"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div class="md:col-span-2">
+                    <label class="text-xs uppercase text-slate-500">TURN URLs (comma-separated)</label>
+                    <input
+                        name="remote_support_webrtc_turn_urls"
+                        type="text"
+                        value="{{ (string) ($ops['remote_support_webrtc_turn_urls'] ?? '') }}"
+                        placeholder="turn:turn.your-domain.example:3478?transport=udp"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">TURN Username</label>
+                    <input
+                        name="remote_support_webrtc_turn_username"
+                        type="text"
+                        value="{{ (string) ($ops['remote_support_webrtc_turn_username'] ?? '') }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
+                </div>
+                <div>
+                    <label class="text-xs uppercase text-slate-500">TURN Credential</label>
+                    <input
+                        name="remote_support_webrtc_turn_credential"
+                        type="text"
+                        value="{{ (string) ($ops['remote_support_webrtc_turn_credential'] ?? '') }}"
+                        class="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+                    />
                 </div>
                 <div class="md:col-span-2 flex justify-end">
                     <button class="rounded bg-skyline px-4 py-2 text-sm text-white">Save Ops Settings</button>

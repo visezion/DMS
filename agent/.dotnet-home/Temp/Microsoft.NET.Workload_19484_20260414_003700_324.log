@@ -1,0 +1,14 @@
+[2026-04-14 00:37:00.383] [00004C1C] === Logging started ===
+[2026-04-14 00:37:00.420] [00004C1C] Executing: "C:\Program Files\dotnet\dotnet.exe" publish .\src\Dms.Agent.Service\Dms.Agent.Service.csproj -c Release -r win-x64 -p:PublishSingleFile=false -p:SelfContained=true -p:InformationalVersion=9.0.0-remoteprod+efee4427 -p:Version=9.0.0-remoteprod --no-restore -o c:\xampp\htdocs\DMS\agent\dist\agent-build-9.0.0-remoteprod-win-x64-efee4427 --nologo, PID: 19484, PPID: 4512
+[2026-04-14 00:37:00.440] [00004C1C] IsElevated: False
+[2026-04-14 00:37:00.440] [00004C1C] Is64BitProcess: True
+[2026-04-14 00:37:00.440] [00004C1C] RebootPending: False
+[2026-04-14 00:37:00.440] [00004C1C] ProcessorArchitecture: amd64
+[2026-04-14 00:37:00.440] [00004C1C] HostArchitecture: x64
+[2026-04-14 00:37:00.440] [00004C1C] SdkDirectory: 10.0.104
+[2026-04-14 00:37:00.440] [00004C1C] VerifySignatures: False
+[2026-04-14 00:37:00.440] [00004C1C] SDK feature band: 10.0.100
+[2026-04-14 00:37:15.686] [00004C1C] Shutting down
+[2026-04-14 00:37:15.686] [00004C1C] Shutdown completed.
+[2026-04-14 00:37:15.686] [00004C1C] Restart required: False
+[2026-04-14 00:37:15.686] [00004C1C] === Logging ended ===

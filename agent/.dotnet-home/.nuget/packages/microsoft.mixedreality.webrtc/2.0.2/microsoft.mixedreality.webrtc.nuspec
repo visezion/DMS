@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
+  <metadata>
+    <id>Microsoft.MixedReality.WebRTC</id>
+    <version>2.0.2</version>
+    <title>Microsoft.MixedReality.WebRTC</title>
+    <authors>Microsoft</authors>
+    <owners>Microsoft</owners>
+    <requireLicenseAcceptance>true</requireLicenseAcceptance>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <projectUrl>https://microsoft.github.io/MixedReality-WebRTC/</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/microsoft/MixedReality-WebRTC/master/docs/mr-webrtc_icon.png</iconUrl>
+    <description>MixedReality-WebRTC is a collection of components to help mixed reality app developers integrate audio, video, and data real-time communication into their application and improve their collaborative experience.
+
+This package contains the C# and native C++ libraries (x86, x64) for Windows Desktop.</description>
+    <summary>MixedReality-WebRTC is a collection of components to help mixed reality app developers integrate audio, video, and data real-time communication into their application and improve their collaborative experience.
+
+This package contains the C# and native C++ libraries (x86, x64) for Windows Desktop.</summary>
+    <copyright>© Microsoft Corporation. All rights reserved.</copyright>
+    <tags>WebRTC video audio data streaming realtime communication dotnet .NET C#</tags>
+    <repository type="git" url="https://github.com/microsoft/MixedReality-WebRTC.git" branch="master" commit="821a72b70219e6c640b70f46424a193778eeb56d" />
+  </metadata>
+</package>

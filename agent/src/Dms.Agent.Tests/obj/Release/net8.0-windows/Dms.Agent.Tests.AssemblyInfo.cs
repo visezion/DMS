@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Dms.Agent.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+285a641cc7cd897e1a7690633543152f5c145298")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ab8f37ab461f27e5f33f052accf538c25d0a4b25")]
 [assembly: System.Reflection.AssemblyProductAttribute("Dms.Agent.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Dms.Agent.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

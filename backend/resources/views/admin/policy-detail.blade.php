@@ -370,6 +370,46 @@ C:\ProgramData\DMS\Uwf</textarea>
                 <label class="text-xs text-slate-500">Overlay Critical Threshold (MB)</label>
                 <input name="apply_uwf_overlay_critical_threshold_mb" type="number" min="64" max="1048576" placeholder="e.g. 3584" class="rounded border border-slate-300 px-2 py-1" />
             </div>
+            <div class="md:col-span-2 grid gap-2 md:grid-cols-2 rounded border border-slate-200 bg-slate-50 p-3 apply-scheduled-task-field hidden">
+                <p class="md:col-span-2 text-xs font-semibold text-slate-700">Scheduled Task Builder</p>
+                <label class="text-xs text-slate-500">Task Template</label>
+                <select name="apply_scheduled_template" class="rounded border border-slate-300 px-2 py-1">
+                    <option value="power_daily_shutdown">Power: Daily Shutdown</option>
+                    <option value="power_weekly_reboot">Power: Weekly Reboot</option>
+                    <option value="power_daily_reboot">Power: Daily Reboot</option>
+                    <option value="custom">Custom Task</option>
+                </select>
+                <label class="text-xs text-slate-500">Task Name</label>
+                <input name="apply_scheduled_task_name" value="DmsRecurringPowerSchedule" class="rounded border border-slate-300 px-2 py-1" />
+                <label class="text-xs text-slate-500">Schedule</label>
+                <select name="apply_scheduled_schedule" class="rounded border border-slate-300 px-2 py-1">
+                    <option value="daily" selected>daily</option>
+                    <option value="weekly">weekly</option>
+                    <option value="hourly">hourly</option>
+                    <option value="onstart">onstart</option>
+                    <option value="onlogon">onlogon</option>
+                </select>
+                <label class="text-xs text-slate-500 apply-scheduled-time-label">Time</label>
+                <input name="apply_scheduled_time" type="time" value="23:00" class="rounded border border-slate-300 px-2 py-1 apply-scheduled-time-field" />
+                <label class="text-xs text-slate-500">Action</label>
+                <select name="apply_scheduled_action" class="rounded border border-slate-300 px-2 py-1">
+                    <option value="shutdown" selected>shutdown</option>
+                    <option value="reboot">reboot</option>
+                    <option value="custom">custom command</option>
+                </select>
+                <label class="text-xs text-slate-500">Delay Seconds</label>
+                <input name="apply_scheduled_delay_seconds" type="number" min="0" max="86400" value="300" class="rounded border border-slate-300 px-2 py-1 apply-scheduled-power-field" />
+                <label class="text-xs flex items-center gap-2 apply-scheduled-power-field">
+                    <input type="checkbox" name="apply_scheduled_force" value="1" checked />
+                    force apps closed
+                </label>
+                <div class="apply-scheduled-power-field"></div>
+                <label class="md:col-span-2 text-xs text-slate-500 apply-scheduled-power-field">Message (optional)</label>
+                <input name="apply_scheduled_message" value="Scheduled daily shutdown by DMS policy" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 apply-scheduled-power-field" />
+                <label class="md:col-span-2 text-xs text-slate-500 apply-scheduled-custom-label hidden">Custom Command</label>
+                <textarea name="apply_scheduled_custom_command" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-20 apply-scheduled-custom-field hidden" placeholder='e.g. powershell.exe -NoProfile -Command "Stop-Computer -Force"'></textarea>
+                <p class="md:col-span-2 text-[11px] text-slate-500">Choose a template or customize task name, schedule, and action. Custom command gives full control.</p>
+            </div>
             <label class="md:col-span-2 text-xs text-slate-500 apply-command-label hidden">Apply Command</label>
             <textarea name="apply_command" placeholder="Apply command (example: reg add HKLM\\...)" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-24 apply-command-field hidden"></textarea>
             <label class="text-xs text-slate-500 apply-command-option-label hidden">Run As</label>
@@ -767,6 +807,46 @@ C:\ProgramData\DMS\Uwf</textarea>
                         <label class="text-xs text-slate-500">Overlay Critical Threshold (MB)</label>
                         <input name="apply_uwf_overlay_critical_threshold_mb" type="number" min="64" max="1048576" value="{{ $applyUwfOverlayCriticalDefault ?? '' }}" class="rounded border border-slate-300 px-2 py-1" />
                     </div>
+                    <div class="md:col-span-2 grid gap-2 md:grid-cols-2 rounded border border-slate-200 bg-white p-3 apply-scheduled-task-field hidden">
+                        <p class="md:col-span-2 text-xs font-semibold text-slate-700">Scheduled Task Builder</p>
+                        <label class="text-xs text-slate-500">Task Template</label>
+                        <select name="apply_scheduled_template" class="rounded border border-slate-300 px-2 py-1">
+                            <option value="power_daily_shutdown">Power: Daily Shutdown</option>
+                            <option value="power_weekly_reboot">Power: Weekly Reboot</option>
+                            <option value="power_daily_reboot">Power: Daily Reboot</option>
+                            <option value="custom">Custom Task</option>
+                        </select>
+                        <label class="text-xs text-slate-500">Task Name</label>
+                        <input name="apply_scheduled_task_name" value="DmsRecurringPowerSchedule" class="rounded border border-slate-300 px-2 py-1" />
+                        <label class="text-xs text-slate-500">Schedule</label>
+                        <select name="apply_scheduled_schedule" class="rounded border border-slate-300 px-2 py-1">
+                            <option value="daily" selected>daily</option>
+                            <option value="weekly">weekly</option>
+                            <option value="hourly">hourly</option>
+                            <option value="onstart">onstart</option>
+                            <option value="onlogon">onlogon</option>
+                        </select>
+                        <label class="text-xs text-slate-500 apply-scheduled-time-label">Time</label>
+                        <input name="apply_scheduled_time" type="time" value="23:00" class="rounded border border-slate-300 px-2 py-1 apply-scheduled-time-field" />
+                        <label class="text-xs text-slate-500">Action</label>
+                        <select name="apply_scheduled_action" class="rounded border border-slate-300 px-2 py-1">
+                            <option value="shutdown" selected>shutdown</option>
+                            <option value="reboot">reboot</option>
+                            <option value="custom">custom command</option>
+                        </select>
+                        <label class="text-xs text-slate-500">Delay Seconds</label>
+                        <input name="apply_scheduled_delay_seconds" type="number" min="0" max="86400" value="300" class="rounded border border-slate-300 px-2 py-1 apply-scheduled-power-field" />
+                        <label class="text-xs flex items-center gap-2 apply-scheduled-power-field">
+                            <input type="checkbox" name="apply_scheduled_force" value="1" checked />
+                            force apps closed
+                        </label>
+                        <div class="apply-scheduled-power-field"></div>
+                        <label class="md:col-span-2 text-xs text-slate-500 apply-scheduled-power-field">Message (optional)</label>
+                        <input name="apply_scheduled_message" value="Scheduled daily shutdown by DMS policy" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 apply-scheduled-power-field" />
+                        <label class="md:col-span-2 text-xs text-slate-500 apply-scheduled-custom-label hidden">Custom Command</label>
+                        <textarea name="apply_scheduled_custom_command" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-20 apply-scheduled-custom-field hidden" placeholder='e.g. powershell.exe -NoProfile -Command "Stop-Computer -Force"'></textarea>
+                        <p class="md:col-span-2 text-[11px] text-slate-500">Choose a template or customize task name, schedule, and action. Custom command gives full control.</p>
+                    </div>
                     <label class="md:col-span-2 text-xs text-slate-500 apply-command-label hidden">Apply Command</label>
                     <textarea name="apply_command" placeholder="Apply command" class="rounded border border-slate-300 px-2 py-1 md:col-span-2 min-h-24 apply-command-field {{ $applyModeDefault === 'command' ? '' : 'hidden' }}">{{ $applyCommandDefault }}</textarea>
                     <label class="text-xs text-slate-500 apply-command-option-label {{ $applyModeDefault === 'command' ? '' : 'hidden' }}">Run As</label>
@@ -922,6 +1002,23 @@ C:\ProgramData\DMS\Uwf</textarea>
                 const applyNetworkDryRunField = form.querySelector('input[name="apply_network_dry_run"]');
                 const applyNetworkPrefixDisplay = form.querySelector('.apply-network-prefix-display');
                 const applyUwfFields = form.querySelectorAll('.apply-uwf-field');
+                const applyScheduledTaskFields = form.querySelectorAll('.apply-scheduled-task-field');
+                const applyScheduledTemplateField = form.querySelector('select[name="apply_scheduled_template"]');
+                const applyScheduledTaskNameField = form.querySelector('input[name="apply_scheduled_task_name"]');
+                const applyScheduledScheduleField = form.querySelector('select[name="apply_scheduled_schedule"]');
+                const applyScheduledTimeLabel = form.querySelector('.apply-scheduled-time-label');
+                const applyScheduledTimeField = form.querySelector('input[name="apply_scheduled_time"]');
+                const applyScheduledActionField = form.querySelector('select[name="apply_scheduled_action"]');
+                const applyScheduledDelayField = form.querySelector('input[name="apply_scheduled_delay_seconds"]');
+                const applyScheduledForceField = form.querySelector('input[name="apply_scheduled_force"]');
+                const applyScheduledMessageField = form.querySelector('input[name="apply_scheduled_message"]');
+                const applyScheduledCustomLabel = form.querySelector('.apply-scheduled-custom-label');
+                const applyScheduledCustomField = form.querySelector('textarea[name="apply_scheduled_custom_command"]');
+                const applyScheduledPowerFields = form.querySelectorAll('.apply-scheduled-power-field');
+                const scheduledTaskNeedsTime = function (schedule) {
+                    const normalized = String(schedule || '').toLowerCase();
+                    return normalized !== 'onstart' && normalized !== 'onlogon';
+                };
                 const applyCommandField = form.querySelector('.apply-command-field');
                 const applyCommandOptionFields = form.querySelectorAll('.apply-command-option-field');
                 const applyCommandOptionLabels = form.querySelectorAll('.apply-command-option-label');
@@ -1400,6 +1497,262 @@ C:\ProgramData\DMS\Uwf</textarea>
                     });
                     jsonInput.value = JSON.stringify(config);
                 };
+                const scheduledTemplates = {
+                    power_daily_shutdown: {
+                        task_name: 'DmsRecurringPowerSchedule',
+                        schedule: 'daily',
+                        time: '23:00',
+                        action: 'shutdown',
+                        delay_seconds: 300,
+                        force: true,
+                        message: 'Scheduled daily shutdown by DMS policy',
+                    },
+                    power_weekly_reboot: {
+                        task_name: 'WeeklyMaintenanceReboot',
+                        schedule: 'weekly',
+                        time: '04:00',
+                        action: 'reboot',
+                        delay_seconds: 60,
+                        force: false,
+                        message: 'Scheduled maintenance reboot',
+                    },
+                    power_daily_reboot: {
+                        task_name: 'DailyMaintenanceReboot',
+                        schedule: 'daily',
+                        time: '03:30',
+                        action: 'reboot',
+                        delay_seconds: 60,
+                        force: true,
+                        message: 'Scheduled daily reboot by DMS policy',
+                    },
+                };
+                const buildPowerScheduledCommand = function (action, delaySeconds, force, message) {
+                    const normalizedAction = action === 'reboot' ? 'reboot' : 'shutdown';
+                    const modeFlag = normalizedAction === 'reboot' ? '/r' : '/s';
+                    const delay = Number.isFinite(Number(delaySeconds))
+                        ? Math.max(0, Math.min(86400, Math.trunc(Number(delaySeconds))))
+                        : 300;
+                    const commandParts = ['shutdown.exe', modeFlag, '/t', String(delay)];
+                    if (force) {
+                        commandParts.push('/f');
+                    }
+                    const messageText = String(message || '').trim();
+                    if (messageText !== '') {
+                        const escaped = messageText.replace(/"/g, '\\"');
+                        commandParts.push('/c', `"${escaped}"`);
+                    }
+                    return commandParts.join(' ');
+                };
+                const parseScheduledPowerCommand = function (command) {
+                    const parsed = {
+                        action: 'custom',
+                        delay_seconds: 300,
+                        force: true,
+                        message: '',
+                        custom_command: String(command || '').trim(),
+                    };
+                    const value = String(command || '').trim();
+                    if (!/^shutdown(\.exe)?\b/i.test(value)) {
+                        return parsed;
+                    }
+                    if (/\s\/r\b/i.test(value)) {
+                        parsed.action = 'reboot';
+                    } else if (/\s\/s\b/i.test(value)) {
+                        parsed.action = 'shutdown';
+                    } else {
+                        parsed.action = 'custom';
+                        return parsed;
+                    }
+                    const delayMatch = value.match(/\s\/t\s+(\d+)/i);
+                    if (delayMatch) {
+                        const delay = Number(delayMatch[1]);
+                        if (Number.isFinite(delay)) {
+                            parsed.delay_seconds = Math.max(0, Math.min(86400, Math.trunc(delay)));
+                        }
+                    }
+                    parsed.force = /\s\/f\b/i.test(value);
+                    const messageMatch = value.match(/\s\/c\s+"([^"]*)"/i) || value.match(/\s\/c\s+(.+)$/i);
+                    if (messageMatch) {
+                        parsed.message = String(messageMatch[1] || '').trim().replace(/\\"/g, '"');
+                    }
+                    parsed.custom_command = '';
+                    return parsed;
+                };
+                const defaultScheduledTaskConfig = function () {
+                    return {
+                        task_name: 'DmsRecurringPowerSchedule',
+                        ensure: 'present',
+                        schedule: 'daily',
+                        time: '23:00',
+                        command: 'shutdown.exe /s /t 300 /f /c "Scheduled daily shutdown by DMS policy"',
+                    };
+                };
+                const normalizeScheduledTaskConfig = function (rawConfig) {
+                    const cfg = Object.assign(defaultScheduledTaskConfig(), rawConfig || {});
+                    cfg.task_name = String(cfg.task_name || '').trim() || defaultScheduledTaskConfig().task_name;
+                    cfg.ensure = 'present';
+                    const scheduleRaw = String(cfg.schedule || 'daily').toLowerCase().trim();
+                    cfg.schedule = ['daily', 'weekly', 'hourly', 'onstart', 'onlogon'].includes(scheduleRaw) ? scheduleRaw : 'daily';
+                    const rawTime = String(cfg.time || '').trim();
+                    const isTimeValid = /^\d{2}:\d{2}$/.test(rawTime);
+                    cfg.time = scheduledTaskNeedsTime(cfg.schedule)
+                        ? (isTimeValid ? rawTime : defaultScheduledTaskConfig().time)
+                        : '';
+                    cfg.command = String(cfg.command || '').trim();
+                    if (cfg.command === '') {
+                        cfg.command = defaultScheduledTaskConfig().command;
+                    }
+                    return cfg;
+                };
+                const detectScheduledTemplate = function (config, parsedPower) {
+                    if (parsedPower.action === 'shutdown'
+                        && config.task_name === scheduledTemplates.power_daily_shutdown.task_name
+                        && config.schedule === scheduledTemplates.power_daily_shutdown.schedule) {
+                        return 'power_daily_shutdown';
+                    }
+                    if (parsedPower.action === 'reboot'
+                        && config.task_name === scheduledTemplates.power_weekly_reboot.task_name
+                        && config.schedule === scheduledTemplates.power_weekly_reboot.schedule) {
+                        return 'power_weekly_reboot';
+                    }
+                    if (parsedPower.action === 'reboot'
+                        && config.task_name === scheduledTemplates.power_daily_reboot.task_name
+                        && config.schedule === scheduledTemplates.power_daily_reboot.schedule) {
+                        return 'power_daily_reboot';
+                    }
+                    return 'custom';
+                };
+                const syncScheduledFieldVisibility = function (enabled) {
+                    applyScheduledTaskFields.forEach(function (section) {
+                        section.querySelectorAll('input,select,textarea').forEach(function (input) {
+                            input.disabled = !enabled;
+                        });
+                    });
+                    const schedule = applyScheduledScheduleField ? applyScheduledScheduleField.value : 'daily';
+                    const needsTime = scheduledTaskNeedsTime(schedule);
+                    if (applyScheduledTimeLabel) {
+                        applyScheduledTimeLabel.classList.toggle('hidden', !enabled || !needsTime);
+                    }
+                    if (applyScheduledTimeField) {
+                        applyScheduledTimeField.classList.toggle('hidden', !enabled || !needsTime);
+                        applyScheduledTimeField.disabled = !enabled || !needsTime;
+                    }
+                    const isCustomAction = (applyScheduledActionField ? applyScheduledActionField.value : 'shutdown') === 'custom';
+                    applyScheduledPowerFields.forEach(function (el) {
+                        el.classList.toggle('hidden', !enabled || isCustomAction);
+                        el.querySelectorAll('input,select,textarea').forEach(function (input) {
+                            input.disabled = !enabled || isCustomAction;
+                        });
+                    });
+                    if (applyScheduledCustomLabel) {
+                        applyScheduledCustomLabel.classList.toggle('hidden', !enabled || !isCustomAction);
+                    }
+                    if (applyScheduledCustomField) {
+                        applyScheduledCustomField.classList.toggle('hidden', !enabled || !isCustomAction);
+                        applyScheduledCustomField.disabled = !enabled || !isCustomAction;
+                    }
+                };
+                const syncScheduledFieldsFromJson = function () {
+                    const config = normalizeScheduledTaskConfig(tryParseJson(jsonInput.value));
+                    const parsedPower = parseScheduledPowerCommand(config.command);
+                    if (applyScheduledTaskNameField) {
+                        applyScheduledTaskNameField.value = config.task_name;
+                    }
+                    if (applyScheduledScheduleField) {
+                        applyScheduledScheduleField.value = config.schedule;
+                    }
+                    if (applyScheduledTimeField) {
+                        applyScheduledTimeField.value = config.time;
+                    }
+                    if (applyScheduledActionField) {
+                        applyScheduledActionField.value = parsedPower.action;
+                    }
+                    if (applyScheduledDelayField) {
+                        applyScheduledDelayField.value = String(parsedPower.delay_seconds);
+                    }
+                    if (applyScheduledForceField) {
+                        applyScheduledForceField.checked = parsedPower.force;
+                    }
+                    if (applyScheduledMessageField) {
+                        applyScheduledMessageField.value = parsedPower.message;
+                    }
+                    if (applyScheduledCustomField) {
+                        applyScheduledCustomField.value = parsedPower.custom_command;
+                    }
+                    if (applyScheduledTemplateField) {
+                        applyScheduledTemplateField.value = detectScheduledTemplate(config, parsedPower);
+                    }
+                    syncScheduledFieldVisibility(true);
+                };
+                const syncJsonFromScheduledFields = function () {
+                    const config = normalizeScheduledTaskConfig({
+                        task_name: applyScheduledTaskNameField ? applyScheduledTaskNameField.value : '',
+                        schedule: applyScheduledScheduleField ? applyScheduledScheduleField.value : 'daily',
+                        time: applyScheduledTimeField ? applyScheduledTimeField.value : '',
+                        command: '',
+                    });
+                    const action = applyScheduledActionField ? applyScheduledActionField.value : 'shutdown';
+                    if (action === 'custom') {
+                        config.command = String(applyScheduledCustomField ? applyScheduledCustomField.value : '').trim();
+                    } else {
+                        config.command = buildPowerScheduledCommand(
+                            action,
+                            applyScheduledDelayField ? applyScheduledDelayField.value : 300,
+                            applyScheduledForceField ? applyScheduledForceField.checked : true,
+                            applyScheduledMessageField ? applyScheduledMessageField.value : ''
+                        );
+                    }
+                    if (config.command === '') {
+                        config.command = defaultScheduledTaskConfig().command;
+                    }
+                    const nextConfig = {
+                        task_name: config.task_name,
+                        ensure: 'present',
+                        schedule: config.schedule,
+                        command: config.command,
+                    };
+                    if (scheduledTaskNeedsTime(config.schedule) && config.time !== '') {
+                        nextConfig.time = config.time;
+                    }
+                    jsonInput.value = JSON.stringify(nextConfig);
+                };
+                const applyScheduledTemplate = function (templateKey) {
+                    const template = scheduledTemplates[templateKey] || null;
+                    if (!template) {
+                        if (applyScheduledActionField) {
+                            applyScheduledActionField.value = 'custom';
+                        }
+                        syncScheduledFieldVisibility(true);
+                        syncJsonFromScheduledFields();
+                        return;
+                    }
+                    if (applyScheduledTaskNameField) {
+                        applyScheduledTaskNameField.value = template.task_name;
+                    }
+                    if (applyScheduledScheduleField) {
+                        applyScheduledScheduleField.value = template.schedule;
+                    }
+                    if (applyScheduledTimeField) {
+                        applyScheduledTimeField.value = template.time;
+                    }
+                    if (applyScheduledActionField) {
+                        applyScheduledActionField.value = template.action;
+                    }
+                    if (applyScheduledDelayField) {
+                        applyScheduledDelayField.value = String(template.delay_seconds);
+                    }
+                    if (applyScheduledForceField) {
+                        applyScheduledForceField.checked = Boolean(template.force);
+                    }
+                    if (applyScheduledMessageField) {
+                        applyScheduledMessageField.value = template.message;
+                    }
+                    if (applyScheduledCustomField) {
+                        applyScheduledCustomField.value = '';
+                    }
+                    syncScheduledFieldVisibility(true);
+                    syncJsonFromScheduledFields();
+                };
                 const deriveAutoRemove = function () {
                     const applyType = (typeSelect.value || '').toLowerCase();
                     const applyConfig = tryParseJson(jsonInput.value);
@@ -1509,6 +1862,10 @@ C:\ProgramData\DMS\Uwf</textarea>
                         syncUwfFieldsFromJson();
                         syncJsonFromUwfFields();
                     }
+                    if (typeValue === 'scheduled_task') {
+                        syncScheduledFieldsFromJson();
+                        syncJsonFromScheduledFields();
+                    }
                 };
                 const applyCatalog = function () {
                     if (!catalogSelect || !catalogSelect.value) {
@@ -1614,6 +1971,7 @@ C:\ProgramData\DMS\Uwf</textarea>
                     const isDnsJsonMode = applyMode === 'json' && applyType === 'dns';
                     const isNetworkJsonMode = applyMode === 'json' && applyType === 'network_adapter';
                     const isUwfJsonMode = applyMode === 'json' && applyType === 'uwf';
+                    const isScheduledTaskJsonMode = applyMode === 'json' && applyType === 'scheduled_task';
 
                     applyJsonFields.forEach(function (el) {
                         if (el === typeSelect) return;
@@ -1675,6 +2033,18 @@ C:\ProgramData\DMS\Uwf</textarea>
                         if (!isCustom) {
                             syncJsonFromUwfFields();
                         }
+                    }
+                    applyScheduledTaskFields.forEach(function (el) {
+                        el.classList.toggle('hidden', !isScheduledTaskJsonMode);
+                    });
+                    if (isScheduledTaskJsonMode) {
+                        syncScheduledFieldsFromJson();
+                        if (!isCustom) {
+                            syncJsonFromScheduledFields();
+                        }
+                        syncScheduledFieldVisibility(true);
+                    } else {
+                        syncScheduledFieldVisibility(false);
                     }
 
                     const removeMode = removeModeSelect ? removeModeSelect.value : 'auto';
@@ -1778,6 +2148,36 @@ C:\ProgramData\DMS\Uwf</textarea>
                     el.addEventListener('change', syncNetwork);
                     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
                         el.addEventListener('input', syncNetwork);
+                    }
+                });
+                [
+                    applyScheduledTemplateField,
+                    applyScheduledTaskNameField,
+                    applyScheduledScheduleField,
+                    applyScheduledTimeField,
+                    applyScheduledActionField,
+                    applyScheduledDelayField,
+                    applyScheduledForceField,
+                    applyScheduledMessageField,
+                    applyScheduledCustomField,
+                ].forEach(function (el) {
+                    if (!el) return;
+                    const syncScheduled = function () {
+                        const applyMode = applyModeSelect ? applyModeSelect.value : 'json';
+                        const isScheduledMode = applyMode === 'json' && (typeSelect.value || '').toLowerCase() === 'scheduled_task';
+                        if (!isScheduledMode) {
+                            return;
+                        }
+                        if (el === applyScheduledTemplateField) {
+                            applyScheduledTemplate(applyScheduledTemplateField ? applyScheduledTemplateField.value : 'custom');
+                            return;
+                        }
+                        syncScheduledFieldVisibility(true);
+                        syncJsonFromScheduledFields();
+                    };
+                    el.addEventListener('change', syncScheduled);
+                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                        el.addEventListener('input', syncScheduled);
                     }
                 });
                 if (removeModeSelect) {

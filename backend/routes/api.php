@@ -28,6 +28,10 @@ Route::prefix('v1')->group(function () {
     Route::post('/device/heartbeat', [DeviceCheckinController::class, 'heartbeat']);
     Route::post('/device/checkin', [DeviceCheckinController::class, 'checkin']);
     Route::post('/device/behavior-log', [DeviceBehaviorLogController::class, 'store'])->middleware('throttle:300,1');
+    Route::post('/device/remote-support/live-frame', [DeviceCheckinController::class, 'remoteSupportLiveFrame'])->middleware('throttle:600,1');
+    Route::post('/device/remote-support/webrtc/signal', [DeviceCheckinController::class, 'remoteSupportWebRtcSignal'])->middleware('throttle:600,1');
+    Route::get('/device/remote-support/webrtc/signals', [DeviceCheckinController::class, 'remoteSupportWebRtcSignals'])->middleware('throttle:600,1');
+    Route::get('/device/remote-support/webrtc/inputs', [DeviceCheckinController::class, 'remoteSupportWebRtcInputs'])->middleware('throttle:600,1');
     Route::get('/device/keyset', [KeysetController::class, 'index']);
     Route::get('/device/policies', [DeviceCheckinController::class, 'policies']);
     Route::post('/device/job-ack', [DeviceCheckinController::class, 'jobAck']);
