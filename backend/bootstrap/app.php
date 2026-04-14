@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\RemoteSupportAdminToken;
 use App\Http\Middleware\RequirePermission;
 use App\Http\Middleware\ResolveTenantContext;
 use Illuminate\Foundation\Application;
@@ -26,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
         }
         $middleware->alias([
             'permission' => RequirePermission::class,
+            'remote.support.token' => RemoteSupportAdminToken::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

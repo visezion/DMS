@@ -5151,81 +5151,93 @@ public sealed class WebRtcSessionHandler : IJobHandler
                 });
             }
 
-            DateTime deadlineUtc = DateTime.UtcNow.AddSeconds(durationSeconds + InteractiveHelperGraceSeconds);
-            while (!cancellationToken.IsCancellationRequested && DateTime.UtcNow < deadlineUtc)
+            _ = Task.Run(() => MonitorAndCleanupInteractiveHelperAsync(
+                taskName,
+                configPath,
+                outputPath,
+                errorPath,
+                launcherPath,
+                durationSeconds), CancellationToken.None);
+
+            return ("success", 0, new
             {
+                message = "webrtc helper launched",
+                remote_support = new
+                {
+                    session_id = sessionId,
+                    mode = "webrtc",
+                    launched = true,
+                },
+            });
+        }
+        catch
+        {
+            TryDeleteScheduledTaskAndFiles(taskName, configPath, outputPath, errorPath, launcherPath);
+            throw;
+        }
+    }
+
+    private static async Task MonitorAndCleanupInteractiveHelperAsync(
+        string taskName,
+        string configPath,
+        string outputPath,
+        string errorPath,
+        string launcherPath,
+        int durationSeconds)
+    {
+        DateTime deadlineUtc = DateTime.UtcNow.AddSeconds(durationSeconds + InteractiveHelperGraceSeconds);
+
+        try
+        {
+            while (DateTime.UtcNow < deadlineUtc)
+            {
+                if (File.Exists(outputPath))
+                {
+                    break;
+                }
+
                 if (File.Exists(errorPath))
                 {
                     string helperError = SafeReadAllText(errorPath);
                     if (!string.IsNullOrWhiteSpace(helperError))
                     {
-                        return ("failed", 1, new
-                        {
-                            error = "webrtc helper failed",
-                            stderr = SnapshotJobSupport.Truncate(helperError, 2000),
-                            remote_support = new
-                            {
-                                session_id = sessionId,
-                                mode = "webrtc",
-                            },
-                        });
+                        break;
                     }
                 }
 
-                if (File.Exists(outputPath))
-                {
-                    string json = File.ReadAllText(outputPath);
-                    object? result;
-                    try
-                    {
-                        result = JsonSerializer.Deserialize<Dictionary<string, object?>>(json);
-                    }
-                    catch
-                    {
-                        result = new
-                        {
-                            message = "webrtc helper completed",
-                            stdout = SnapshotJobSupport.Truncate(json, 2000),
-                            remote_support = new
-                            {
-                                session_id = sessionId,
-                                mode = "webrtc",
-                            },
-                        };
-                    }
-
-                    return ("success", 0, result);
-                }
-
-                await Task.Delay(500, cancellationToken);
+                await Task.Delay(1000, CancellationToken.None);
             }
-
-            return ("failed", 1, new
-            {
-                error = "webrtc helper timed out",
-                remote_support = new
-                {
-                    session_id = sessionId,
-                    mode = "webrtc",
-                },
-            });
+        }
+        catch
+        {
+            // Best-effort cleanup path.
         }
         finally
         {
-            try
-            {
-                await ProcessRunner.RunAsync("schtasks", $"/Delete /TN \"{taskName}\" /F", CancellationToken.None);
-            }
-            catch
-            {
-                // Best-effort cleanup.
-            }
-
-            TryDeleteHelperFile(configPath);
-            TryDeleteHelperFile(outputPath);
-            TryDeleteHelperFile(errorPath);
-            TryDeleteHelperFile(launcherPath);
+            TryDeleteScheduledTaskAndFiles(taskName, configPath, outputPath, errorPath, launcherPath);
         }
+    }
+
+    private static void TryDeleteScheduledTaskAndFiles(
+        string taskName,
+        string configPath,
+        string outputPath,
+        string errorPath,
+        string launcherPath)
+    {
+        try
+        {
+            ProcessRunner.RunAsync("schtasks", $"/Delete /TN \"{taskName}\" /F", CancellationToken.None).GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // Best-effort cleanup.
+        }
+
+        TryDeleteHelperFile(configPath);
+        TryDeleteHelperFile(outputPath);
+        TryDeleteHelperFile(errorPath);
+        TryDeleteHelperFile(launcherPath);
     }
 
     private static List<WebRtcIceServerConfig> ReadIceServers(Dictionary<string, object?> payload)

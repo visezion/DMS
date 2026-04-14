@@ -20,6 +20,7 @@
   <Target Name="CopyMixedRealityNativeRuntime" AfterTargets="Build;Publish">
     <PropertyGroup>
       <MixedRealityNativeDll>$(PkgMicrosoft_MixedReality_WebRTC)\runtimes\win10-x64\native\mrwebrtc.dll</MixedRealityNativeDll>
+      <MixedRealityManagedDll>$(PkgMicrosoft_MixedReality_WebRTC)\lib\netstandard2.0\Microsoft.MixedReality.WebRTC.dll</MixedRealityManagedDll>
     </PropertyGroup>
 
     <Copy SourceFiles="$(MixedRealityNativeDll)"
@@ -27,9 +28,19 @@
           SkipUnchangedFiles="true"
           Condition="Exists('$(MixedRealityNativeDll)') and '$(OutDir)' != ''" />
 
+    <Copy SourceFiles="$(MixedRealityManagedDll)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(MixedRealityManagedDll)') and '$(OutDir)' != ''" />
+
     <Copy SourceFiles="$(MixedRealityNativeDll)"
           DestinationFolder="$(PublishDir)"
           SkipUnchangedFiles="true"
           Condition="Exists('$(MixedRealityNativeDll)') and '$(PublishDir)' != ''" />
+
+    <Copy SourceFiles="$(MixedRealityManagedDll)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(MixedRealityManagedDll)') and '$(PublishDir)' != ''" />
   </Target>
 </Project>

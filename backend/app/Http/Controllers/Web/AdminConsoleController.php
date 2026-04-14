@@ -497,37 +497,68 @@ class AdminConsoleController extends Controller
         $jpegQuality = max(25, min(95, $this->settingInt('remote_support.capture_jpeg_quality', 75)));
         $fps = max(1, min(20, $this->settingInt('remote_support.live_fps', 12)));
 
-        if (! $capable) {
-            $live = $this->queueOrReuseRemoteSupportLiveJob($device, $session, $maxDimension, $jpegQuality, $fps, $durationSeconds);
+        try {
+            if (! $capable) {
+                $live = $this->queueOrReuseRemoteSupportLiveJob($device, $session, $maxDimension, $jpegQuality, $fps, $durationSeconds);
+                $adminToken = $this->issueRemoteSupportAdminToken($session, $request->user()?->id);
+
+                return response()->json([
+                    'ok' => true,
+                    'session_id' => $session->id,
+                    'mode' => 'live_fallback',
+                    'job_id' => $live->id,
+                    'message' => 'WebRTC unavailable. Falling back to live frames.',
+                    'admin_token' => $adminToken['token'],
+                    'admin_token_expires_at' => $adminToken['expires_at'],
+                    'admin_token_ttl_minutes' => $adminToken['ttl_minutes'],
+                ]);
+            }
+
+            $this->clearRemoteSupportRealtimeState($session->id);
+            $job = $this->queueOrReuseRemoteSupportWebRtcJob($device, $session, $durationSeconds, $maxDimension);
+
+            $session->forceFill([
+                'meta' => array_merge(is_array($session->meta) ? $session->meta : [], [
+                    'method' => 'webrtc',
+                    'last_webrtc_job_id' => $job->id,
+                ]),
+            ])->save();
+
+            $adminToken = $this->issueRemoteSupportAdminToken($session, $request->user()?->id);
 
             return response()->json([
                 'ok' => true,
                 'session_id' => $session->id,
-                'mode' => 'live_fallback',
-                'job_id' => $live->id,
-                'message' => 'WebRTC unavailable. Falling back to live frames.',
+                'mode' => 'webrtc',
+                'job_id' => $job->id,
+                'signal_poll_interval_ms' => max(120, min(2000, $this->settingInt('remote_support.webrtc_signal_poll_interval_ms', 200))),
+                'input_flush_interval_ms' => max(16, min(1000, $this->settingInt('remote_support.webrtc_input_flush_interval_ms', 33))),
+                'input_batch_max' => max(1, min(100, $this->settingInt('remote_support.webrtc_input_batch_max', 32))),
+                'ice_servers' => $this->remoteSupportIceServers(),
+                'admin_token' => $adminToken['token'],
+                'admin_token_expires_at' => $adminToken['expires_at'],
+                'admin_token_ttl_minutes' => $adminToken['ttl_minutes'],
             ]);
+        } catch (\Throwable $exception) {
+            if ($this->isSqliteBusyException($exception)) {
+                return response()->json([
+                    'ok' => false,
+                    'session_id' => $session->id,
+                    'message' => 'Remote support backend is busy. Retry in a moment.',
+                ], 503);
+            }
+
+            throw $exception;
         }
+    }
 
-        $this->clearRemoteSupportRealtimeState($session->id);
-        $job = $this->queueOrReuseRemoteSupportWebRtcJob($device, $session, $durationSeconds, $maxDimension);
-
-        $session->forceFill([
-            'meta' => array_merge(is_array($session->meta) ? $session->meta : [], [
-                'method' => 'webrtc',
-                'last_webrtc_job_id' => $job->id,
-            ]),
-        ])->save();
+    public function sessionCsrfToken(Request $request): JsonResponse
+    {
+        $request->session()->regenerateToken();
 
         return response()->json([
             'ok' => true,
-            'session_id' => $session->id,
-            'mode' => 'webrtc',
-            'job_id' => $job->id,
-            'signal_poll_interval_ms' => max(120, min(2000, $this->settingInt('remote_support.webrtc_signal_poll_interval_ms', 200))),
-            'input_flush_interval_ms' => max(16, min(1000, $this->settingInt('remote_support.webrtc_input_flush_interval_ms', 33))),
-            'input_batch_max' => max(1, min(100, $this->settingInt('remote_support.webrtc_input_batch_max', 32))),
-            'ice_servers' => $this->remoteSupportIceServers(),
+            'token' => csrf_token(),
         ]);
     }
 
@@ -683,7 +714,7 @@ class AdminConsoleController extends Controller
             return $existingJob;
         }
 
-        return DB::transaction(function () use ($device, $session, $maxDimension, $jpegQuality, $fps, $durationSeconds) {
+        return $this->withSqliteBusyRetry(function () use ($device, $session, $maxDimension, $jpegQuality, $fps, $durationSeconds) {
             $job = DmsJob::query()->create([
                 'id' => (string) Str::uuid(),
                 'tenant_id' => $session->tenant_id,
@@ -734,7 +765,7 @@ class AdminConsoleController extends Controller
             return $existingJob;
         }
 
-        return DB::transaction(function () use ($device, $session, $durationSeconds, $maxDimension) {
+        return $this->withSqliteBusyRetry(function () use ($device, $session, $durationSeconds, $maxDimension) {
             $job = DmsJob::query()->create([
                 'id' => (string) Str::uuid(),
                 'tenant_id' => $session->tenant_id,
@@ -763,6 +794,45 @@ class AdminConsoleController extends Controller
 
             return $job;
         });
+    }
+
+    private function withSqliteBusyRetry(callable $callback, int $maxAttempts = 8, int $baseDelayMs = 200): mixed
+    {
+        $attempt = 0;
+
+        beginning:
+        $attempt++;
+
+        try {
+            $this->prepareSqliteConnectionForWrites();
+            return DB::transaction($callback);
+        } catch (\Throwable $exception) {
+            if ($attempt >= $maxAttempts || ! $this->isSqliteBusyException($exception)) {
+                throw $exception;
+            }
+
+            usleep(($baseDelayMs * $attempt) * 1000);
+            goto beginning;
+        }
+    }
+
+    private function prepareSqliteConnectionForWrites(): void
+    {
+        if (DB::getDriverName() !== 'sqlite') {
+            return;
+        }
+
+        DB::statement('PRAGMA busy_timeout = 5000');
+        DB::statement('PRAGMA journal_mode = WAL');
+    }
+
+    private function isSqliteBusyException(\Throwable $exception): bool
+    {
+        $message = strtolower($exception->getMessage());
+
+        return str_contains($message, 'database is locked')
+            || str_contains($message, 'sqlstate[hy000]')
+            || str_contains($message, 'general error: 5');
     }
 
     /**
@@ -877,6 +947,34 @@ class AdminConsoleController extends Controller
     private function remoteSupportLiveFrameCacheKey(string $deviceId, string $sessionId): string
     {
         return 'remote_support:live_frame:'.$deviceId.':'.$sessionId;
+    }
+
+    /**
+     * @return array{token:string,expires_at:string,ttl_minutes:int}
+     */
+    private function issueRemoteSupportAdminToken(RemoteSupportSession $session, ?int $userId): array
+    {
+        $ttlMinutes = max(5, min(180, (int) $this->settingInt('remote_support.webrtc_admin_token_ttl_minutes', 30)));
+        $token = Str::random(64);
+        $hash = hash('sha256', $token);
+        $expiresAt = now()->addMinutes($ttlMinutes);
+
+        Cache::put($this->remoteSupportAdminTokenCacheKey($hash), [
+            'session_id' => $session->id,
+            'user_id' => $userId,
+            'issued_at' => now()->toIso8601String(),
+        ], $expiresAt);
+
+        return [
+            'token' => $token,
+            'expires_at' => $expiresAt->toIso8601String(),
+            'ttl_minutes' => $ttlMinutes,
+        ];
+    }
+
+    private function remoteSupportAdminTokenCacheKey(string $hash): string
+    {
+        return 'remote_support:admin_token:'.$hash;
     }
 
     public function assetsOverview(): View

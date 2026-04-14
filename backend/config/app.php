@@ -1,5 +1,37 @@
 <?php
 
+$readFallbackEnvValue = static function (string $key, ?string $default = null): ?string {
+    $value = env($key);
+    if (is_string($value) && trim($value) !== '') {
+        return $value;
+    }
+
+    $envPath = dirname(__DIR__).DIRECTORY_SEPARATOR.'.env';
+    if (! is_file($envPath) || ! is_readable($envPath)) {
+        return $default;
+    }
+
+    $pattern = '/^'.preg_quote($key, '/').'=(.*)$/m';
+    $contents = @file_get_contents($envPath);
+    if (! is_string($contents) || ! preg_match($pattern, $contents, $matches)) {
+        return $default;
+    }
+
+    $raw = trim((string) ($matches[1] ?? ''));
+    if ($raw === '') {
+        return $default;
+    }
+
+    if (
+        (str_starts_with($raw, '"') && str_ends_with($raw, '"'))
+        || (str_starts_with($raw, "'") && str_ends_with($raw, "'"))
+    ) {
+        $raw = substr($raw, 1, -1);
+    }
+
+    return $raw !== '' ? $raw : $default;
+};
+
 return [
 
     /*
@@ -97,11 +129,11 @@ return [
 
     'cipher' => 'AES-256-CBC',
 
-    'key' => env('APP_KEY'),
+    'key' => $readFallbackEnvValue('APP_KEY'),
 
     'previous_keys' => [
         ...array_filter(
-            explode(',', env('APP_PREVIOUS_KEYS', ''))
+            explode(',', (string) $readFallbackEnvValue('APP_PREVIOUS_KEYS', ''))
         ),
     ],
 

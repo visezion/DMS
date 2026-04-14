@@ -33,12 +33,22 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () us
     Route::get('/devices', [AdminConsoleController::class, 'devices'])->name('devices');
     Route::get('/remote-support', [AdminConsoleController::class, 'remoteSupport'])->name('remote-support');
     Route::get('/remote-support/devices/{deviceId}', [AdminConsoleController::class, 'remoteSupportSession'])->name('remote-support.show');
+    Route::get('/session/csrf', [AdminConsoleController::class, 'sessionCsrfToken'])->name('session.csrf');
     Route::post('/remote-support/devices/{deviceId}/capture', [AdminConsoleController::class, 'remoteSupportQueueCapture'])->name('remote-support.capture');
     Route::get('/remote-support/devices/{deviceId}/frame', [AdminConsoleController::class, 'remoteSupportLatestFrame'])->name('remote-support.frame');
     Route::post('/remote-support/sessions/{sessionId}/realtime/bootstrap', [AdminConsoleController::class, 'remoteSupportRealtimeBootstrap'])->name('remote-support.realtime.bootstrap');
-    Route::post('/remote-support/sessions/{sessionId}/realtime/signal', [AdminConsoleController::class, 'remoteSupportRealtimePushSignal'])->name('remote-support.realtime.signal.push');
-    Route::get('/remote-support/sessions/{sessionId}/realtime/signal', [AdminConsoleController::class, 'remoteSupportRealtimePullSignals'])->name('remote-support.realtime.signal.pull');
-    Route::post('/remote-support/sessions/{sessionId}/realtime/input', [AdminConsoleController::class, 'remoteSupportRealtimePushInput'])->name('remote-support.realtime.input.push');
+    Route::post('/remote-support/sessions/{sessionId}/realtime/signal', [AdminConsoleController::class, 'remoteSupportRealtimePushSignal'])
+        ->withoutMiddleware(['auth', \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])
+        ->middleware('remote.support.token')
+        ->name('remote-support.realtime.signal.push');
+    Route::get('/remote-support/sessions/{sessionId}/realtime/signal', [AdminConsoleController::class, 'remoteSupportRealtimePullSignals'])
+        ->withoutMiddleware(['auth'])
+        ->middleware('remote.support.token')
+        ->name('remote-support.realtime.signal.pull');
+    Route::post('/remote-support/sessions/{sessionId}/realtime/input', [AdminConsoleController::class, 'remoteSupportRealtimePushInput'])
+        ->withoutMiddleware(['auth', \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])
+        ->middleware('remote.support.token')
+        ->name('remote-support.realtime.input.push');
     Route::post('/remote-support/sessions/{sessionId}/close', [AdminConsoleController::class, 'remoteSupportCloseSession'])->name('remote-support.close');
     Route::get('/assets', [AdminConsoleController::class, 'assetsOverview'])->name('assets');
     Route::get('/assets/hardware', [AdminConsoleController::class, 'assetsHardwareInventory'])->name('assets.hardware');

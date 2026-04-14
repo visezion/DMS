@@ -2,6 +2,20 @@
 
 use Illuminate\Support\Str;
 
+$sessionAppUrl = trim((string) env('APP_URL', ''));
+$sessionAppPath = '/';
+if ($sessionAppUrl !== '') {
+    $parsedAppUrlPath = parse_url($sessionAppUrl, PHP_URL_PATH);
+    if (is_string($parsedAppUrlPath) && trim($parsedAppUrlPath) !== '') {
+        $sessionAppPath = '/'.trim($parsedAppUrlPath, '/');
+    }
+}
+
+$sessionCookieDefault = env(
+    'SESSION_COOKIE',
+    Str::slug(env('APP_NAME', 'laravel').'_'.trim($sessionAppPath, '/'), '_').'_session'
+);
+
 return [
 
     /*
@@ -128,10 +142,7 @@ return [
     |
     */
 
-    'cookie' => env(
-        'SESSION_COOKIE',
-        Str::slug(env('APP_NAME', 'laravel'), '_').'_session'
-    ),
+    'cookie' => $sessionCookieDefault,
 
     /*
     |--------------------------------------------------------------------------
@@ -144,7 +155,7 @@ return [
     |
     */
 
-    'path' => env('SESSION_PATH', '/'),
+    'path' => env('SESSION_PATH', $sessionAppPath),
 
     /*
     |--------------------------------------------------------------------------

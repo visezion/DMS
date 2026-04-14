@@ -22,7 +22,7 @@
             </div>
         </div>
 
-        <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <article class="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p class="text-xs text-slate-500">Session ID</p>
                 <p class="mt-1 break-all font-mono text-sm text-slate-900">{{ $session->id }}</p>
@@ -83,7 +83,10 @@
                     <span>Remote Frame</span>
                     <span id="remote-mode-label">{{ $remoteMethod }}</span>
                 </div>
-                <div id="remote-meta">Initializing remote session...</div>
+                <div class="flex flex-col items-end gap-1 text-right">
+                    <div id="remote-meta">Initializing remote session...</div>
+                    <div id="remote-token-meta" class="text-[11px] text-slate-400"></div>
+                </div>
             </div>
 
             <div id="remote-stage" class="relative overflow-hidden rounded-xl border border-slate-800 bg-black">
@@ -116,13 +119,20 @@
 
     <script>
         (() => {
-            const bootstrapUrl = @json(route('admin.remote-support.realtime.bootstrap', $session->id, false));
-            const signalPushUrl = @json(route('admin.remote-support.realtime.signal.push', $session->id, false));
-            const signalPullUrl = @json(route('admin.remote-support.realtime.signal.pull', $session->id, false));
-            const inputPushUrl = @json(route('admin.remote-support.realtime.input.push', $session->id, false));
-            const captureUrl = @json(route('admin.remote-support.capture', $device->id, false));
-            const frameUrl = @json(route('admin.remote-support.frame', $device->id, false));
-            const csrf = @json(csrf_token());
+            const appBasePath = @json(request()->getBaseUrl());
+            const toAppUrl = (path) => {
+                const normalizedBase = (appBasePath || '').replace(/\/+$/, '');
+                const normalizedPath = String(path || '').startsWith('/') ? String(path || '') : `/${String(path || '')}`;
+                return `${normalizedBase}${normalizedPath}`;
+            };
+            const bootstrapUrl = toAppUrl(@json(route('admin.remote-support.realtime.bootstrap', $session->id, false)));
+            const signalPushUrl = toAppUrl(@json(route('admin.remote-support.realtime.signal.push', $session->id, false)));
+            const signalPullUrl = toAppUrl(@json(route('admin.remote-support.realtime.signal.pull', $session->id, false)));
+            const inputPushUrl = toAppUrl(@json(route('admin.remote-support.realtime.input.push', $session->id, false)));
+            const captureUrl = toAppUrl(@json(route('admin.remote-support.capture', $device->id, false)));
+            const frameUrl = toAppUrl(@json(route('admin.remote-support.frame', $device->id, false)));
+            const csrfRefreshUrl = toAppUrl(@json(route('admin.session.csrf', [], false)));
+            const fallbackCsrf = @json(csrf_token());
             const sessionId = @json($session->id);
             const isOnline = @json($isOnline);
             const defaultPollMs = @json($webrtcSignalPollIntervalMs);
@@ -135,6 +145,7 @@
             const frameImg = document.getElementById('remote-frame');
             const placeholder = document.getElementById('remote-placeholder');
             const meta = document.getElementById('remote-meta');
+            const tokenMeta = document.getElementById('remote-token-meta');
             const modeLabel = document.getElementById('remote-mode-label');
             const lastFrame = document.getElementById('remote-last-frame');
             const stage = document.getElementById('remote-stage');
@@ -152,9 +163,59 @@
             let reconnectAttempts = 0;
             const maxReconnectAttempts = 5;
             let bootstrapInFlight = false;
+            let authBroken = false;
+            let csrfToken = fallbackCsrf;
+            let adminToken = '';
+            let webrtcConnected = false;
+            let webrtcTimeoutTimer = null;
+
+            function readCookie(name) {
+                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+                return match ? decodeURIComponent(match[1]) : '';
+            }
+
+            function currentCsrfToken() {
+                const metaToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                const cookieToken = readCookie('XSRF-TOKEN');
+                return csrfToken || metaToken || fallbackCsrf || cookieToken;
+            }
+
+            function storeCsrfToken(token) {
+                const normalized = String(token || '').trim();
+                if (normalized === '') {
+                    return;
+                }
+
+                csrfToken = normalized;
+                const metaNode = document.querySelector('meta[name="csrf-token"]');
+                if (metaNode) {
+                    metaNode.setAttribute('content', normalized);
+                }
+            }
+
+            function ajaxHeaders(includeCsrf = false) {
+                const headers = {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                };
+                if (adminToken) {
+                    headers['X-Remote-Support-Token'] = adminToken;
+                }
+                if (includeCsrf) {
+                    headers['Content-Type'] = 'application/json';
+                    headers['X-CSRF-TOKEN'] = currentCsrfToken();
+                }
+
+                return headers;
+            }
 
             function setMeta(text) {
                 if (meta) meta.textContent = text;
+            }
+
+            function setTokenMeta(text) {
+                if (tokenMeta) tokenMeta.textContent = text || '';
             }
 
             function setModeLabel(text) {
@@ -200,6 +261,64 @@
                     clearTimeout(reconnectTimer);
                     reconnectTimer = null;
                 }
+                if (webrtcTimeoutTimer) {
+                    clearTimeout(webrtcTimeoutTimer);
+                    webrtcTimeoutTimer = null;
+                }
+            }
+
+            function stopWithAuthError(message) {
+                authBroken = true;
+                paused = true;
+                stopTimers();
+                destroyPeer();
+                adminToken = '';
+                setTokenMeta('');
+                setReconnectDisabled(false);
+                if (toggleBtn) {
+                    toggleBtn.textContent = 'Resume Stream';
+                    toggleBtn.disabled = true;
+                }
+                setMeta(message || 'admin session expired');
+                showPlaceholder('Admin session expired. Reload the page and sign in again.');
+            }
+
+            async function ensureJsonSessionResponse(response) {
+                const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+                const redirectedToLogin = response.redirected && String(response.url || '').includes('/admin/login');
+                const htmlLoginResponse = contentType.includes('text/html') && String(response.url || '').includes('/admin/login');
+                if (!redirectedToLogin && !htmlLoginResponse) {
+                    return;
+                }
+
+                stopWithAuthError('admin session expired');
+                throw new Error('auth-redirect');
+            }
+
+            async function ensureAuthorized(response, payload) {
+                if (response.status !== 401 && response.status !== 419) {
+                    return payload;
+                }
+
+                stopWithAuthError(payload?.message || (response.status === 419 ? 'csrf token mismatch' : 'admin session expired'));
+                throw new Error(`auth-${response.status}`);
+            }
+
+            async function refreshCsrfToken() {
+                const response = await fetch(csrfRefreshUrl, {
+                    method: 'GET',
+                    headers: ajaxHeaders(false),
+                    credentials: 'same-origin',
+                });
+                await ensureJsonSessionResponse(response);
+                const payload = await response.json().catch(() => ({}));
+                await ensureAuthorized(response, payload);
+                if (!response.ok || payload?.ok !== true || typeof payload?.token !== 'string' || payload.token.trim() === '') {
+                    return false;
+                }
+
+                storeCsrfToken(payload.token);
+                return true;
             }
 
             function destroyPeer() {
@@ -242,22 +361,35 @@
             }
 
             async function postJson(url, body) {
-                const response = await fetch(url, {
+                const requestInit = () => ({
                     method: 'POST',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': csrf,
-                    },
+                    headers: ajaxHeaders(true),
                     credentials: 'same-origin',
-                    body: JSON.stringify(body),
+                    body: JSON.stringify({
+                        ...(body || {}),
+                        token: adminToken || undefined,
+                        _token: currentCsrfToken(),
+                    }),
                 });
-                const payload = await response.json().catch(() => ({}));
+
+                let response = await fetch(url, requestInit());
+                await ensureJsonSessionResponse(response);
+                let payload = await response.json().catch(() => ({}));
+                if (response.status === 419) {
+                    const refreshed = await refreshCsrfToken().catch(() => false);
+                    if (refreshed) {
+                        response = await fetch(url, requestInit());
+                        await ensureJsonSessionResponse(response);
+                        payload = await response.json().catch(() => ({}));
+                    }
+                }
+                await ensureAuthorized(response, payload);
                 return { response, payload };
             }
 
             async function bootstrap() {
                 if (bootstrapInFlight) return;
+                if (authBroken) return;
                 if (!isOnline) {
                     showPlaceholder('Device is offline. Remote session unavailable.');
                     setMeta('offline');
@@ -283,6 +415,17 @@
 
                     reconnectAttempts = 0;
                     bootstrapState = payload;
+                    adminToken = String(payload?.admin_token || '').trim();
+                    if (payload?.admin_token_expires_at) {
+                        const expires = new Date(payload.admin_token_expires_at);
+                        if (!Number.isNaN(expires.getTime())) {
+                            setTokenMeta(`Admin token expires ${expires.toLocaleString()}`);
+                        } else {
+                            setTokenMeta('');
+                        }
+                    } else {
+                        setTokenMeta('');
+                    }
                     mode = payload.mode || 'live_fallback';
                     setModeLabel(mode);
 
@@ -293,9 +436,12 @@
 
                     await startFallback(payload);
                 } catch (error) {
+                    if (authBroken) {
+                        return;
+                    }
                     showPlaceholder('Failed to bootstrap remote session.');
-                    setMeta('bootstrap failed');
-                    scheduleReconnect('bootstrap failed');
+                    setMeta(error instanceof Error && error.message ? error.message : 'bootstrap failed');
+                    scheduleReconnect(error instanceof Error && error.message ? error.message : 'bootstrap failed');
                 } finally {
                     bootstrapInFlight = false;
                     setReconnectDisabled(false);
@@ -305,6 +451,7 @@
             async function startWebRtc(payload) {
                 setMeta('Starting WebRTC session...');
                 showPlaceholder('Waiting for live stream...');
+                webrtcConnected = false;
                 peer = new RTCPeerConnection({
                     iceServers: Array.isArray(payload.ice_servers) ? payload.ice_servers : [],
                 });
@@ -315,6 +462,11 @@
                     showVideo();
                     setMeta('WebRTC stream connected');
                     reconnectAttempts = 0;
+                    webrtcConnected = true;
+                    if (webrtcTimeoutTimer) {
+                        clearTimeout(webrtcTimeoutTimer);
+                        webrtcTimeoutTimer = null;
+                    }
                 };
 
                 peer.onconnectionstatechange = () => {
@@ -349,18 +501,32 @@
                 signalPollTimer = setInterval(pollSignals, Math.max(120, pollMs));
                 inputFlushTimer = setInterval(flushInputs, Math.max(16, Number(payload.input_flush_interval_ms || inputFlushMs)));
                 await pollSignals();
+
+                if (webrtcTimeoutTimer) {
+                    clearTimeout(webrtcTimeoutTimer);
+                }
+                webrtcTimeoutTimer = setTimeout(() => {
+                    if (authBroken || paused) return;
+                    if (mode !== 'webrtc') return;
+                    if (webrtcConnected) return;
+                    setMeta('WebRTC timed out; switching to live frames...');
+                    startFallback();
+                }, 12000);
             }
 
             async function pollSignals() {
                 if (paused || !peer) return;
+                if (authBroken) return;
                 try {
-                    const url = `${signalPullUrl}?since=${encodeURIComponent(signalSince)}`;
+                    const url = `${signalPullUrl}?since=${encodeURIComponent(signalSince)}${adminToken ? `&token=${encodeURIComponent(adminToken)}` : ''}`;
                     const response = await fetch(url, {
                         method: 'GET',
-                        headers: { 'Accept': 'application/json' },
+                        headers: ajaxHeaders(false),
                         credentials: 'same-origin',
                     });
+                    await ensureJsonSessionResponse(response);
                     const payload = await response.json().catch(() => ({}));
+                    await ensureAuthorized(response, payload);
                     if (!response.ok || payload?.ok !== true) {
                         setMeta(payload?.message || 'signal poll failed');
                         scheduleReconnect(payload?.message || 'signal poll failed');
@@ -373,6 +539,9 @@
                         await applySignalEvent(event);
                     }
                 } catch (error) {
+                    if (authBroken) {
+                        return;
+                    }
                     setMeta('signal poll failed');
                     scheduleReconnect('signal poll failed');
                 }
@@ -448,10 +617,12 @@
                 try {
                     const response = await fetch(frameUrl, {
                         method: 'GET',
-                        headers: { 'Accept': 'application/json' },
+                        headers: ajaxHeaders(false),
                         credentials: 'same-origin',
                     });
+                    await ensureJsonSessionResponse(response);
                     const payload = await response.json().catch(() => ({}));
+                    await ensureAuthorized(response, payload);
                     if (!response.ok || payload?.ok !== true || !payload?.frame?.image_base64) {
                         setMeta(payload?.message || 'waiting for first frame...');
                         return;
@@ -463,6 +634,9 @@
                         setLastFrame(new Date(payload.frame.captured_at_iso).toLocaleString());
                     }
                 } catch (error) {
+                    if (authBroken) {
+                        return;
+                    }
                     setMeta('frame refresh failed');
                     scheduleReconnect('frame refresh failed');
                 }
@@ -478,6 +652,7 @@
 
             async function flushInputs() {
                 if (paused || mode !== 'webrtc' || inputQueue.length === 0) return;
+                if (authBroken) return;
                 const batch = inputQueue.splice(0, inputBatchMax);
                 try {
                     await postJson(inputPushUrl, { events: batch });
@@ -533,6 +708,9 @@
             toggleBtn?.addEventListener('click', async () => {
                 paused = !paused;
                 toggleBtn.textContent = paused ? 'Resume Stream' : 'Pause Stream';
+                if (authBroken) {
+                    return;
+                }
                 if (paused) {
                     stopTimers();
                     setMeta('stream paused');

@@ -378,6 +378,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="csrf-token" content="{{ csrf_token() }}" />
     <title>{{ $title ?? $brandName }}</title>
     @if($brandFavicon !== '')
         <link rel="icon" type="image/png" href="{{ $brandFavicon }}">
@@ -891,7 +892,16 @@
 
         async function pollAgentStatus() {
             try {
-                const res = await fetch(backendStatusUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+                const res = await fetch(backendStatusUrl, {
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    }
+                });
+                if (res.status === 401 || res.status === 419) {
+                    return;
+                }
                 if (!res.ok) return;
                 const data = await res.json();
                 const configured = data.configured !== false;
