@@ -12,11 +12,11 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("Dms.Agent.Service")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.5.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.5+533589c2.60f971ceb2d521ee5d99ebd43ee836c1104a24ef")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.2.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.2+62c0e096.ce4bbfcccafdf19e6abe95a3d4b1fe2d3864ee7d")]
 [assembly: System.Reflection.AssemblyProductAttribute("Dms.Agent.Service")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Dms.Agent.Service")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.5.0")]
+[assembly: System.Reflection.AssemblyVersionAttribute("1.0.2.0")]
 [assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows7.0")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows7.0")]
 

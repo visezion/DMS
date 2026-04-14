@@ -19,9 +19,7 @@ function Assert-AgentPackageLayout {
     "Dms.Agent.Core.dll",
     "Dms.Agent.Service.deps.json",
     "Dms.Agent.Service.runtimeconfig.json",
-    "appsettings.json",
-    "Microsoft.MixedReality.WebRTC.dll",
-    "mrwebrtc.dll"
+    "appsettings.json"
   )
 
   $runtimeProbeFiles = @("hostfxr.dll", "hostpolicy.dll", "coreclr.dll")

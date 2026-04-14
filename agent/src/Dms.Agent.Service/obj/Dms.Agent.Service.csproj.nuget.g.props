@@ -15,7 +15,4 @@
   <ImportGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
     <Import Project="$(NuGetPackageRoot)\microsoft.extensions.configuration.usersecrets\8.0.1\buildTransitive\net6.0\Microsoft.Extensions.Configuration.UserSecrets.props" Condition="Exists('$(NuGetPackageRoot)\microsoft.extensions.configuration.usersecrets\8.0.1\buildTransitive\net6.0\Microsoft.Extensions.Configuration.UserSecrets.props')" />
   </ImportGroup>
-  <PropertyGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
-    <PkgMicrosoft_MixedReality_WebRTC Condition=" '$(PkgMicrosoft_MixedReality_WebRTC)' == '' ">C:\xampp\htdocs\DMS\agent\.nuget\packages\microsoft.mixedreality.webrtc\2.0.2</PkgMicrosoft_MixedReality_WebRTC>
-  </PropertyGroup>
 </Project>

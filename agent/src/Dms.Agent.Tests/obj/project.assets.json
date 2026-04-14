@@ -28,29 +28,6 @@
           "build/netstandard2.0/Microsoft.CodeCoverage.targets": {}
         }
       },
-      "Microsoft.MixedReality.WebRTC/2.0.2": {
-        "type": "package",
-        "compile": {
-          "lib/netstandard2.0/Microsoft.MixedReality.WebRTC.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/netstandard2.0/Microsoft.MixedReality.WebRTC.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtimeTargets": {
-          "runtimes/win10-x64/native/mrwebrtc.dll": {
-            "assetType": "native",
-            "rid": "win10-x64"
-          },
-          "runtimes/win10-x86/native/mrwebrtc.dll": {
-            "assetType": "native",
-            "rid": "win10-x86"
-          }
-        }
-      },
       "Microsoft.NET.Test.Sdk/17.11.1": {
         "type": "package",
         "dependencies": {
@@ -320,28 +297,6 @@
           "build/netcoreapp3.1/Microsoft.TestPlatform.TestHost.props": {}
         }
       },
-      "Microsoft.Win32.SystemEvents/8.0.0": {
-        "type": "package",
-        "compile": {
-          "lib/net8.0/Microsoft.Win32.SystemEvents.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/net8.0/Microsoft.Win32.SystemEvents.dll": {
-            "related": ".xml"
-          }
-        },
-        "build": {
-          "buildTransitive/net6.0/_._": {}
-        },
-        "runtimeTargets": {
-          "runtimes/win/lib/net8.0/Microsoft.Win32.SystemEvents.dll": {
-            "assetType": "runtime",
-            "rid": "win"
-          }
-        }
-      },
       "Newtonsoft.Json/13.0.1": {
         "type": "package",
         "compile": {
@@ -379,25 +334,6 @@
             "assetType": "runtime",
             "rid": "win"
           }
-        }
-      },
-      "System.Drawing.Common/8.0.12": {
-        "type": "package",
-        "dependencies": {
-          "Microsoft.Win32.SystemEvents": "8.0.0"
-        },
-        "compile": {
-          "lib/net8.0/System.Drawing.Common.dll": {
-            "related": ".pdb;.xml"
-          }
-        },
-        "runtime": {
-          "lib/net8.0/System.Drawing.Common.dll": {
-            "related": ".pdb;.xml"
-          }
-        },
-        "build": {
-          "buildTransitive/net6.0/_._": {}
         }
       },
       "System.Reflection.Metadata/1.6.0": {
@@ -514,9 +450,7 @@
         "framework": ".NETCoreApp,Version=v8.0",
         "dependencies": {
           "BouncyCastle.Cryptography": "2.5.1",
-          "Microsoft.MixedReality.WebRTC": "2.0.2",
-          "System.Diagnostics.EventLog": "8.0.0",
-          "System.Drawing.Common": "8.0.12"
+          "System.Diagnostics.EventLog": "8.0.0"
         },
         "compile": {
           "bin/placeholder/Dms.Agent.Core.dll": {}
@@ -612,22 +546,6 @@
         "lib/netcoreapp3.1/Microsoft.VisualStudio.CodeCoverage.Shim.dll",
         "microsoft.codecoverage.17.11.1.nupkg.sha512",
         "microsoft.codecoverage.nuspec"
-      ]
-    },
-    "Microsoft.MixedReality.WebRTC/2.0.2": {
-      "sha512": "0InRdeWcRaGc+MkwdhaX/6vIh+Fbjdncl0AsXHjZVFKzxV6eg2zKgt6Kx5eb5ilX9OhQJ0poAG1NqvkngdCPUg==",
-      "type": "package",
-      "path": "microsoft.mixedreality.webrtc/2.0.2",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "content/NOTICE",
-        "lib/netstandard2.0/Microsoft.MixedReality.WebRTC.dll",
-        "lib/netstandard2.0/Microsoft.MixedReality.WebRTC.xml",
-        "microsoft.mixedreality.webrtc.2.0.2.nupkg.sha512",
-        "microsoft.mixedreality.webrtc.nuspec",
-        "runtimes/win10-x64/native/mrwebrtc.dll",
-        "runtimes/win10-x86/native/mrwebrtc.dll"
       ]
     },
     "Microsoft.NET.Test.Sdk/17.11.1": {
@@ -820,41 +738,6 @@
         "microsoft.testplatform.testhost.nuspec"
       ]
     },
-    "Microsoft.Win32.SystemEvents/8.0.0": {
-      "sha512": "9opKRyOKMCi2xJ7Bj7kxtZ1r9vbzosMvRrdEhVhDz8j8MoBGgB+WmC94yH839NPH+BclAjtQ/pyagvi/8gDLkw==",
-      "type": "package",
-      "path": "microsoft.win32.systemevents/8.0.0",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "Icon.png",
-        "LICENSE.TXT",
-        "THIRD-PARTY-NOTICES.TXT",
-        "buildTransitive/net461/Microsoft.Win32.SystemEvents.targets",
-        "buildTransitive/net462/_._",
-        "buildTransitive/net6.0/_._",
-        "buildTransitive/netcoreapp2.0/Microsoft.Win32.SystemEvents.targets",
-        "lib/net462/Microsoft.Win32.SystemEvents.dll",
-        "lib/net462/Microsoft.Win32.SystemEvents.xml",
-        "lib/net6.0/Microsoft.Win32.SystemEvents.dll",
-        "lib/net6.0/Microsoft.Win32.SystemEvents.xml",
-        "lib/net7.0/Microsoft.Win32.SystemEvents.dll",
-        "lib/net7.0/Microsoft.Win32.SystemEvents.xml",
-        "lib/net8.0/Microsoft.Win32.SystemEvents.dll",
-        "lib/net8.0/Microsoft.Win32.SystemEvents.xml",
-        "lib/netstandard2.0/Microsoft.Win32.SystemEvents.dll",
-        "lib/netstandard2.0/Microsoft.Win32.SystemEvents.xml",
-        "microsoft.win32.systemevents.8.0.0.nupkg.sha512",
-        "microsoft.win32.systemevents.nuspec",
-        "runtimes/win/lib/net6.0/Microsoft.Win32.SystemEvents.dll",
-        "runtimes/win/lib/net6.0/Microsoft.Win32.SystemEvents.xml",
-        "runtimes/win/lib/net7.0/Microsoft.Win32.SystemEvents.dll",
-        "runtimes/win/lib/net7.0/Microsoft.Win32.SystemEvents.xml",
-        "runtimes/win/lib/net8.0/Microsoft.Win32.SystemEvents.dll",
-        "runtimes/win/lib/net8.0/Microsoft.Win32.SystemEvents.xml",
-        "useSharedDesignerContext.txt"
-      ]
-    },
     "Newtonsoft.Json/13.0.1": {
       "sha512": "ppPFpBcvxdsfUonNcvITKqLl3bqxWbDCZIzDWHzjpdAHRFfZe0Dw9HmA0+za13IdyrgJwpkDTDA9fHaxOrt20A==",
       "type": "package",
@@ -918,46 +801,6 @@
         "runtimes/win/lib/net8.0/System.Diagnostics.EventLog.xml",
         "system.diagnostics.eventlog.8.0.0.nupkg.sha512",
         "system.diagnostics.eventlog.nuspec",
-        "useSharedDesignerContext.txt"
-      ]
-    },
-    "System.Drawing.Common/8.0.12": {
-      "sha512": "mZrI0KKFAZO8gWaARhdaJblMUNEeHMlPsFa/nRS4j4EenYP/+f8F2bzu4yb0Co7WYuJ/w/D8d/zW4KGCdYJCyQ==",
-      "type": "package",
-      "path": "system.drawing.common/8.0.12",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "Icon.png",
-        "LICENSE.TXT",
-        "THIRD-PARTY-NOTICES.TXT",
-        "buildTransitive/net461/System.Drawing.Common.targets",
-        "buildTransitive/net462/_._",
-        "buildTransitive/net6.0/_._",
-        "buildTransitive/netcoreapp2.0/System.Drawing.Common.targets",
-        "lib/MonoAndroid10/_._",
-        "lib/MonoTouch10/_._",
-        "lib/net462/System.Drawing.Common.dll",
-        "lib/net462/System.Drawing.Common.pdb",
-        "lib/net462/System.Drawing.Common.xml",
-        "lib/net6.0/System.Drawing.Common.dll",
-        "lib/net6.0/System.Drawing.Common.pdb",
-        "lib/net6.0/System.Drawing.Common.xml",
-        "lib/net7.0/System.Drawing.Common.dll",
-        "lib/net7.0/System.Drawing.Common.pdb",
-        "lib/net7.0/System.Drawing.Common.xml",
-        "lib/net8.0/System.Drawing.Common.dll",
-        "lib/net8.0/System.Drawing.Common.pdb",
-        "lib/net8.0/System.Drawing.Common.xml",
-        "lib/netstandard2.0/System.Drawing.Common.dll",
-        "lib/netstandard2.0/System.Drawing.Common.pdb",
-        "lib/netstandard2.0/System.Drawing.Common.xml",
-        "lib/xamarinios10/_._",
-        "lib/xamarinmac20/_._",
-        "lib/xamarintvos10/_._",
-        "lib/xamarinwatchos10/_._",
-        "system.drawing.common.8.0.12.nupkg.sha512",
-        "system.drawing.common.nuspec",
         "useSharedDesignerContext.txt"
       ]
     },

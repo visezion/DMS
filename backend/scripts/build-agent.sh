@@ -15,8 +15,6 @@ Dms.Agent.Service.exe
 Dms.Agent.Service.dll
 Dms.Agent.Core.dll
 Dms.Agent.Service.deps.json
-Microsoft.MixedReality.WebRTC.dll
-mrwebrtc.dll
 "
 
   if [ "$self_contained" = "true" ]; then

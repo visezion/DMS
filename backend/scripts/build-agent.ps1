@@ -23,9 +23,7 @@ function Assert-PublishOutput {
     "Dms.Agent.Service.exe",
     "Dms.Agent.Service.dll",
     "Dms.Agent.Core.dll",
-    "Dms.Agent.Service.deps.json",
-    "Microsoft.MixedReality.WebRTC.dll",
-    "mrwebrtc.dll"
+    "Dms.Agent.Service.deps.json"
   )
 
   if ($SelfContained) {

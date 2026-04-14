@@ -60,9 +60,4 @@ return [
         'nonce_window_seconds' => (int) env('DMS_NONCE_WINDOW_SECONDS', 300),
     ],
 
-    'remote_support' => [
-        'active_checkin_interval_seconds' => (int) env('DMS_REMOTE_SUPPORT_ACTIVE_CHECKIN_INTERVAL_SECONDS', 1),
-        'active_capture_window_seconds' => (int) env('DMS_REMOTE_SUPPORT_ACTIVE_CAPTURE_WINDOW_SECONDS', 45),
-    ],
-
 ];

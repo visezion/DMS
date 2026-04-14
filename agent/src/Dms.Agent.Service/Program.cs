@@ -1,5 +1,4 @@
 using Dms.Agent.Core.Jobs;
-using Dms.Agent.Core.Jobs.Handlers;
 using Dms.Agent.Core.Runtime;
 using Dms.Agent.Core.Telemetry;
 using Dms.Agent.Core.Transport;
@@ -13,20 +12,6 @@ int diagnosticsExitCode = AgentSelfDiagnostics.TryRunCli(args);
 if (diagnosticsExitCode != int.MinValue)
 {
     Environment.ExitCode = diagnosticsExitCode;
-    return;
-}
-
-int screenCaptureHelperExitCode = ScreenCaptureHelperCli.TryRun(args);
-if (screenCaptureHelperExitCode != ScreenCaptureHelperCli.NotHandledExitCode)
-{
-    Environment.ExitCode = screenCaptureHelperExitCode;
-    return;
-}
-
-int webRtcHelperExitCode = WebRtcMediaHelperCli.TryRun(args);
-if (webRtcHelperExitCode != WebRtcMediaHelperCli.NotHandledExitCode)
-{
-    Environment.ExitCode = webRtcHelperExitCode;
     return;
 }
 
