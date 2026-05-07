@@ -32,4 +32,9 @@ class CorrelatedIncident extends Model
     {
         return $this->hasMany(IncidentTimeline::class, 'incident_id')->orderByDesc('version');
     }
+
+    public function autonomousDecisions(): HasMany
+    {
+        return $this->hasMany(AutonomousDecision::class, 'incident_id');
+    }
 }

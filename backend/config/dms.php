@@ -7,4 +7,8 @@ return [
     'checkin_interval_seconds' => (int) env('DMS_CHECKIN_INTERVAL_SECONDS', 60),
     'replay_window_seconds' => (int) env('DMS_REPLAY_WINDOW_SECONDS', 300),
     'keyset_cache_seconds' => (int) env('DMS_KEYSET_CACHE_SECONDS', 300),
+    'supported_locales' => [
+        'en' => 'English',
+        'tr' => 'Turkce',
+    ],
 ];

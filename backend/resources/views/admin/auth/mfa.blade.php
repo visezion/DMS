@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 @php
     $brandingSetting = \App\Models\ControlPlaneSetting::query()->find('ui.branding');
     $branding = is_array($brandingSetting?->value ?? null) ? (($brandingSetting->value['value'] ?? []) ?: []) : [];
@@ -16,6 +16,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ $brandName }} MFA</title>
+    @include('partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,23 +24,31 @@
 </head>
 <body
     class="min-h-screen text-slate-900 flex items-center justify-center p-6 admin-auth-mfa"
-    style="--brand-primary: {{ $brandPrimary }}; --brand-background: {{ $brandBackground }};"
+    style="--brand-primary: {{ $brandPrimary }}; --brand-background: {{ $brandBackground }}; --brand-background-light: {{ $brandBackground }};"
 >
     <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
-        <div class="flex items-center gap-3">
-            @if($brandLogo !== '')
-                <img src="{{ $brandLogo }}" alt="Brand logo" class="h-10 w-auto max-w-[10rem] rounded-lg border border-slate-200 bg-white object-contain px-2 py-1">
-            @else
-                <div class="h-10 w-10 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-700" aria-label="Brand logo">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-6 h-6">
-                        <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-3Z"/>
-                        <path d="m9 12 2 2 4-4"/>
-                    </svg>
+        <div class="flex items-start justify-between gap-4">
+            <div class="flex items-center gap-3">
+                @if($brandLogo !== '')
+                    <img src="{{ $brandLogo }}" alt="Brand logo" class="h-10 w-auto max-w-[10rem] rounded-lg border border-slate-200 bg-white object-contain px-2 py-1">
+                @else
+                    <div class="h-10 w-10 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-700" aria-label="Brand logo">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-6 h-6">
+                            <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-3Z"/>
+                            <path d="m9 12 2 2 4-4"/>
+                        </svg>
+                    </div>
+                @endif
+                <div>
+                    <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Multi-Factor Authentication</p>
                 </div>
-            @endif
-            <div>
-                <p class="text-xs uppercase tracking-[0.25em] text-slate-500">Multi-Factor Authentication</p>
             </div>
+            <x-theme-select
+                id="mfa-theme-select"
+                wrapper-class="items-end gap-1.5 text-right"
+                label-class="text-[10px] uppercase tracking-[0.18em] text-slate-500"
+                select-class="min-w-[7rem] text-xs"
+            />
         </div>
         <p class="text-slate-600 text-sm mt-3">{{ $brandTagline }}</p>
         <p class="text-slate-700 text-sm mt-2">Enter the 6-digit code from your authenticator app for <span class="font-semibold">{{ $email }}</span>.</p>

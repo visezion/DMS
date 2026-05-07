@@ -88,6 +88,7 @@
                 <option value="firewall">firewall</option>
                 <option value="dns">dns</option>
                 <option value="network_adapter">network_adapter</option>
+                <option value="time">time</option>
                 <option value="registry">registry</option>
                 <option value="bitlocker">bitlocker</option>
                 <option value="local_group">local_group</option>
@@ -217,6 +218,128 @@
                             <input type="checkbox" name="apply_dns_dry_run" value="1" />
                             dry run only: check compliance without changing the device
                         </label>
+                    </div>
+                </div>
+            </div>
+            <div class="md:col-span-2 space-y-3 rounded-xl border p-4 apply-time-field hidden">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <p class="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-700">Time Policy</p>
+                        <h4 class="mt-1 text-sm font-semibold text-slate-900">NTP + timezone alignment</h4>
+                        <p class="mt-1 text-[11px] text-slate-600">Keep device clocks accurate by setting the Windows time zone and time sync source.</p>
+                    </div>
+                    <div class="max-w-sm text-[11px] text-slate-600">
+                        <p class="font-semibold text-slate-800">Windows identifiers</p>
+                        <p class="mt-1"><span class="font-mono text-slate-800">Timezone</span> must match a Windows time zone ID (for example <span class="font-mono text-slate-800">UTC</span>, <span class="font-mono text-slate-800">Pacific Standard Time</span>).</p>
+                    </div>
+                </div>
+                <div class="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                    <div class="space-y-3">
+                        <p class="text-xs font-semibold text-slate-700">1. Time Zone</p>
+                        <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                            <label class="text-xs text-slate-500">Windows Time Zone ID</label>
+                            <div>
+                                <input name="apply_time_timezone" value="UTC" list="time-zone-options" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="UTC" />
+                                <p class="mt-1 text-[11px] text-slate-500">Example: <span class="font-mono">Pacific Standard Time</span>.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+                        <p class="text-xs font-semibold text-slate-700">2. Time Sync Source</p>
+                        <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                            <label class="text-xs text-slate-500">Sync Mode</label>
+                            <div>
+                                <select name="apply_time_sync_mode" class="w-full rounded border border-slate-300 px-2 py-1">
+                                    <option value="manual" selected>Manual NTP servers</option>
+                                    <option value="domhier">Domain hierarchy</option>
+                                    <option value="all">All sources</option>
+                                </select>
+                                <p class="mt-1 text-[11px] text-slate-500">Use manual for explicit NTP servers or domhier for domain-controlled time.</p>
+                            </div>
+                        </div>
+                        <div class="grid gap-2 apply-time-servers-row">
+                            <label class="text-xs text-slate-500">NTP Servers (one per line)</label>
+                            <textarea name="apply_time_ntp_servers" class="min-h-16 w-full rounded border border-slate-300 px-2 py-1" placeholder="time.windows.com&#10;pool.ntp.org"></textarea>
+                            <p class="text-[11px] text-slate-500">Only required when sync mode is manual.</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                <input type="checkbox" name="apply_time_resync" value="1" checked />
+                                force resync after apply
+                            </label>
+                            <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                <input type="checkbox" name="apply_time_dry_run" value="1" />
+                                dry run only
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="md:col-span-2 space-y-3 rounded-xl border p-4 apply-windows-update-field hidden">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <p class="text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-700">Windows Update Policy</p>
+                        <h4 class="mt-1 text-sm font-semibold text-slate-900">WSUS source + update window</h4>
+                        <p class="mt-1 text-[11px] text-slate-600">Control update source (Microsoft vs WSUS) and set required Windows Update hours.</p>
+                    </div>
+                    <div class="max-w-sm text-[11px] text-slate-600">
+                        <p class="font-semibold text-slate-800">WSUS URL format</p>
+                        <p class="mt-1"><span class="font-mono text-slate-800">http://wsus:8530</span> or <span class="font-mono text-slate-800">https://wsus.domain:8531</span>.</p>
+                    </div>
+                </div>
+                <div class="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                    <div class="space-y-3">
+                        <p class="text-xs font-semibold text-slate-700">1. Active Hours</p>
+                        <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                            <label class="text-xs text-slate-500">Active Hours Start (0-23)</label>
+                            <input name="apply_update_active_start" type="number" min="0" max="23" value="8" class="w-full rounded border border-slate-300 px-2 py-1" />
+                        </div>
+                        <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                            <label class="text-xs text-slate-500">Active Hours End (0-23)</label>
+                            <input name="apply_update_active_end" type="number" min="0" max="23" value="17" class="w-full rounded border border-slate-300 px-2 py-1" />
+                        </div>
+                        <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                            <label class="text-xs text-slate-500">Force Install Window (optional)</label>
+                            <input name="apply_update_force_window" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="22:00-02:00" />
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+                        <p class="text-xs font-semibold text-slate-700">2. Update Source</p>
+                        <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                            <label class="text-xs text-slate-500">Source</label>
+                            <select name="apply_update_source" class="w-full rounded border border-slate-300 px-2 py-1">
+                                <option value="microsoft" selected>Microsoft Update</option>
+                                <option value="wsus">WSUS Server</option>
+                            </select>
+                        </div>
+                        <div class="grid gap-2 apply-update-wsus-row">
+                            <label class="text-xs text-slate-500">WSUS Server URL</label>
+                            <input name="apply_update_wsus_server" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="http://wsus:8530" />
+                        </div>
+                        <div class="grid gap-2 apply-update-wsus-row">
+                            <label class="text-xs text-slate-500">WSUS Status Server (optional)</label>
+                            <input name="apply_update_wsus_status_server" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="http://wsus:8530" />
+                        </div>
+                        <div class="apply-update-wsus-row">
+                            <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                <input type="checkbox" name="apply_update_same_status" value="1" checked />
+                                use WSUS URL for status server
+                            </label>
+                        </div>
+                        <div class="grid gap-2 apply-update-wsus-row">
+                            <label class="text-xs text-slate-500">Target Group (optional)</label>
+                            <input name="apply_update_target_group" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="Accounting-Laptops" />
+                        </div>
+                        <div class="flex flex-wrap gap-2 apply-update-wsus-row">
+                            <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                <input type="checkbox" name="apply_update_target_group_enabled" value="1" checked />
+                                enable target group
+                            </label>
+                            <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                <input type="checkbox" name="apply_update_block_internet" value="1" />
+                                block internet updates
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -549,7 +672,7 @@ C:\ProgramData\DMS\Uwf</textarea>
                     </select>
                     <label class="text-xs text-slate-500">Rule Type</label>
                     <select name="rule_type" class="rounded border border-slate-300 px-2 py-1 rule-type-select apply-json-field">
-                        @foreach(['firewall','dns','network_adapter','registry','bitlocker','local_group','windows_update','scheduled_task','command','baseline_profile','reboot_restore_mode','uwf'] as $type)
+                        @foreach(['firewall','dns','network_adapter','time','registry','bitlocker','local_group','windows_update','scheduled_task','command','baseline_profile','reboot_restore_mode','uwf'] as $type)
                             <option value="{{ $type }}" @selected(($rule->rule_type ?? 'registry') === $type)>{{ $type }}</option>
                         @endforeach
                     </select>
@@ -656,6 +779,128 @@ C:\ProgramData\DMS\Uwf</textarea>
                                     <input type="checkbox" name="apply_dns_dry_run" value="1" />
                                     dry run only: check compliance without changing the device
                                 </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="md:col-span-2 space-y-3 rounded-xl border p-4 apply-time-field hidden">
+                        <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                                <p class="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-700">Time Policy</p>
+                                <h4 class="mt-1 text-sm font-semibold text-slate-900">NTP + timezone alignment</h4>
+                                <p class="mt-1 text-[11px] text-slate-600">Align device time by setting the Windows time zone and time sync source.</p>
+                            </div>
+                            <div class="max-w-sm text-[11px] text-slate-600">
+                                <p class="font-semibold text-slate-800">Windows identifiers</p>
+                                <p class="mt-1"><span class="font-mono text-slate-800">Timezone</span> must be a Windows time zone ID (example: <span class="font-mono text-slate-800">UTC</span>).</p>
+                            </div>
+                        </div>
+                        <div class="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                            <div class="space-y-3">
+                                <p class="text-xs font-semibold text-slate-700">1. Time Zone</p>
+                                <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                                    <label class="text-xs text-slate-500">Windows Time Zone ID</label>
+                                    <div>
+                                        <input name="apply_time_timezone" value="UTC" list="time-zone-options" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="UTC" />
+                                        <p class="mt-1 text-[11px] text-slate-500">Example: <span class="font-mono">Pacific Standard Time</span>.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="space-y-3">
+                                <p class="text-xs font-semibold text-slate-700">2. Time Sync Source</p>
+                                <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                                    <label class="text-xs text-slate-500">Sync Mode</label>
+                                    <div>
+                                        <select name="apply_time_sync_mode" class="w-full rounded border border-slate-300 px-2 py-1">
+                                            <option value="manual" selected>Manual NTP servers</option>
+                                            <option value="domhier">Domain hierarchy</option>
+                                            <option value="all">All sources</option>
+                                        </select>
+                                        <p class="mt-1 text-[11px] text-slate-500">Manual uses the server list below. Domain hierarchy follows AD time.</p>
+                                    </div>
+                                </div>
+                                <div class="grid gap-2 apply-time-servers-row">
+                                    <label class="text-xs text-slate-500">NTP Servers (one per line)</label>
+                                    <textarea name="apply_time_ntp_servers" class="min-h-16 w-full rounded border border-slate-300 px-2 py-1" placeholder="time.windows.com&#10;pool.ntp.org"></textarea>
+                                    <p class="text-[11px] text-slate-500">Only required when sync mode is manual.</p>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                        <input type="checkbox" name="apply_time_resync" value="1" checked />
+                                        force resync after apply
+                                    </label>
+                                    <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                        <input type="checkbox" name="apply_time_dry_run" value="1" />
+                                        dry run only
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="md:col-span-2 space-y-3 rounded-xl border p-4 apply-windows-update-field hidden">
+                        <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                                <p class="text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-700">Windows Update Policy</p>
+                                <h4 class="mt-1 text-sm font-semibold text-slate-900">WSUS source + update window</h4>
+                                <p class="mt-1 text-[11px] text-slate-600">Define the update source (Microsoft vs WSUS) and required active hours.</p>
+                            </div>
+                            <div class="max-w-sm text-[11px] text-slate-600">
+                                <p class="font-semibold text-slate-800">WSUS URL format</p>
+                                <p class="mt-1"><span class="font-mono text-slate-800">http://wsus:8530</span> or <span class="font-mono text-slate-800">https://wsus.domain:8531</span>.</p>
+                            </div>
+                        </div>
+                        <div class="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                            <div class="space-y-3">
+                                <p class="text-xs font-semibold text-slate-700">1. Active Hours</p>
+                                <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                                    <label class="text-xs text-slate-500">Active Hours Start (0-23)</label>
+                                    <input name="apply_update_active_start" type="number" min="0" max="23" value="8" class="w-full rounded border border-slate-300 px-2 py-1" />
+                                </div>
+                                <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                                    <label class="text-xs text-slate-500">Active Hours End (0-23)</label>
+                                    <input name="apply_update_active_end" type="number" min="0" max="23" value="17" class="w-full rounded border border-slate-300 px-2 py-1" />
+                                </div>
+                                <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                                    <label class="text-xs text-slate-500">Force Install Window (optional)</label>
+                                    <input name="apply_update_force_window" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="22:00-02:00" />
+                                </div>
+                            </div>
+                            <div class="space-y-3">
+                                <p class="text-xs font-semibold text-slate-700">2. Update Source</p>
+                                <div class="grid gap-2 md:grid-cols-[minmax(0,180px)_1fr]">
+                                    <label class="text-xs text-slate-500">Source</label>
+                                    <select name="apply_update_source" class="w-full rounded border border-slate-300 px-2 py-1">
+                                        <option value="microsoft" selected>Microsoft Update</option>
+                                        <option value="wsus">WSUS Server</option>
+                                    </select>
+                                </div>
+                                <div class="grid gap-2 apply-update-wsus-row">
+                                    <label class="text-xs text-slate-500">WSUS Server URL</label>
+                                    <input name="apply_update_wsus_server" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="http://wsus:8530" />
+                                </div>
+                                <div class="grid gap-2 apply-update-wsus-row">
+                                    <label class="text-xs text-slate-500">WSUS Status Server (optional)</label>
+                                    <input name="apply_update_wsus_status_server" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="http://wsus:8530" />
+                                </div>
+                                <div class="apply-update-wsus-row">
+                                    <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                        <input type="checkbox" name="apply_update_same_status" value="1" checked />
+                                        use WSUS URL for status server
+                                    </label>
+                                </div>
+                                <div class="grid gap-2 apply-update-wsus-row">
+                                    <label class="text-xs text-slate-500">Target Group (optional)</label>
+                                    <input name="apply_update_target_group" class="w-full rounded border border-slate-300 px-2 py-1" placeholder="Accounting-Laptops" />
+                                </div>
+                                <div class="flex flex-wrap gap-2 apply-update-wsus-row">
+                                    <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                        <input type="checkbox" name="apply_update_target_group_enabled" value="1" checked />
+                                        enable target group
+                                    </label>
+                                    <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                                        <input type="checkbox" name="apply_update_block_internet" value="1" />
+                                        block internet updates
+                                    </label>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -865,7 +1110,7 @@ C:\ProgramData\DMS\Uwf</textarea>
                     </select>
                     <label class="text-xs text-slate-500 remove-json-type-label hidden">Remove Rule Type</label>
                     <select name="remove_rule_type" class="rounded border border-slate-300 px-2 py-1 remove-json-field {{ $removeModeDefault === 'json' ? '' : 'hidden' }}">
-                        @foreach(['registry','scheduled_task','command','firewall','dns','network_adapter','bitlocker','local_group','windows_update','baseline_profile','reboot_restore_mode','uwf'] as $type)
+                        @foreach(['registry','scheduled_task','command','firewall','dns','network_adapter','time','bitlocker','local_group','windows_update','baseline_profile','reboot_restore_mode','uwf'] as $type)
                             <option value="{{ $type }}" @selected($removeRuleType === $type)>{{ $type }}</option>
                         @endforeach
                     </select>
@@ -929,6 +1174,147 @@ C:\ProgramData\DMS\Uwf</textarea>
         @endforelse
     </div>
 
+    <datalist id="time-zone-options">
+        <option value="Afghanistan Standard Time"></option>
+        <option value="Alaskan Standard Time"></option>
+        <option value="Aleutian Standard Time"></option>
+        <option value="Altai Standard Time"></option>
+        <option value="Arab Standard Time"></option>
+        <option value="Arabian Standard Time"></option>
+        <option value="Arabic Standard Time"></option>
+        <option value="Argentina Standard Time"></option>
+        <option value="Astrakhan Standard Time"></option>
+        <option value="Atlantic Standard Time"></option>
+        <option value="AUS Central Standard Time"></option>
+        <option value="Aus Central W. Standard Time"></option>
+        <option value="AUS Eastern Standard Time"></option>
+        <option value="Azerbaijan Standard Time"></option>
+        <option value="Azores Standard Time"></option>
+        <option value="Bahia Standard Time"></option>
+        <option value="Bangladesh Standard Time"></option>
+        <option value="Belarus Standard Time"></option>
+        <option value="Bougainville Standard Time"></option>
+        <option value="Canada Central Standard Time"></option>
+        <option value="Cape Verde Standard Time"></option>
+        <option value="Caucasus Standard Time"></option>
+        <option value="Cen. Australia Standard Time"></option>
+        <option value="Central America Standard Time"></option>
+        <option value="Central Asia Standard Time"></option>
+        <option value="Central Brazilian Standard Time"></option>
+        <option value="Central Europe Standard Time"></option>
+        <option value="Central European Standard Time"></option>
+        <option value="Central Pacific Standard Time"></option>
+        <option value="Central Standard Time"></option>
+        <option value="Central Standard Time (Mexico)"></option>
+        <option value="Chatham Islands Standard Time"></option>
+        <option value="China Standard Time"></option>
+        <option value="Cuba Standard Time"></option>
+        <option value="Dateline Standard Time"></option>
+        <option value="E. Africa Standard Time"></option>
+        <option value="E. Australia Standard Time"></option>
+        <option value="E. Europe Standard Time"></option>
+        <option value="E. South America Standard Time"></option>
+        <option value="Easter Island Standard Time"></option>
+        <option value="Eastern Standard Time"></option>
+        <option value="Eastern Standard Time (Mexico)"></option>
+        <option value="Egypt Standard Time"></option>
+        <option value="Ekaterinburg Standard Time"></option>
+        <option value="Fiji Standard Time"></option>
+        <option value="FLE Standard Time"></option>
+        <option value="Georgian Standard Time"></option>
+        <option value="GMT Standard Time"></option>
+        <option value="Greenland Standard Time"></option>
+        <option value="Greenwich Standard Time"></option>
+        <option value="GTB Standard Time"></option>
+        <option value="Haiti Standard Time"></option>
+        <option value="Hawaiian Standard Time"></option>
+        <option value="India Standard Time"></option>
+        <option value="Iran Standard Time"></option>
+        <option value="Israel Standard Time"></option>
+        <option value="Jordan Standard Time"></option>
+        <option value="Kaliningrad Standard Time"></option>
+        <option value="Korea Standard Time"></option>
+        <option value="Libya Standard Time"></option>
+        <option value="Line Islands Standard Time"></option>
+        <option value="Lord Howe Standard Time"></option>
+        <option value="Magadan Standard Time"></option>
+        <option value="Magallanes Standard Time"></option>
+        <option value="Marquesas Standard Time"></option>
+        <option value="Mauritius Standard Time"></option>
+        <option value="Middle East Standard Time"></option>
+        <option value="Montevideo Standard Time"></option>
+        <option value="Morocco Standard Time"></option>
+        <option value="Mountain Standard Time"></option>
+        <option value="Mountain Standard Time (Mexico)"></option>
+        <option value="Myanmar Standard Time"></option>
+        <option value="N. Central Asia Standard Time"></option>
+        <option value="Namibia Standard Time"></option>
+        <option value="Nepal Standard Time"></option>
+        <option value="New Zealand Standard Time"></option>
+        <option value="Newfoundland Standard Time"></option>
+        <option value="Norfolk Standard Time"></option>
+        <option value="North Asia East Standard Time"></option>
+        <option value="North Asia Standard Time"></option>
+        <option value="North Korea Standard Time"></option>
+        <option value="Omsk Standard Time"></option>
+        <option value="Pacific SA Standard Time"></option>
+        <option value="Pacific Standard Time"></option>
+        <option value="Pacific Standard Time (Mexico)"></option>
+        <option value="Pakistan Standard Time"></option>
+        <option value="Paraguay Standard Time"></option>
+        <option value="Qyzylorda Standard Time"></option>
+        <option value="Romance Standard Time"></option>
+        <option value="Russia Time Zone 10"></option>
+        <option value="Russia Time Zone 11"></option>
+        <option value="Russia Time Zone 3"></option>
+        <option value="Russian Standard Time"></option>
+        <option value="SA Eastern Standard Time"></option>
+        <option value="SA Pacific Standard Time"></option>
+        <option value="SA Western Standard Time"></option>
+        <option value="Saint Pierre Standard Time"></option>
+        <option value="Sakhalin Standard Time"></option>
+        <option value="Samoa Standard Time"></option>
+        <option value="Sao Tome Standard Time"></option>
+        <option value="Saratov Standard Time"></option>
+        <option value="SE Asia Standard Time"></option>
+        <option value="Singapore Standard Time"></option>
+        <option value="South Africa Standard Time"></option>
+        <option value="South Sudan Standard Time"></option>
+        <option value="Sri Lanka Standard Time"></option>
+        <option value="Sudan Standard Time"></option>
+        <option value="Syria Standard Time"></option>
+        <option value="Taipei Standard Time"></option>
+        <option value="Tasmania Standard Time"></option>
+        <option value="Tocantins Standard Time"></option>
+        <option value="Tokyo Standard Time"></option>
+        <option value="Tomsk Standard Time"></option>
+        <option value="Tonga Standard Time"></option>
+        <option value="Transbaikal Standard Time"></option>
+        <option value="Turkey Standard Time"></option>
+        <option value="Turks And Caicos Standard Time"></option>
+        <option value="Ulaanbaatar Standard Time"></option>
+        <option value="US Eastern Standard Time"></option>
+        <option value="US Mountain Standard Time"></option>
+        <option value="UTC"></option>
+        <option value="UTC+12"></option>
+        <option value="UTC+13"></option>
+        <option value="UTC-02"></option>
+        <option value="UTC-08"></option>
+        <option value="UTC-09"></option>
+        <option value="UTC-11"></option>
+        <option value="Venezuela Standard Time"></option>
+        <option value="Vladivostok Standard Time"></option>
+        <option value="Volgograd Standard Time"></option>
+        <option value="W. Australia Standard Time"></option>
+        <option value="W. Central Africa Standard Time"></option>
+        <option value="W. Europe Standard Time"></option>
+        <option value="W. Mongolia Standard Time"></option>
+        <option value="West Asia Standard Time"></option>
+        <option value="West Bank Standard Time"></option>
+        <option value="West Pacific Standard Time"></option>
+        <option value="Yakutsk Standard Time"></option>
+        <option value="Yukon Standard Time"></option>
+    </datalist>
     <script>
         (function () {
             document.querySelectorAll('form').forEach(function (formEl) {
@@ -1001,6 +1387,25 @@ C:\ProgramData\DMS\Uwf</textarea>
                 const applyNetworkGatewayField = form.querySelector('input[name="apply_network_gateway"]');
                 const applyNetworkDryRunField = form.querySelector('input[name="apply_network_dry_run"]');
                 const applyNetworkPrefixDisplay = form.querySelector('.apply-network-prefix-display');
+                const applyTimeFields = form.querySelectorAll('.apply-time-field');
+                const applyTimeTimezoneField = form.querySelector('input[name="apply_time_timezone"]');
+                const applyTimeSyncModeField = form.querySelector('select[name="apply_time_sync_mode"]');
+                const applyTimeNtpServersField = form.querySelector('textarea[name="apply_time_ntp_servers"]');
+                const applyTimeServersRow = form.querySelector('.apply-time-servers-row');
+                const applyTimeResyncField = form.querySelector('input[name="apply_time_resync"]');
+                const applyTimeDryRunField = form.querySelector('input[name="apply_time_dry_run"]');
+                const applyWindowsUpdateFields = form.querySelectorAll('.apply-windows-update-field');
+                const applyUpdateActiveStartField = form.querySelector('input[name="apply_update_active_start"]');
+                const applyUpdateActiveEndField = form.querySelector('input[name="apply_update_active_end"]');
+                const applyUpdateForceWindowField = form.querySelector('input[name="apply_update_force_window"]');
+                const applyUpdateSourceField = form.querySelector('select[name="apply_update_source"]');
+                const applyUpdateWsusServerField = form.querySelector('input[name="apply_update_wsus_server"]');
+                const applyUpdateWsusStatusField = form.querySelector('input[name="apply_update_wsus_status_server"]');
+                const applyUpdateTargetGroupField = form.querySelector('input[name="apply_update_target_group"]');
+                const applyUpdateTargetEnableField = form.querySelector('input[name="apply_update_target_group_enabled"]');
+                const applyUpdateBlockInternetField = form.querySelector('input[name="apply_update_block_internet"]');
+                const applyUpdateSameStatusField = form.querySelector('input[name="apply_update_same_status"]');
+                const applyUpdateWsusRows = form.querySelectorAll('.apply-update-wsus-row');
                 const applyUwfFields = form.querySelectorAll('.apply-uwf-field');
                 const applyScheduledTaskFields = form.querySelectorAll('.apply-scheduled-task-field');
                 const applyScheduledTemplateField = form.querySelector('select[name="apply_scheduled_template"]');
@@ -1109,6 +1514,28 @@ C:\ProgramData\DMS\Uwf</textarea>
                         dry_run: false,
                     };
                 };
+                const defaultTimeConfig = function () {
+                    return {
+                        timezone: 'UTC',
+                        sync_mode: 'manual',
+                        ntp_servers: ['time.windows.com', 'pool.ntp.org'],
+                        resync: true,
+                        dry_run: false,
+                    };
+                };
+                const defaultWindowsUpdateConfig = function () {
+                    return {
+                        active_hours_start: 8,
+                        active_hours_end: 17,
+                        force_install_window: '',
+                        update_source: 'microsoft',
+                        wsus_server: '',
+                        wsus_status_server: '',
+                        target_group: '',
+                        enable_target_group: true,
+                        block_internet_updates: false,
+                    };
+                };
                 const normalizeDnsConfig = function (rawConfig) {
                     const cfg = Object.assign(defaultDnsConfig(), rawConfig || {});
                     const interfaceAlias = String(cfg.interface_alias || '').trim();
@@ -1140,6 +1567,45 @@ C:\ProgramData\DMS\Uwf</textarea>
                     cfg.dry_run = Boolean(cfg.dry_run);
                     return cfg;
                 };
+                const normalizeTimeConfig = function (rawConfig) {
+                    const cfg = Object.assign(defaultTimeConfig(), rawConfig || {});
+                    cfg.timezone = String(cfg.timezone || '').trim();
+                    const syncMode = String(cfg.sync_mode || '').toLowerCase();
+                    cfg.sync_mode = ['manual', 'domhier', 'all'].includes(syncMode) ? syncMode : 'manual';
+                    cfg.ntp_servers = Array.isArray(cfg.ntp_servers)
+                        ? Array.from(new Set(cfg.ntp_servers.map(function (item) { return String(item || '').trim(); }).filter(function (item) { return item.length > 0; })))
+                        : parseListFromText(cfg.ntp_servers || '');
+                    if (cfg.sync_mode !== 'manual') {
+                        cfg.ntp_servers = [];
+                    }
+                    cfg.resync = Boolean(cfg.resync);
+                    cfg.dry_run = Boolean(cfg.dry_run);
+                    return cfg;
+                };
+                const normalizeWindowsUpdateConfig = function (rawConfig) {
+                    const cfg = Object.assign(defaultWindowsUpdateConfig(), rawConfig || {});
+                    const start = Number(cfg.active_hours_start);
+                    const end = Number(cfg.active_hours_end);
+                    cfg.active_hours_start = Number.isFinite(start) ? Math.min(23, Math.max(0, Math.trunc(start))) : defaultWindowsUpdateConfig().active_hours_start;
+                    cfg.active_hours_end = Number.isFinite(end) ? Math.min(23, Math.max(0, Math.trunc(end))) : defaultWindowsUpdateConfig().active_hours_end;
+                    cfg.force_install_window = String(cfg.force_install_window || '').trim();
+                    const source = String(cfg.update_source || '').toLowerCase();
+                    const inferredSource = String(cfg.wsus_server || '').trim() !== '' ? 'wsus' : 'microsoft';
+                    cfg.update_source = ['microsoft', 'wsus'].includes(source) ? source : inferredSource;
+                    cfg.wsus_server = String(cfg.wsus_server || '').trim();
+                    cfg.wsus_status_server = String(cfg.wsus_status_server || '').trim();
+                    cfg.target_group = String(cfg.target_group || '').trim();
+                    cfg.enable_target_group = Boolean(cfg.enable_target_group);
+                    cfg.block_internet_updates = Boolean(cfg.block_internet_updates);
+                    if (cfg.update_source !== 'wsus') {
+                        cfg.wsus_server = '';
+                        cfg.wsus_status_server = '';
+                        cfg.target_group = '';
+                        cfg.enable_target_group = true;
+                        cfg.block_internet_updates = false;
+                    }
+                    return cfg;
+                };
                 const syncDnsFieldVisibility = function (enabled) {
                     applyDnsFields.forEach(function (section) {
                         section.querySelectorAll('input,select,textarea').forEach(function (input) {
@@ -1163,6 +1629,41 @@ C:\ProgramData\DMS\Uwf</textarea>
                         });
                     }
                 };
+                const syncTimeFieldVisibility = function (enabled) {
+                    applyTimeFields.forEach(function (section) {
+                        section.querySelectorAll('input,select,textarea').forEach(function (input) {
+                            input.disabled = !enabled;
+                        });
+                    });
+                    const isManual = (applyTimeSyncModeField ? applyTimeSyncModeField.value : 'manual') === 'manual';
+                    if (applyTimeServersRow) {
+                        applyTimeServersRow.classList.toggle('hidden', !enabled || !isManual);
+                        applyTimeServersRow.querySelectorAll('input,select,textarea').forEach(function (input) {
+                            input.disabled = !enabled || !isManual;
+                        });
+                    }
+                };
+                const syncWindowsUpdateFieldVisibility = function (enabled) {
+                    applyWindowsUpdateFields.forEach(function (section) {
+                        section.querySelectorAll('input,select,textarea').forEach(function (input) {
+                            input.disabled = !enabled;
+                        });
+                    });
+                    const isWsus = (applyUpdateSourceField ? applyUpdateSourceField.value : 'microsoft') === 'wsus';
+                    applyUpdateWsusRows.forEach(function (row) {
+                        row.classList.toggle('hidden', !enabled || !isWsus);
+                        row.querySelectorAll('input,select,textarea').forEach(function (input) {
+                            input.disabled = !enabled || !isWsus;
+                        });
+                    });
+                    const sameStatus = applyUpdateSameStatusField ? applyUpdateSameStatusField.checked : false;
+                    if (applyUpdateWsusStatusField) {
+                        applyUpdateWsusStatusField.disabled = !enabled || !isWsus || sameStatus;
+                    }
+                    if (applyUpdateWsusServerField && applyUpdateWsusStatusField && sameStatus) {
+                        applyUpdateWsusStatusField.value = applyUpdateWsusServerField.value || '';
+                    }
+                };
                 const syncDnsFieldsFromJson = function () {
                     const config = normalizeDnsConfig(tryParseJson(jsonInput.value));
                     if (applyDnsSelectorTypeField) applyDnsSelectorTypeField.value = config.selector_type;
@@ -1175,6 +1676,35 @@ C:\ProgramData\DMS\Uwf</textarea>
                     if (applyDnsAdditionalServersField) applyDnsAdditionalServersField.value = config.servers.slice(2).join('\n');
                     if (applyDnsDryRunField) applyDnsDryRunField.checked = config.dry_run;
                     syncDnsFieldVisibility(true);
+                };
+                const syncTimeFieldsFromJson = function () {
+                    const config = normalizeTimeConfig(tryParseJson(jsonInput.value));
+                    if (applyTimeTimezoneField) applyTimeTimezoneField.value = config.timezone || defaultTimeConfig().timezone;
+                    if (applyTimeSyncModeField) applyTimeSyncModeField.value = config.sync_mode;
+                    if (applyTimeNtpServersField) applyTimeNtpServersField.value = config.ntp_servers.join('\n');
+                    if (applyTimeResyncField) applyTimeResyncField.checked = config.resync;
+                    if (applyTimeDryRunField) applyTimeDryRunField.checked = config.dry_run;
+                    syncTimeFieldVisibility(true);
+                };
+                const syncWindowsUpdateFieldsFromJson = function () {
+                    const config = normalizeWindowsUpdateConfig(tryParseJson(jsonInput.value));
+                    if (applyUpdateActiveStartField) applyUpdateActiveStartField.value = String(config.active_hours_start);
+                    if (applyUpdateActiveEndField) applyUpdateActiveEndField.value = String(config.active_hours_end);
+                    if (applyUpdateForceWindowField) applyUpdateForceWindowField.value = config.force_install_window || '';
+                    if (applyUpdateSourceField) applyUpdateSourceField.value = config.update_source;
+                    if (applyUpdateWsusServerField) applyUpdateWsusServerField.value = config.wsus_server;
+                    if (applyUpdateWsusStatusField) applyUpdateWsusStatusField.value = config.wsus_status_server;
+                    if (applyUpdateTargetGroupField) applyUpdateTargetGroupField.value = config.target_group;
+                    if (applyUpdateTargetEnableField) applyUpdateTargetEnableField.checked = config.enable_target_group;
+                    if (applyUpdateBlockInternetField) applyUpdateBlockInternetField.checked = config.block_internet_updates;
+                    if (applyUpdateSameStatusField) {
+                        const sameStatus = config.wsus_status_server === '' || config.wsus_status_server === config.wsus_server;
+                        applyUpdateSameStatusField.checked = sameStatus;
+                        if (sameStatus && applyUpdateWsusStatusField) {
+                            applyUpdateWsusStatusField.value = config.wsus_server;
+                        }
+                    }
+                    syncWindowsUpdateFieldVisibility(true);
                 };
                 const syncJsonFromDnsFields = function () {
                     const dnsServers = [];
@@ -1215,6 +1745,74 @@ C:\ProgramData\DMS\Uwf</textarea>
                     }
                     if (config.dry_run) {
                         nextConfig.dry_run = true;
+                    }
+                    jsonInput.value = JSON.stringify(nextConfig);
+                };
+                const syncJsonFromTimeFields = function () {
+                    const config = normalizeTimeConfig({
+                        timezone: applyTimeTimezoneField ? applyTimeTimezoneField.value : '',
+                        sync_mode: applyTimeSyncModeField ? applyTimeSyncModeField.value : 'manual',
+                        ntp_servers: parseListFromText(applyTimeNtpServersField ? applyTimeNtpServersField.value : ''),
+                        resync: applyTimeResyncField ? applyTimeResyncField.checked : true,
+                        dry_run: applyTimeDryRunField ? applyTimeDryRunField.checked : false,
+                    });
+                    const nextConfig = {};
+                    if (config.timezone !== '') {
+                        nextConfig.timezone = config.timezone;
+                    }
+                    if (config.sync_mode !== '') {
+                        nextConfig.sync_mode = config.sync_mode;
+                    }
+                    if (config.sync_mode === 'manual') {
+                        nextConfig.ntp_servers = config.ntp_servers;
+                    }
+                    if (config.resync) {
+                        nextConfig.resync = true;
+                    }
+                    if (config.dry_run) {
+                        nextConfig.dry_run = true;
+                    }
+                    jsonInput.value = JSON.stringify(nextConfig);
+                };
+                const syncJsonFromWindowsUpdateFields = function () {
+                    const rawStart = applyUpdateActiveStartField ? Number(applyUpdateActiveStartField.value) : 8;
+                    const rawEnd = applyUpdateActiveEndField ? Number(applyUpdateActiveEndField.value) : 17;
+                    const sameStatus = applyUpdateSameStatusField ? applyUpdateSameStatusField.checked : false;
+                    const config = normalizeWindowsUpdateConfig({
+                        active_hours_start: Number.isFinite(rawStart) ? rawStart : 8,
+                        active_hours_end: Number.isFinite(rawEnd) ? rawEnd : 17,
+                        force_install_window: applyUpdateForceWindowField ? applyUpdateForceWindowField.value : '',
+                        update_source: applyUpdateSourceField ? applyUpdateSourceField.value : 'microsoft',
+                        wsus_server: applyUpdateWsusServerField ? applyUpdateWsusServerField.value : '',
+                        wsus_status_server: (applyUpdateWsusStatusField && !sameStatus) ? applyUpdateWsusStatusField.value : '',
+                        target_group: applyUpdateTargetGroupField ? applyUpdateTargetGroupField.value : '',
+                        enable_target_group: applyUpdateTargetEnableField ? applyUpdateTargetEnableField.checked : true,
+                        block_internet_updates: applyUpdateBlockInternetField ? applyUpdateBlockInternetField.checked : false,
+                    });
+                    const nextConfig = {
+                        active_hours_start: config.active_hours_start,
+                        active_hours_end: config.active_hours_end,
+                    };
+                    if (config.force_install_window !== '') {
+                        nextConfig.force_install_window = config.force_install_window;
+                    }
+                    if (config.update_source !== '') {
+                        nextConfig.update_source = config.update_source;
+                    }
+                    if (config.update_source === 'wsus') {
+                        if (config.wsus_server !== '') {
+                            nextConfig.wsus_server = config.wsus_server;
+                        }
+                        if (config.wsus_status_server !== '') {
+                            nextConfig.wsus_status_server = config.wsus_status_server;
+                        }
+                        if (config.target_group !== '') {
+                            nextConfig.target_group = config.target_group;
+                            nextConfig.enable_target_group = config.enable_target_group;
+                        }
+                        if (config.block_internet_updates) {
+                            nextConfig.block_internet_updates = true;
+                        }
                     }
                     jsonInput.value = JSON.stringify(nextConfig);
                 };
@@ -1811,6 +2409,12 @@ C:\ProgramData\DMS\Uwf</textarea>
                             config: Object.assign(selector, { ipv4_mode: 'dhcp' }),
                         };
                     }
+                    if (applyType === 'time') {
+                        return {
+                            type: 'time',
+                            config: { sync_mode: 'domhier' },
+                        };
+                    }
                     if (applyType === 'uwf') {
                         const volume = (applyConfig.volume || 'C:').toString().trim() || 'C:';
                         return {
@@ -1857,6 +2461,14 @@ C:\ProgramData\DMS\Uwf</textarea>
                     if (typeValue === 'network_adapter') {
                         syncNetworkFieldsFromJson();
                         syncJsonFromNetworkFields();
+                    }
+                    if (typeValue === 'time') {
+                        syncTimeFieldsFromJson();
+                        syncJsonFromTimeFields();
+                    }
+                    if (typeValue === 'windows_update') {
+                        syncWindowsUpdateFieldsFromJson();
+                        syncJsonFromWindowsUpdateFields();
                     }
                     if (typeValue === 'uwf') {
                         syncUwfFieldsFromJson();
@@ -1970,6 +2582,8 @@ C:\ProgramData\DMS\Uwf</textarea>
                     const applyType = (typeSelect.value || '').toLowerCase();
                     const isDnsJsonMode = applyMode === 'json' && applyType === 'dns';
                     const isNetworkJsonMode = applyMode === 'json' && applyType === 'network_adapter';
+                    const isTimeJsonMode = applyMode === 'json' && applyType === 'time';
+                    const isWindowsUpdateJsonMode = applyMode === 'json' && applyType === 'windows_update';
                     const isUwfJsonMode = applyMode === 'json' && applyType === 'uwf';
                     const isScheduledTaskJsonMode = applyMode === 'json' && applyType === 'scheduled_task';
 
@@ -2021,6 +2635,30 @@ C:\ProgramData\DMS\Uwf</textarea>
                         syncNetworkFieldVisibility(true);
                     } else {
                         syncNetworkFieldVisibility(false);
+                    }
+                    applyTimeFields.forEach(function (el) {
+                        el.classList.toggle('hidden', !isTimeJsonMode);
+                    });
+                    if (isTimeJsonMode) {
+                        syncTimeFieldsFromJson();
+                        if (!isCustom) {
+                            syncJsonFromTimeFields();
+                        }
+                        syncTimeFieldVisibility(true);
+                    } else {
+                        syncTimeFieldVisibility(false);
+                    }
+                    applyWindowsUpdateFields.forEach(function (el) {
+                        el.classList.toggle('hidden', !isWindowsUpdateJsonMode);
+                    });
+                    if (isWindowsUpdateJsonMode) {
+                        syncWindowsUpdateFieldsFromJson();
+                        if (!isCustom) {
+                            syncJsonFromWindowsUpdateFields();
+                        }
+                        syncWindowsUpdateFieldVisibility(true);
+                    } else {
+                        syncWindowsUpdateFieldVisibility(false);
                     }
                     applyUwfFields.forEach(function (el) {
                         el.classList.toggle('hidden', !isUwfJsonMode);
@@ -2100,6 +2738,69 @@ C:\ProgramData\DMS\Uwf</textarea>
                         }
                     });
                 });
+                [
+                    applyTimeTimezoneField,
+                    applyTimeSyncModeField,
+                    applyTimeNtpServersField,
+                    applyTimeResyncField,
+                    applyTimeDryRunField,
+                ].forEach(function (el) {
+                    if (!el) return;
+                    el.addEventListener('change', function () {
+                        const applyMode = applyModeSelect ? applyModeSelect.value : 'json';
+                        const isTimeMode = applyMode === 'json' && (typeSelect.value || '').toLowerCase() === 'time';
+                        if (isTimeMode) {
+                            syncTimeFieldVisibility(true);
+                            syncJsonFromTimeFields();
+                        }
+                    });
+                });
+                [
+                    applyUpdateActiveStartField,
+                    applyUpdateActiveEndField,
+                    applyUpdateForceWindowField,
+                    applyUpdateSourceField,
+                    applyUpdateWsusServerField,
+                    applyUpdateWsusStatusField,
+                    applyUpdateTargetGroupField,
+                    applyUpdateTargetEnableField,
+                    applyUpdateBlockInternetField,
+                    applyUpdateSameStatusField,
+                ].forEach(function (el) {
+                    if (!el) return;
+                    const syncUpdates = function () {
+                        const applyMode = applyModeSelect ? applyModeSelect.value : 'json';
+                        const isUpdateMode = applyMode === 'json' && (typeSelect.value || '').toLowerCase() === 'windows_update';
+                        if (isUpdateMode) {
+                            syncWindowsUpdateFieldVisibility(true);
+                            syncJsonFromWindowsUpdateFields();
+                        }
+                    };
+                    el.addEventListener('change', syncUpdates);
+                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                        el.addEventListener('input', syncUpdates);
+                    }
+                });
+                if (applyUpdateWsusServerField) {
+                    const syncWsusServer = function () {
+                        const applyMode = applyModeSelect ? applyModeSelect.value : 'json';
+                        const isUpdateMode = applyMode === 'json' && (typeSelect.value || '').toLowerCase() === 'windows_update';
+                        if (!isUpdateMode) {
+                            return;
+                        }
+                        const wsusValue = String(applyUpdateWsusServerField.value || '').trim();
+                        if (wsusValue !== '' && applyUpdateSourceField && applyUpdateSourceField.value !== 'wsus') {
+                            applyUpdateSourceField.value = 'wsus';
+                        }
+                        if (applyUpdateSameStatusField && applyUpdateSameStatusField.checked && applyUpdateWsusStatusField) {
+                            applyUpdateWsusStatusField.value = wsusValue;
+                        }
+                        syncWindowsUpdateFieldVisibility(true);
+                        syncJsonFromWindowsUpdateFields();
+                    };
+                    applyUpdateWsusServerField.addEventListener('input', syncWsusServer);
+                    applyUpdateWsusServerField.addEventListener('change', syncWsusServer);
+                }
                 [
                     applyDnsSelectorTypeField,
                     applyDnsInterfaceAliasField,

@@ -80,6 +80,98 @@
             }
         }
     @endphp
+    <style>
+        .jd-shell {
+            --jd-border: #d7deea;
+            --jd-panel-bg: #ffffff;
+            --jd-panel-muted: #f8fafc;
+            --jd-panel-strong: #eef2f7;
+            --jd-subtle-text: #64748b;
+            --jd-heading-text: #0f172a;
+            --jd-body-text: #334155;
+            --jd-shadow: 0 18px 40px rgba(15, 23, 42, 0.07);
+        }
+
+        html[data-theme="dark"] .jd-shell {
+            --jd-border: #334155;
+            --jd-panel-bg: #0f172a;
+            --jd-panel-muted: #111c2d;
+            --jd-panel-strong: #162235;
+            --jd-subtle-text: #94a3b8;
+            --jd-heading-text: #e2e8f0;
+            --jd-body-text: #cbd5e1;
+            --jd-shadow: 0 24px 60px rgba(2, 6, 23, 0.4);
+        }
+
+        .jd-shell .jd-panel,
+        .jd-shell .jd-card {
+            border: 1px solid var(--jd-border);
+            background: var(--jd-panel-bg);
+            box-shadow: var(--jd-shadow);
+        }
+
+        .jd-shell .jd-block,
+        .jd-shell .jd-chip,
+        .jd-shell .jd-pre,
+        .jd-shell .jd-secondary-btn,
+        .jd-shell .jd-run-card,
+        .jd-shell .jd-failure {
+            border-color: var(--jd-border) !important;
+            background: var(--jd-panel-muted) !important;
+        }
+
+        .jd-shell .jd-label,
+        .jd-shell .jd-mono,
+        .jd-shell .jd-empty {
+            color: var(--jd-subtle-text) !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .text-slate-900 {
+            color: var(--jd-heading-text) !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .text-slate-800,
+        html[data-theme="dark"] .jd-shell .text-slate-700,
+        html[data-theme="dark"] .jd-shell .text-slate-600 {
+            color: var(--jd-body-text) !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .text-slate-500 {
+            color: var(--jd-subtle-text) !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .bg-white,
+        html[data-theme="dark"] .jd-shell .bg-slate-50,
+        html[data-theme="dark"] .jd-shell .bg-slate-100 {
+            background-color: var(--jd-panel-muted) !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .border-slate-200,
+        html[data-theme="dark"] .jd-shell .border-slate-300 {
+            border-color: var(--jd-border) !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .border-rose-200 {
+            border-color: rgba(251, 113, 133, 0.35) !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .bg-rose-50 {
+            background-color: rgba(127, 29, 29, 0.24) !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .text-rose-900 {
+            color: #fecdd3 !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .text-rose-800,
+        html[data-theme="dark"] .jd-shell .text-rose-700 {
+            color: #fda4af !important;
+        }
+
+        html[data-theme="dark"] .jd-shell .hover\:bg-slate-50:hover {
+            background-color: var(--jd-panel-strong) !important;
+        }
+    </style>
 <div class="jd-shell space-y-4">
         <section class="jd-panel rounded-2xl p-5 jd-reveal">
             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -94,7 +186,7 @@
                         @csrf
                         <button class="rounded-lg bg-skyline px-3 py-2 text-xs text-white">Re-run Job</button>
                     </form>
-                    <a href="{{ route('admin.jobs') }}" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">Back to Jobs</a>
+                    <a href="{{ route('admin.jobs') }}" class="jd-secondary-btn rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">Back to Jobs</a>
                 </div>
             </div>
         </section>
@@ -147,7 +239,7 @@
             <div class="jd-panel rounded-2xl p-4 xl:col-span-2">
                 <h3 class="font-semibold text-slate-900">Payload</h3>
                 <p class="mt-1 text-xs text-slate-500">Original payload dispatched with this job.</p>
-                <pre class="mt-3 max-h-[24rem] overflow-auto whitespace-pre-wrap break-all rounded-xl border border-slate-200 bg-white p-3 text-xs">{{ json_encode($job->payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                <pre class="jd-pre mt-3 max-h-[24rem] overflow-auto whitespace-pre-wrap break-all rounded-xl border border-slate-200 bg-white p-3 text-xs">{{ json_encode($job->payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
             </div>
         </section>
 
@@ -157,7 +249,7 @@
                     <h3 class="text-lg font-semibold text-slate-900">Run Outcomes</h3>
                     <p class="text-xs text-slate-500">Detailed execution timeline per target endpoint.</p>
                 </div>
-                <span class="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{{ $runs->count() }} runs</span>
+                <span class="jd-chip rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{{ $runs->count() }} runs</span>
             </div>
             <div class="space-y-3">
                 @forelse($runs as $run)
@@ -180,7 +272,7 @@
                         };
                     @endphp
 
-                    <details class="rounded-xl border border-slate-200 bg-white p-3" {{ $isFailed ? 'open' : '' }}>
+                    <details class="jd-run-card rounded-xl border border-slate-200 bg-white p-3" {{ $isFailed ? 'open' : '' }}>
                         <summary class="list-none cursor-pointer">
                             <div class="flex flex-wrap items-start justify-between gap-2">
                                 <div>
@@ -204,7 +296,7 @@
                         </summary>
 
                         @if($isFailed)
-                            <div class="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs">
+                            <div class="jd-failure mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs">
                                 <p class="font-semibold text-rose-800">Failure Diagnostics</p>
                                 <p class="mt-1 text-rose-700">{{ $errorHeadline !== '' ? $errorHeadline : 'No explicit error message was captured.' }}</p>
                                 <div class="mt-2 grid gap-1 text-rose-800 sm:grid-cols-2">
@@ -220,14 +312,14 @@
                                 @if($rollbackStdErr !== '')
                                     <div class="mt-2">
                                         <p class="mb-1 font-semibold text-rose-800">Rollback StdErr</p>
-                                        <pre class="max-h-44 overflow-auto whitespace-pre-wrap rounded border border-rose-200 bg-white p-2 text-[11px] text-rose-900">{{ $rollbackStdErr }}</pre>
+                                        <pre class="jd-pre max-h-44 overflow-auto whitespace-pre-wrap rounded border border-rose-200 bg-white p-2 text-[11px] text-rose-900">{{ $rollbackStdErr }}</pre>
                                     </div>
                                 @endif
                             </div>
                         @endif
 
                         <div class="mt-3 grid gap-3 text-xs lg:grid-cols-2">
-                            <div class="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                            <div class="jd-block rounded-lg border border-slate-200 bg-slate-50 p-2">
                                 <p><span class="font-semibold">Acked:</span> {{ $run->acked_at ?: '-' }}</p>
                                 <p><span class="font-semibold">Started:</span> {{ $run->started_at ?: '-' }}</p>
                                 <p><span class="font-semibold">Finished:</span> {{ $run->finished_at ?: '-' }}</p>
@@ -237,18 +329,18 @@
                             </div>
                             <div>
                                 <p class="mb-1 font-semibold">Result Payload</p>
-                                <pre class="max-h-56 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2">{{ json_encode($run->result_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                                <pre class="jd-pre max-h-56 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2">{{ json_encode($run->result_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                             </div>
                         </div>
 
                         <div class="mt-3 grid gap-3 text-xs lg:grid-cols-2">
                             <div>
                                 <p class="mb-1 font-semibold">Console StdOut</p>
-                                <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2">{{ $stdout !== '' ? $stdout : '-' }}</pre>
+                                <pre class="jd-pre max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2">{{ $stdout !== '' ? $stdout : '-' }}</pre>
                             </div>
                             <div>
                                 <p class="mb-1 font-semibold">Console StdErr</p>
-                                <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2">{{ $stderr !== '' ? $stderr : '-' }}</pre>
+                                <pre class="jd-pre max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2">{{ $stderr !== '' ? $stderr : '-' }}</pre>
                             </div>
                         </div>
 
@@ -256,18 +348,18 @@
                             <p class="mb-1 text-xs font-semibold">Events</p>
                             <div class="max-h-52 space-y-2 overflow-auto">
                                 @forelse(($eventsByRun[$run->id] ?? collect()) as $event)
-                                    <div class="rounded border border-slate-200 bg-slate-50 p-2 text-xs">
+                                    <div class="jd-block rounded border border-slate-200 bg-slate-50 p-2 text-xs">
                                         <p>{{ $event->event_type }} | {{ $event->created_at }}</p>
-                                        <pre class="mt-1 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2">{{ json_encode($event->event_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                                        <pre class="jd-pre mt-1 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-white p-2">{{ json_encode($event->event_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                                     </div>
                                 @empty
-                                    <p class="text-xs text-slate-500">No events for this run.</p>
+                                    <p class="jd-empty text-xs text-slate-500">No events for this run.</p>
                                 @endforelse
                             </div>
                         </div>
                     </details>
                 @empty
-                    <p class="text-sm text-slate-500">No runs found for this job.</p>
+                    <p class="jd-empty text-sm text-slate-500">No runs found for this job.</p>
                 @endforelse
             </div>
         </section>

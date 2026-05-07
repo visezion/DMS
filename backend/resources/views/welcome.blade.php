@@ -25,6 +25,7 @@
     @if($brandFavicon !== '')
         <link rel="icon" type="image/png" href="{{ $brandFavicon }}">
     @endif
+    @include('partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -46,6 +47,16 @@
             font-family: 'Space Grotesk', ui-sans-serif, system-ui;
             color: var(--ink);
             background: var(--brand-bg);
+        }
+
+        html[data-theme="dark"] {
+            --brand-bg: #0b1220;
+            --brand-surface: #111c2d;
+            --ink: #e2e8f0;
+            --muted: #94a3b8;
+            --line: rgba(148, 163, 184, 0.28);
+            --soft-primary: rgba(14, 165, 233, 0.14);
+            --soft-accent: rgba(249, 115, 22, 0.14);
         }
 
         .mono {
@@ -134,6 +145,46 @@
             border-radius: 1.25rem;
         }
 
+        html[data-theme="dark"] .panel,
+        html[data-theme="dark"] .core,
+        html[data-theme="dark"] .node,
+        html[data-theme="dark"] .odd-grid,
+        html[data-theme="dark"] .btn-secondary {
+            border-color: var(--line);
+            background: color-mix(in srgb, var(--brand-surface) 94%, black);
+            color: var(--ink);
+            box-shadow: 0 16px 42px rgba(2, 6, 23, 0.28);
+        }
+
+        html[data-theme="dark"] .hero-wrap {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.14), rgba(17, 28, 45, 0.96));
+        }
+
+        html[data-theme="dark"] .orbit::before,
+        html[data-theme="dark"] .orbit::after,
+        html[data-theme="dark"] .core {
+            border-color: rgba(148, 163, 184, 0.3);
+        }
+
+        html[data-theme="dark"] header {
+            border-color: rgba(51, 65, 85, 0.8);
+            background: rgba(11, 18, 32, 0.84);
+        }
+
+        html[data-theme="dark"] .text-slate-900,
+        html[data-theme="dark"] .text-slate-700 {
+            color: var(--ink) !important;
+        }
+
+        html[data-theme="dark"] .text-slate-600,
+        html[data-theme="dark"] .text-slate-500 {
+            color: var(--muted) !important;
+        }
+
+        html[data-theme="dark"] .hover\:text-slate-900:hover {
+            color: #f8fafc !important;
+        }
+
         @media (max-width: 1024px) {
             .orbit { max-width: 460px; }
             .node { width: 96px; height: 96px; font-size: .76rem; }
@@ -164,6 +215,12 @@
             </nav>
 
             <div class="flex items-center gap-2">
+                <x-theme-select
+                    id="welcome-theme-select"
+                    wrapper-class="hidden sm:flex items-center"
+                    label-class="text-[10px] uppercase tracking-[0.18em] text-slate-500"
+                    select-class="theme-select-topbar"
+                />
                 @auth
                     <a href="{{ route('admin.dashboard') }}" class="rounded-full px-4 py-2 text-sm font-semibold btn-primary">Dashboard</a>
                 @else

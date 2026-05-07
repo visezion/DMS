@@ -1,5 +1,6 @@
 <x-admin-layout title="Approval Center" heading="Approval Center">
     <div class="endpoint-intelligence-shell space-y-5">
+    @include('admin.endpoint-intelligence.partials.smart-nav')
     @include('admin.endpoint-intelligence.partials.metric-cards', ['metrics' => $metrics])
 
     <section class="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

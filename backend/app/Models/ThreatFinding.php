@@ -6,6 +6,7 @@ use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ThreatFinding extends Model
 {
@@ -26,5 +27,10 @@ class ThreatFinding extends Model
             'last_seen_at' => 'datetime',
             'reviewed_at' => 'datetime',
         ];
+    }
+
+    public function autonomousDecisions(): HasMany
+    {
+        return $this->hasMany(AutonomousDecision::class, 'finding_id');
     }
 }

@@ -18,16 +18,16 @@
             ],
             [
                 'title' => 'Enroll Devices',
-                'summary' => 'Bring a new Windows endpoint under management and make it start checking in.',
+                'summary' => 'Bring a new Windows endpoint under management using the browser-based install script.',
                 'paths' => ['/admin/enroll-devices', '/admin/devices'],
                 'works' => [
-                    'Admins generate or reuse an enrollment token, then run the installer script on the Windows endpoint as Administrator.',
-                    'The agent enrolls, stores identity locally, starts the Windows service, and begins heartbeat and check-in traffic.',
+                    'One-Click Install Agent generates a fresh enrollment token and opens a signed PowerShell install script.',
+                    'Run the script as Administrator on the target PC so the agent enrolls, starts the Windows service, and begins heartbeat/check-in traffic.',
                     'After enrollment, the device appears in Devices and becomes available for group membership, policy assignment, package deployment, and jobs.',
                 ],
                 'example_title' => 'Example: onboard a new lab PC',
                 'example_steps' => [
-                    'Open Enroll Devices, copy the installer command, and run it on LAB-PC-22.',
+                    'Open Enroll Devices, click One-Click Install Agent, and run the script on LAB-PC-22 as Administrator.',
                     'Confirm the device appears in Devices, then add it to the Student Lab group so it inherits the correct restrictions and packages.',
                 ],
             ],
@@ -127,12 +127,13 @@
                 'paths' => ['/admin/agent'],
                 'works' => [
                     'Agent Delivery handles release upload or autobuild, release activation, installer generation, push updates, and connectivity checks.',
-                    'Use it to package and distribute the agent across your fleet.',
+                    'Autobuild requires the .NET SDK 10.x (x64) on the host that runs the build script.',
+                    'Use the connectivity test to confirm API endpoints are reachable from client PCs before deployment.',
                 ],
                 'example_title' => 'Example: ship a new agent release',
                 'example_steps' => [
-                    'Build or upload agent release 1.3.0, activate it, and generate a fresh installer for new devices.',
-                    'After a pilot verifies clean check-ins, use push update so enrolled devices move to the new release.',
+                    'Autobuild or upload agent release 1.3.0, activate it, and generate a fresh install script for new devices.',
+                    'Run the script on a pilot device, verify clean check-ins, then push update so enrolled devices move to the new release.',
                 ],
             ],
             [
@@ -181,6 +182,112 @@
                 ],
             ],
         ];
+
+        $capabilities = [
+            [
+                'title' => 'Enroll Windows Endpoints',
+                'meaning' => 'Generate a signed PowerShell install script that enrolls a PC and starts the agent service.',
+                'example' => 'Onboard LAB-PC-22, then verify it appears in Devices within minutes.',
+            ],
+            [
+                'title' => 'Maintain Device Inventory',
+                'meaning' => 'Track hostnames, OS details, agent version, IPs, and last check-in status.',
+                'example' => 'Find a staff laptop, confirm it is online, and review hardware inventory.',
+            ],
+            [
+                'title' => 'Target with Groups',
+                'meaning' => 'Use groups as the targeting layer for policies, packages, and jobs.',
+                'example' => 'Add classroom devices to Student Lab - Floor 2 and manage them as one unit.',
+            ],
+            [
+                'title' => 'Deploy Software Packages',
+                'meaning' => 'Create package versions with hashes and detection rules, then deploy to devices or groups.',
+                'example' => 'Deploy Notepad++ to Accounting and monitor job completion.',
+            ],
+            [
+                'title' => 'Apply Policy Rules',
+                'meaning' => 'Assign versioned policy rules (registry, firewall, DNS, scheduled tasks, etc.) with cleanup logic.',
+                'example' => 'Disable Control Panel for student labs, then remove it to restore defaults.',
+            ],
+            [
+                'title' => 'Run Jobs and Actions',
+                'meaning' => 'Queue install/uninstall, run_command, snapshots, reboot, and update actions across targets.',
+                'example' => 'Run hostname on one endpoint to validate connectivity.',
+            ],
+            [
+                'title' => 'Agent Release Lifecycle',
+                'meaning' => 'Upload or autobuild releases, activate them, and push updates to the fleet.',
+                'example' => 'Activate agent 1.3.0, pilot on one device, then push update to all devices.',
+            ],
+            [
+                'title' => 'Security and Operations Controls',
+                'meaning' => 'Kill switch, signature allowlist controls, auth posture, and environment hardening.',
+                'example' => 'Enable kill switch during maintenance to pause dispatch.',
+            ],
+            [
+                'title' => 'Audit and Access Control',
+                'meaning' => 'Role-based access and an immutable audit trail for changes and actions.',
+                'example' => 'Grant helpdesk read-only access and audit who changed a policy.',
+            ],
+            [
+                'title' => 'Endpoint Intelligence (Optional)',
+                'meaning' => 'Collect health and behavior telemetry and surface incidents, risk, and remediation queues.',
+                'example' => 'Review a new incident and approve remediation.',
+            ],
+        ];
+
+        $intelligenceModules = [
+            [
+                'title' => 'Health',
+                'path' => '/admin/intelligence/health',
+                'meaning' => 'Shows fleet health, unhealthy devices, stale telemetry, and the best place to start triage.',
+            ],
+            [
+                'title' => 'Risk',
+                'path' => '/admin/intelligence/risk',
+                'meaning' => 'Highlights elevated risk, active findings, and which devices or signals require deeper investigation.',
+            ],
+            [
+                'title' => 'Incidents',
+                'path' => '/admin/intelligence/incidents',
+                'meaning' => 'Groups related findings into an investigation view so operators can follow a security event instead of isolated alerts.',
+            ],
+            [
+                'title' => 'Approvals',
+                'path' => '/admin/intelligence/approvals',
+                'meaning' => 'Queues remediation actions that need human approval before execution.',
+            ],
+            [
+                'title' => 'Remediation',
+                'path' => '/admin/intelligence/remediation',
+                'meaning' => 'Tracks recommended, approved, executing, failed, and rolled-back remediation work.',
+            ],
+            [
+                'title' => 'Autonomy',
+                'path' => '/admin/intelligence/autonomy',
+                'meaning' => 'Controls how much the platform can recommend, queue, or automatically carry out response actions.',
+            ],
+            [
+                'title' => 'AI Assistant',
+                'path' => '/admin/intelligence/assistant',
+                'meaning' => 'Lets admins ask for explanation, triage help, and grounded next steps using current platform context.',
+            ],
+        ];
+
+        $intelligenceWorkflow = [
+            'Open Health first to see which devices are healthy, degraded, or critical and whether the telemetry is fresh enough to trust.',
+            'Open Risk or Incidents when a device, finding, or pattern looks suspicious and you need to understand severity and scope.',
+            'Review the proposed response in Approvals or Remediation before acting, especially when an action affects production users or critical devices.',
+            'Use Autonomy settings to decide whether the platform should only recommend, require approval, or auto-execute under strict policy guardrails.',
+            'Use the AI Assistant when you need a faster explanation of what the signals mean or which operational step to take next.',
+        ];
+
+        $intelligenceImportance = [
+            'It reduces alert noise by turning raw telemetry into prioritized health, risk, and incident views.',
+            'It shortens response time because operators can move from detection to action without leaving the DMS control plane.',
+            'It improves safety by routing actions through approvals, policy controls, audit logging, and rollback-aware remediation paths.',
+            'It helps less experienced admins work consistently because the platform explains what is wrong and which next action is appropriate.',
+        ];
     @endphp
 <section class="rounded-2xl border p-5 doc-shell bg-gradient-to-br from-slate-50 via-white to-slate-100">
         <div class="space-y-4">
@@ -194,6 +301,8 @@
             </div>
             <div class="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <a href="#quick-start" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Quick Start</a>
+                <a href="#project-capabilities" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Capabilities</a>
+                <a href="#endpoint-intelligence" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Intelligence Guide</a>
                 <a href="#ui-updates" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">UI Updates</a>
                 <a href="#feature-playbooks" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Feature Guide</a>
                 <a href="#admin-functions" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center hover:bg-slate-50">Admin Functions</a>
@@ -210,13 +319,12 @@
     <section id="ui-updates" class="rounded-2xl bg-white border border-slate-200 p-5 space-y-4 doc-shell">
         <div class="flex items-center justify-between gap-3">
             <h3 class="font-semibold text-lg text-slate-900">UI Update Log</h3>
-            <span class="doc-kbd">Last update: 2026-04-08</span>
+            <span class="doc-kbd">Last update: 2026-04-14</span>
         </div>
         <div class="doc-card rounded-xl p-4 text-sm text-slate-700 space-y-2">
-            <p class="font-medium text-slate-900">Topbar status cards were normalized for a cleaner layout.</p>
-            <p>- Security Score and Kill Switch cards now use the same spacing, icon size, border radius, and card proportions.</p>
-            <p>- Kill Switch uses solid state colors (no gradient), with a compact status chip and tighter action label.</p>
-            <p>- The topbar Kill Switch action continues to require confirmation phrase plus admin password in the modal.</p>
+            <p class="font-medium text-slate-900">Enrollment reverted to browser-based PowerShell install flow.</p>
+            <p>- One-Click Install Agent now opens the signed PowerShell script again.</p>
+            <p>- GUI installer downloads are disabled until a stable GUI installer is reintroduced.</p>
             <p class="text-xs text-slate-500">Rule: when UI behavior or layout changes, update this section in the same change.</p>
         </div>
     </section>
@@ -243,7 +351,97 @@ dotnet publish .\src\Dms.Agent.Service\Dms.Agent.Service.csproj -c Release -r wi
             </div>
         </div>
         <div class="doc-card rounded-xl p-4 text-sm text-slate-700">
-            Log in at <code>/admin</code>, open <strong>Enroll Devices</strong> for onboarding, then use <strong>Agent Delivery</strong> for release lifecycle.
+            Log in at <code>/admin</code>, open <strong>Enroll Devices</strong> for the PowerShell onboarding script, then use <strong>Agent Delivery</strong> for release lifecycle.
+        </div>
+    </section>
+
+    <section id="project-capabilities" class="rounded-2xl bg-white border border-slate-200 p-5 space-y-4 doc-shell">
+        <div class="flex items-center justify-between gap-3">
+            <h3 class="font-semibold text-lg text-slate-900">Project Capabilities</h3>
+            <span class="doc-kbd">What DMS Can Do</span>
+        </div>
+        <div class="grid gap-3 lg:grid-cols-2">
+            @foreach($capabilities as $capability)
+                <div class="doc-card rounded-xl p-4 text-sm text-slate-700">
+                    <p class="font-semibold text-slate-900">{{ $capability['title'] }}</p>
+                    <p class="mt-1">{{ $capability['meaning'] }}</p>
+                    <p class="mt-2 text-xs text-slate-500">Example: {{ $capability['example'] }}</p>
+                </div>
+            @endforeach
+        </div>
+    </section>
+
+    <section id="endpoint-intelligence" class="rounded-2xl bg-white border border-slate-200 p-5 space-y-5 doc-shell">
+        <div class="flex items-center justify-between gap-3">
+            <div>
+                <h3 class="font-semibold text-lg text-slate-900">Endpoint Intelligence Guide</h3>
+                <p class="mt-1 text-sm text-slate-600">
+                    Endpoint Intelligence turns device health, risk signals, findings, incidents, and remediation into one operational workflow.
+                </p>
+            </div>
+            <span class="doc-kbd">/admin/intelligence/*</span>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-[1.2fr,0.8fr]">
+            <div class="doc-card rounded-xl p-4 text-sm text-slate-700">
+                <p class="font-semibold text-slate-900">What it is</p>
+                <p class="mt-2">
+                    This module is the security and self-healing layer of DMS. It watches endpoint telemetry, scores health and risk,
+                    groups related events into incidents, and routes response actions through recommendation, approval, execution, and rollback.
+                </p>
+                <p class="mt-3 font-semibold text-slate-900">Why it matters</p>
+                <div class="mt-2 space-y-2">
+                    @foreach($intelligenceImportance as $item)
+                        <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">{{ $item }}</div>
+                    @endforeach
+                </div>
+            </div>
+
+            <div class="doc-example-box rounded-xl p-4">
+                <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Simple Daily Use</p>
+                <div class="mt-2 space-y-2">
+                    @foreach($intelligenceWorkflow as $step)
+                        <div class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">{{ $step }}</div>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Main Intelligence Pages</p>
+            <div class="mt-3 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+                @foreach($intelligenceModules as $module)
+                    <div class="doc-card rounded-xl p-4 text-sm text-slate-700">
+                        <div class="flex items-start justify-between gap-3">
+                            <p class="font-semibold text-slate-900">{{ $module['title'] }}</p>
+                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-mono text-slate-500">{{ $module['path'] }}</span>
+                        </div>
+                        <p class="mt-2">{{ $module['meaning'] }}</p>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+            <div class="doc-card rounded-xl p-4 text-sm text-slate-700">
+                <p class="font-semibold text-slate-900">Typical operator flow</p>
+                <div class="mt-3 space-y-2">
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">1. Start in <strong>Health</strong> to see overall device condition and what needs review first.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">2. Move to <strong>Risk</strong> or <strong>Incidents</strong> to understand why a device is unsafe or unstable.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">3. Review the proposed action in <strong>Approvals</strong> or <strong>Remediation</strong>.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">4. Approve, reject, execute, or roll back based on policy, confidence, and business impact.</div>
+                </div>
+            </div>
+
+            <div class="doc-card rounded-xl p-4 text-sm text-slate-700">
+                <p class="font-semibold text-slate-900">Example</p>
+                <div class="mt-3 space-y-2">
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">A device shows malware-related findings and its risk score spikes.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">Health and Risk pages surface the device as urgent.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">The platform recommends actions such as isolate device or collect forensic data.</div>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">If policy requires approval, the action waits in Approvals. If allowed, it moves into Remediation execution with audit logging and rollback tracking.</div>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -322,6 +520,7 @@ dotnet publish .\src\Dms.Agent.Service\Dms.Agent.Service.csproj -c Release -r wi
                     <tr class="border-b align-top"><td class="py-2 font-medium">Settings</td><td class="py-2">System-wide operational controls</td><td class="py-2">Kill switch, retries, backoff, allowlist, signature bypass, enrollment token</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Access Control</td><td class="py-2">Role and permission management</td><td class="py-2">Create users, assign roles, restrict module access</td></tr>
                     <tr class="border-b align-top"><td class="py-2 font-medium">Notes</td><td class="py-2">Internal operator knowledge base</td><td class="py-2">Store pinned runbooks, change notes, and support reminders</td></tr>
+                    <tr class="border-b align-top"><td class="py-2 font-medium">Docs</td><td class="py-2">Operational documentation hub</td><td class="py-2">Feature guide, API reference, runbooks, and update log</td></tr>
                     <tr class="align-top"><td class="py-2 font-medium">Audit Logs</td><td class="py-2">Forensic trail</td><td class="py-2">Review immutable admin and device action history</td></tr>
                 </tbody>
             </table>
@@ -398,6 +597,7 @@ GET       /api/v1/admin/audit-logs</pre>
             <div class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm">If agent install says file not found, rebuild release so updated installer scripts are included.</div>
             <div class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm">If enrollment token is missing/invalid, regenerate token and rerun script as Administrator.</div>
             <div class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm">If installer URL fails from client, use LAN IP or DNS host reachable from target machine.</div>
+            <div class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm">If agent autobuild fails, verify .NET SDK 10.x (x64) is installed on the build host.</div>
             <div class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm">If auto-build fails with disk errors, free space or reduce publish footprint.</div>
         </div>
     </section>

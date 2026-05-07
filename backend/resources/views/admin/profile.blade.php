@@ -1,11 +1,13 @@
-<x-admin-layout title="My Profile" heading="My Profile">
+<x-admin-layout title="{{ __('ui.profile.title') }}" heading="{{ __('ui.profile.title') }}">
     @php
+        $supportedLocales = \App\Support\LocaleManager::supported();
         $profilePref = array_merge([
             'timezone' => config('app.timezone', 'UTC'),
-            'locale' => 'en_US',
+            'locale' => 'en',
             'bio' => '',
             'avatar_url' => null,
         ], is_array($profilePref ?? null) ? $profilePref : []);
+        $profilePref['locale'] = \App\Support\LocaleManager::normalize((string) ($profilePref['locale'] ?? 'en'));
         $mfaPolicyRequired = (bool) ($mfaPolicyRequired ?? false);
         $mfaSecretCorrupted = (bool) ($mfaSecretCorrupted ?? false);
         $mfaEnabled = (bool) ($user->mfa_enabled ?? false);
@@ -28,8 +30,8 @@
 
     <div class="grid gap-4 lg:grid-cols-3">
         <div class="rounded-2xl bg-white border border-slate-200 p-4">
-            <h3 class="font-semibold">Account</h3>
-            <p class="text-xs text-slate-500 mt-1">Your login identity and avatar.</p>
+            <h3 class="font-semibold">{{ __('ui.profile.account') }}</h3>
+            <p class="text-xs text-slate-500 mt-1">{{ __('ui.profile.account_help') }}</p>
             <div class="mt-4 flex items-center gap-3">
                 @if($profileAvatarUrl !== '')
                     <img src="{{ asset(ltrim($profileAvatarUrl, '/')) }}" alt="Avatar" class="h-14 w-14 rounded-full object-cover border border-slate-200">
@@ -46,45 +48,50 @@
         </div>
 
         <div class="rounded-2xl bg-white border border-slate-200 p-4 lg:col-span-2">
-            <h3 class="font-semibold">Profile & Preferences</h3>
+            <h3 class="font-semibold">{{ __('ui.profile.preferences') }}</h3>
             <form method="POST" action="{{ route('admin.profile.update') }}" enctype="multipart/form-data" class="grid gap-3 md:grid-cols-2 mt-4">
                 @csrf
                 <div>
-                    <label class="text-xs uppercase text-slate-500">Full Name</label>
+                    <label class="text-xs uppercase text-slate-500">{{ __('ui.profile.full_name') }}</label>
                     <input name="name" value="{{ old('name', $user->name) }}" required class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
                 </div>
                 <div>
-                    <label class="text-xs uppercase text-slate-500">Email</label>
+                    <label class="text-xs uppercase text-slate-500">{{ __('ui.profile.email') }}</label>
                     <input type="email" name="email" value="{{ old('email', $user->email) }}" required class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
                 </div>
                 <div>
-                    <label class="text-xs uppercase text-slate-500">Time Zone</label>
+                    <label class="text-xs uppercase text-slate-500">{{ __('ui.profile.time_zone') }}</label>
                     <input name="timezone" value="{{ old('timezone', $profilePref['timezone']) }}" placeholder="UTC" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
                 </div>
                 <div>
-                    <label class="text-xs uppercase text-slate-500">Locale</label>
-                    <input name="locale" value="{{ old('locale', $profilePref['locale']) }}" placeholder="en_US" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
+                    <label class="text-xs uppercase text-slate-500">{{ __('ui.profile.language') }}</label>
+                    <select name="locale" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
+                        @foreach($supportedLocales as $localeCode => $localeLabel)
+                            <option value="{{ $localeCode }}" @selected(old('locale', $profilePref['locale']) === $localeCode)>{{ $localeLabel }}</option>
+                        @endforeach
+                    </select>
+                    <p class="mt-1 text-xs text-slate-500">{{ __('ui.locale.help') }}</p>
                 </div>
                 <div class="md:col-span-2">
-                    <label class="text-xs uppercase text-slate-500">Bio</label>
+                    <label class="text-xs uppercase text-slate-500">{{ __('ui.profile.bio') }}</label>
                     <textarea name="bio" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 min-h-24">{{ old('bio', $profilePref['bio']) }}</textarea>
                 </div>
                 <div>
-                    <label class="text-xs uppercase text-slate-500">Avatar</label>
+                    <label class="text-xs uppercase text-slate-500">{{ __('ui.profile.avatar') }}</label>
                     <input type="file" name="avatar" accept="image/*" class="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-xs">
                     <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-700">
                         <input type="checkbox" name="remove_avatar" value="1" class="rounded border-slate-300">
-                        Remove current avatar
+                        {{ __('ui.profile.remove_avatar') }}
                     </label>
                 </div>
                 <div>
-                    <label class="text-xs uppercase text-slate-500">New Password</label>
+                    <label class="text-xs uppercase text-slate-500">{{ __('ui.profile.new_password') }}</label>
                     <input type="password" name="password" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
-                    <label class="text-xs uppercase text-slate-500 mt-2 block">Confirm New Password</label>
+                    <label class="text-xs uppercase text-slate-500 mt-2 block">{{ __('ui.profile.confirm_new_password') }}</label>
                     <input type="password" name="password_confirmation" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
                 </div>
                 <div class="md:col-span-2">
-                    <button class="rounded bg-skyline text-white px-4 py-2 text-sm">Save Profile</button>
+                    <button class="rounded bg-skyline text-white px-4 py-2 text-sm">{{ __('ui.profile.save') }}</button>
                 </div>
             </form>
         </div>

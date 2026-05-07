@@ -425,6 +425,7 @@ body.admin-auth-login .toggle-pass:hover {
 /* Admin views: dashboard */
 .board-surface {
     border: 1px solid #dbe5f0;
+    border-radius: var(--brand-radius-3xl);
     background: #ffffff;
     box-shadow: 0 10px 24px rgba(148, 163, 184, 0.1);
     transition: box-shadow 0.16s ease, transform 0.16s ease;
@@ -438,6 +439,7 @@ body.admin-auth-login .toggle-pass:hover {
     position: relative;
     overflow: hidden;
     border: 1px solid #dbe5f0;
+    border-radius: var(--brand-radius-3xl);
     background:
         radial-gradient(circle at top right, rgba(56, 189, 248, 0.1), transparent 48%),
         linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
@@ -450,6 +452,7 @@ body.admin-auth-login .toggle-pass:hover {
 
 .hero-card {
     border: 1px solid rgba(226, 232, 240, 0.95);
+    border-radius: var(--brand-radius-2xl);
     background: #ffffff;
     backdrop-filter: blur(12px);
     box-shadow: 0 6px 14px rgba(148, 163, 184, 0.08);
@@ -489,6 +492,7 @@ body.admin-auth-login .toggle-pass:hover {
 
 .signal-card {
     border: 1px solid #e2e8f0;
+    border-radius: var(--brand-radius-2xl);
     background: #ffffff;
     box-shadow: 0 4px 12px rgba(148, 163, 184, 0.08);
 }
@@ -514,9 +518,19 @@ body.admin-auth-login .toggle-pass:hover {
 
 .metric-card {
     border: 1px solid #e2e8f0;
+    border-radius: var(--brand-radius-xl);
     background: #ffffff;
     padding: 0.5rem;
     box-shadow: 0 4px 10px rgba(148, 163, 184, 0.08);
+}
+
+.dashboard-subpanel {
+    border-radius: var(--brand-radius-2xl);
+}
+
+.dashboard-feed-item,
+.dashboard-empty-state {
+    border-radius: var(--brand-radius-3xl);
 }
 
 .chart-card {
@@ -1205,18 +1219,23 @@ body.ui-modal-open #admin-dashboard-root {
     box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
 }
 
-body.admin-layout-shell #create-package-modal .modal-backdrop {
+body.admin-layout-shell #create-package-modal .modal-backdrop,
+body.admin-layout-shell #access-user-modal .modal-backdrop {
     background: rgba(15, 23, 42, 0.45);
     backdrop-filter: blur(4px);
 }
 
-body.admin-layout-shell #create-package-modal .modal-panel {
+body.admin-layout-shell #create-package-modal .modal-panel,
+body.admin-layout-shell #access-user-modal .modal-panel {
     border: 1px solid #dbe5f0;
     background: #ffffff;
     box-shadow: 0 30px 80px rgba(15, 23, 42, 0.24);
 }
 
-body.admin-layout-shell #create-package-modal .form-field {
+body.admin-layout-shell #create-package-modal .form-field,
+body.admin-layout-shell #access-user-modal input:not([type="checkbox"]),
+body.admin-layout-shell #access-user-modal select,
+body.admin-layout-shell #access-user-modal textarea {
     width: 100%;
     border: 1px solid #cbd5e1;
     border-radius: var(--brand-radius-xl);
@@ -1225,8 +1244,582 @@ body.admin-layout-shell #create-package-modal .form-field {
     color: #0f172a;
 }
 
-body.admin-layout-shell #create-package-modal .form-field:focus {
+body.admin-layout-shell #create-package-modal .form-field:focus,
+body.admin-layout-shell #access-user-modal input:not([type="checkbox"]):focus,
+body.admin-layout-shell #access-user-modal select:focus,
+body.admin-layout-shell #access-user-modal textarea:focus {
     outline: none;
     border-color: #0f172a;
     box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+}
+
+/* Theme system */
+:root {
+    --theme-surface: #ffffff;
+    --theme-surface-soft: #f8fafc;
+    --theme-surface-muted: #f1f5f9;
+    --theme-border: #dbe5f0;
+    --theme-border-strong: #cbd5e1;
+    --theme-text: #0f172a;
+    --theme-text-strong: #020617;
+    --theme-text-muted: #64748b;
+    --theme-glass: rgba(255, 255, 255, 0.72);
+    --theme-backdrop: rgba(15, 23, 42, 0.5);
+    --theme-shadow: 0 24px 60px rgba(15, 23, 42, 0.12), 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+:root[data-theme="dark"] {
+    --theme-page: #0b1220;
+    --theme-sidebar: rgba(10, 16, 30, 0.88);
+    --theme-surface: #111c2d;
+    --theme-surface-soft: #0f172a;
+    --theme-surface-muted: #1e293b;
+    --theme-border: #334155;
+    --theme-border-strong: #475569;
+    --theme-text: #dbe7f5;
+    --theme-text-strong: #f8fafc;
+    --theme-text-muted: #94a3b8;
+    --theme-glass: rgba(15, 23, 42, 0.7);
+    --theme-backdrop: rgba(2, 6, 23, 0.72);
+    --theme-shadow: 0 24px 60px rgba(2, 6, 23, 0.36);
+}
+
+body.admin-layout-shell,
+body.admin-auth-login,
+body.admin-auth-register,
+body.admin-auth-mfa {
+    background: var(--theme-page, var(--brand-background-light, var(--brand-background, #f1f5f9)));
+    color: var(--theme-text);
+}
+
+body.admin-layout-shell .glass {
+    background: var(--theme-glass);
+}
+
+body.admin-layout-shell .modal-backdrop,
+body.admin-layout-shell #create-package-modal .modal-backdrop {
+    background: var(--theme-backdrop);
+}
+
+.theme-select-shell {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.theme-select-label {
+    color: var(--theme-text-muted);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.theme-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--theme-border);
+    border-radius: 0.8rem;
+    background: var(--theme-surface);
+    color: var(--theme-text);
+    width: 2.5rem;
+    height: 2.5rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.theme-icon {
+    display: none;
+}
+
+.theme-toggle-btn[data-theme-current="light"] .theme-icon-light,
+.theme-toggle-btn[data-theme-current="dark"] .theme-icon-dark {
+    display: block;
+}
+
+.theme-toggle-btn:hover {
+    border-color: var(--theme-border-strong);
+    transform: translateY(-1px);
+}
+
+.theme-toggle-btn:focus {
+    outline: none;
+    border-color: var(--theme-border-strong);
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16);
+}
+
+.theme-toggle-btn[data-theme-current="dark"] {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary-soft);
+    color: var(--brand-primary);
+}
+
+.theme-toggle-btn.theme-select-topbar {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-color: transparent;
+    border-radius: 9999px;
+    background: transparent;
+    box-shadow: none;
+    color: #64748b;
+}
+
+.theme-toggle-btn.theme-select-topbar:hover {
+    border-color: transparent;
+    background: rgba(241, 245, 249, 0.85);
+    color: var(--brand-primary);
+    transform: none;
+}
+
+.theme-toggle-btn.theme-select-topbar:focus {
+    border-color: rgba(148, 163, 184, 0.35);
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.14);
+}
+
+.theme-toggle-btn.theme-select-topbar svg {
+    width: 1.05rem;
+    height: 1.05rem;
+}
+
+html[data-theme="dark"] .theme-toggle-btn.theme-select-topbar {
+    color: #cbd5e1;
+}
+
+html[data-theme="dark"] .theme-toggle-btn.theme-select-topbar:hover {
+    background: rgba(30, 41, 59, 0.9);
+    color: #f8fafc;
+}
+
+html[data-theme="dark"] body.admin-layout-shell,
+html[data-theme="dark"] body.admin-auth-login,
+html[data-theme="dark"] body.admin-auth-register,
+html[data-theme="dark"] body.admin-auth-mfa {
+    color: var(--theme-text);
+}
+
+html[data-theme="dark"] body.admin-layout-shell .bg-white,
+html[data-theme="dark"] body.admin-layout-shell .bg-white\/95,
+html[data-theme="dark"] body.admin-layout-shell [class*="bg-white/"],
+html[data-theme="dark"] body.admin-auth-login .bg-white,
+html[data-theme="dark"] body.admin-auth-login [class*="bg-white/"],
+html[data-theme="dark"] body.admin-auth-register .bg-white,
+html[data-theme="dark"] body.admin-auth-register [class*="bg-white/"],
+html[data-theme="dark"] body.admin-auth-mfa .bg-white,
+html[data-theme="dark"] body.admin-auth-mfa [class*="bg-white/"] {
+    background-color: var(--theme-surface) !important;
+    background-image: none !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .bg-slate-50,
+html[data-theme="dark"] body.admin-layout-shell .bg-slate-100,
+html[data-theme="dark"] body.admin-layout-shell .bg-slate-200,
+html[data-theme="dark"] body.admin-layout-shell [class*="bg-slate-50/"],
+html[data-theme="dark"] body.admin-layout-shell [class*="bg-slate-100/"],
+html[data-theme="dark"] body.admin-auth-login .bg-slate-50,
+html[data-theme="dark"] body.admin-auth-login .bg-slate-100,
+html[data-theme="dark"] body.admin-auth-login [class*="bg-slate-50/"],
+html[data-theme="dark"] body.admin-auth-login [class*="bg-slate-100/"],
+html[data-theme="dark"] body.admin-auth-register .bg-slate-50,
+html[data-theme="dark"] body.admin-auth-register .bg-slate-100,
+html[data-theme="dark"] body.admin-auth-register [class*="bg-slate-50/"],
+html[data-theme="dark"] body.admin-auth-register [class*="bg-slate-100/"],
+html[data-theme="dark"] body.admin-auth-mfa .bg-slate-50,
+html[data-theme="dark"] body.admin-auth-mfa .bg-slate-100,
+html[data-theme="dark"] body.admin-auth-mfa [class*="bg-slate-50/"],
+html[data-theme="dark"] body.admin-auth-mfa [class*="bg-slate-100/"] {
+    background-color: var(--theme-surface-soft) !important;
+    background-image: none !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .border-slate-100,
+html[data-theme="dark"] body.admin-layout-shell .border-slate-200,
+html[data-theme="dark"] body.admin-layout-shell .border-slate-300,
+html[data-theme="dark"] body.admin-layout-shell [class*="border-slate-100/"],
+html[data-theme="dark"] body.admin-layout-shell [class*="border-slate-200/"],
+html[data-theme="dark"] body.admin-layout-shell [class*="border-slate-300/"],
+html[data-theme="dark"] body.admin-auth-login .border-slate-200,
+html[data-theme="dark"] body.admin-auth-login .border-slate-300,
+html[data-theme="dark"] body.admin-auth-login [class*="border-slate-200/"],
+html[data-theme="dark"] body.admin-auth-login [class*="border-slate-300/"],
+html[data-theme="dark"] body.admin-auth-register .border-slate-200,
+html[data-theme="dark"] body.admin-auth-register .border-slate-300,
+html[data-theme="dark"] body.admin-auth-register [class*="border-slate-200/"],
+html[data-theme="dark"] body.admin-auth-register [class*="border-slate-300/"],
+html[data-theme="dark"] body.admin-auth-mfa .border-slate-200,
+html[data-theme="dark"] body.admin-auth-mfa .border-slate-300,
+html[data-theme="dark"] body.admin-auth-mfa [class*="border-slate-200/"],
+html[data-theme="dark"] body.admin-auth-mfa [class*="border-slate-300/"],
+html[data-theme="dark"] body.admin-layout-shell .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+html[data-theme="dark"] body.admin-layout-shell .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+    border-color: var(--theme-border) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell [class*="text-slate-"],
+html[data-theme="dark"] body.admin-auth-login [class*="text-slate-"],
+html[data-theme="dark"] body.admin-auth-register [class*="text-slate-"],
+html[data-theme="dark"] body.admin-auth-mfa [class*="text-slate-"] {
+    color: var(--theme-text) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .text-slate-900,
+html[data-theme="dark"] body.admin-layout-shell .text-slate-800,
+html[data-theme="dark"] body.admin-auth-login .text-slate-900,
+html[data-theme="dark"] body.admin-auth-login .text-slate-800,
+html[data-theme="dark"] body.admin-auth-register .text-slate-900,
+html[data-theme="dark"] body.admin-auth-register .text-slate-800,
+html[data-theme="dark"] body.admin-auth-mfa .text-slate-900,
+html[data-theme="dark"] body.admin-auth-mfa .text-slate-800 {
+    color: var(--theme-text-strong) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .text-slate-700,
+html[data-theme="dark"] body.admin-layout-shell .text-slate-600,
+html[data-theme="dark"] body.admin-layout-shell .text-slate-500,
+html[data-theme="dark"] body.admin-auth-login .text-slate-700,
+html[data-theme="dark"] body.admin-auth-login .text-slate-600,
+html[data-theme="dark"] body.admin-auth-login .text-slate-500,
+html[data-theme="dark"] body.admin-auth-register .text-slate-700,
+html[data-theme="dark"] body.admin-auth-register .text-slate-600,
+html[data-theme="dark"] body.admin-auth-register .text-slate-500,
+html[data-theme="dark"] body.admin-auth-mfa .text-slate-700,
+html[data-theme="dark"] body.admin-auth-mfa .text-slate-600,
+html[data-theme="dark"] body.admin-auth-mfa .text-slate-500 {
+    color: var(--theme-text) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .text-slate-400,
+html[data-theme="dark"] body.admin-auth-login .text-slate-400,
+html[data-theme="dark"] body.admin-auth-register .text-slate-400,
+html[data-theme="dark"] body.admin-auth-mfa .text-slate-400 {
+    color: var(--theme-text-muted) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"] body.admin-layout-shell select,
+html[data-theme="dark"] body.admin-layout-shell textarea,
+html[data-theme="dark"] body.admin-auth-login input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"] body.admin-auth-login select,
+html[data-theme="dark"] body.admin-auth-login textarea,
+html[data-theme="dark"] body.admin-auth-register input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"] body.admin-auth-register select,
+html[data-theme="dark"] body.admin-auth-register textarea,
+html[data-theme="dark"] body.admin-auth-mfa input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"] body.admin-auth-mfa select,
+html[data-theme="dark"] body.admin-auth-mfa textarea,
+html[data-theme="dark"] body.admin-layout-shell #create-package-modal .form-field,
+html[data-theme="dark"] body.admin-layout-shell .package-library .catalog-search {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    color: var(--theme-text) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell input::placeholder,
+html[data-theme="dark"] body.admin-layout-shell textarea::placeholder,
+html[data-theme="dark"] body.admin-auth-login input::placeholder,
+html[data-theme="dark"] body.admin-auth-login textarea::placeholder,
+html[data-theme="dark"] body.admin-auth-register input::placeholder,
+html[data-theme="dark"] body.admin-auth-register textarea::placeholder,
+html[data-theme="dark"] body.admin-auth-mfa input::placeholder,
+html[data-theme="dark"] body.admin-auth-mfa textarea::placeholder {
+    color: var(--theme-text-muted) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell header,
+html[data-theme="dark"] body.admin-layout-shell #topbar-profile-btn,
+html[data-theme="dark"] body.admin-layout-shell #topbar-profile-menu,
+html[data-theme="dark"] body.admin-layout-shell #mobile-nav-drawer,
+html[data-theme="dark"] body.admin-layout-shell .board-surface,
+html[data-theme="dark"] body.admin-layout-shell .hero-surface,
+html[data-theme="dark"] body.admin-layout-shell .hero-card,
+html[data-theme="dark"] body.admin-layout-shell .hero-side,
+html[data-theme="dark"] body.admin-layout-shell .package-library .panel-surface,
+html[data-theme="dark"] body.admin-layout-shell .package-library .summary-card,
+html[data-theme="dark"] body.admin-layout-shell .package-library .meta-box,
+html[data-theme="dark"] body.admin-layout-shell #create-package-modal .modal-panel,
+html[data-theme="dark"] body.admin-layout-shell #access-user-modal .modal-panel {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    background-image: none !important;
+    box-shadow: var(--theme-shadow) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .brand-modal-input:focus,
+html[data-theme="dark"] body.admin-layout-shell #create-package-modal .form-field:focus,
+html[data-theme="dark"] body.admin-layout-shell #access-user-modal input:not([type="checkbox"]):focus,
+html[data-theme="dark"] body.admin-layout-shell #access-user-modal select:focus,
+html[data-theme="dark"] body.admin-layout-shell #access-user-modal textarea:focus,
+html[data-theme="dark"] body.admin-layout-shell .package-library .catalog-search:focus-within {
+    border-color: var(--theme-border-strong) !important;
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell aside nav a,
+html[data-theme="dark"] body.admin-layout-shell aside nav summary,
+html[data-theme="dark"] body.admin-layout-shell aside nav a svg,
+html[data-theme="dark"] body.admin-layout-shell aside nav summary svg,
+html[data-theme="dark"] body.admin-layout-shell .lg\:hidden nav a,
+html[data-theme="dark"] body.admin-layout-shell .lg\:hidden nav summary,
+html[data-theme="dark"] body.admin-layout-shell .lg\:hidden nav a svg,
+html[data-theme="dark"] body.admin-layout-shell .lg\:hidden nav summary svg,
+html[data-theme="dark"] body.admin-layout-shell header nav[aria-label="Top shortcuts"] a,
+html[data-theme="dark"] body.admin-layout-shell header nav[aria-label="Top shortcuts"] a svg {
+    color: var(--theme-text) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell aside nav .bg-skyline {
+    background: var(--brand-primary-soft-2) !important;
+    color: var(--theme-text-strong) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell aside nav a:hover,
+html[data-theme="dark"] body.admin-layout-shell aside nav summary:hover,
+html[data-theme="dark"] body.admin-layout-shell .lg\:hidden nav a:hover,
+html[data-theme="dark"] body.admin-layout-shell .lg\:hidden nav summary:hover {
+    background: var(--theme-surface-muted) !important;
+    color: var(--theme-text-strong) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell aside nav a:hover svg,
+html[data-theme="dark"] body.admin-layout-shell aside nav summary:hover svg,
+html[data-theme="dark"] body.admin-layout-shell .lg\:hidden nav a:hover svg,
+html[data-theme="dark"] body.admin-layout-shell .lg\:hidden nav summary:hover svg {
+    color: inherit !important;
+}
+
+html[data-theme="dark"] body.admin-auth-login .scene-grid {
+    background-image:
+        linear-gradient(to right, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+}
+
+html[data-theme="dark"] body.admin-auth-login .auth-hero-gradient {
+    background: linear-gradient(
+        135deg,
+        rgba(8, 15, 30, 0.96) 0%,
+        rgba(15, 23, 42, 0.82) 56%,
+        rgba(30, 41, 59, 0.94) 100%
+    );
+}
+
+html[data-theme="dark"] body.admin-auth-login .auth-card,
+html[data-theme="dark"] body.admin-auth-register > div,
+html[data-theme="dark"] body.admin-auth-mfa > div,
+html[data-theme="dark"] body.admin-auth-login .node-card,
+html[data-theme="dark"] body.admin-auth-login .node-icon {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    color: var(--theme-text) !important;
+    box-shadow: var(--theme-shadow) !important;
+}
+
+html[data-theme="dark"] body.admin-auth-login .node-sub {
+    color: var(--theme-text-muted);
+}
+
+html[data-theme="dark"] body.admin-auth-login .toggle-pass {
+    color: var(--theme-text-muted);
+}
+
+html[data-theme="dark"] body.admin-auth-login .toggle-pass:hover {
+    background: var(--theme-surface-soft);
+}
+
+/* Theme system: page-specific dark mode */
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .signal-card,
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .metric-card,
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .hero-mini-card,
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .chart-well,
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .dashboard-subpanel,
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .dashboard-feed-item,
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .dashboard-empty-state {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    background-image: none !important;
+    box-shadow: 0 10px 24px rgba(2, 6, 23, 0.22) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .ring-shell::after {
+    background: #0f172a;
+    box-shadow: inset 0 0 0 1px rgba(71, 85, 105, 0.6);
+}
+
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .stack-track,
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .group-bar,
+html[data-theme="dark"] body.admin-layout-shell .dashboard-shell .bg-slate-200 {
+    background: #233044 !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .enroll-shell .enroll-card,
+html[data-theme="dark"] body.admin-layout-shell .enroll-shell .enroll-pane,
+html[data-theme="dark"] body.admin-layout-shell .enroll-shell .enroll-side-panel,
+html[data-theme="dark"] body.admin-layout-shell .enroll-shell .enroll-table-panel {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    background-image: none !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .enroll-shell .enroll-feature-panel {
+    border-color: var(--theme-border) !important;
+    background: linear-gradient(135deg, #111c2d 0%, #0f172a 58%, #132238 100%) !important;
+    box-shadow: 0 18px 32px rgba(2, 6, 23, 0.24) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .enroll-shell .enroll-success-panel {
+    border-color: #1f8f63 !important;
+    background: linear-gradient(180deg, rgba(6, 78, 59, 0.32) 0%, rgba(17, 28, 45, 0.98) 100%) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .groups-simple {
+    --groups-border: #334155;
+    --groups-card: #111c2d;
+    --groups-shadow: 0 14px 34px rgba(2, 6, 23, 0.24);
+}
+
+html[data-theme="dark"] body.admin-layout-shell .groups-simple .panel,
+html[data-theme="dark"] body.admin-layout-shell .groups-simple .group-card,
+html[data-theme="dark"] body.admin-layout-shell .groups-simple .empty-state-shell,
+html[data-theme="dark"] body.admin-layout-shell .groups-simple .empty-badge {
+    border-color: var(--groups-border) !important;
+    background: var(--groups-card) !important;
+    color: var(--theme-text) !important;
+    box-shadow: var(--groups-shadow);
+}
+
+html[data-theme="dark"] body.admin-layout-shell .groups-simple .field {
+    border-color: var(--groups-border) !important;
+    background: var(--groups-card) !important;
+    color: var(--theme-text) !important;
+    box-shadow: none;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .groups-simple .metric-box {
+    border-color: #334155;
+    background: #0f172a;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .groups-simple .field:focus {
+    border-color: var(--theme-border-strong);
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16);
+}
+
+html[data-theme="dark"] body.admin-layout-shell .package-library .software-card,
+html[data-theme="dark"] body.admin-layout-shell .package-library .filter-chip,
+html[data-theme="dark"] body.admin-layout-shell .package-library .modal-panel {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    color: var(--theme-text) !important;
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.24) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .package-library .filter-chip.is-active {
+    border-color: var(--brand-primary) !important;
+    background: var(--brand-primary) !important;
+    color: #ffffff !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .policy-shell,
+html[data-theme="dark"] body.admin-layout-shell .policy-shell .policy-card,
+html[data-theme="dark"] body.admin-layout-shell .policy-shell .policy-pill,
+html[data-theme="dark"] body.admin-layout-shell .policy-shell .policy-subtle,
+html[data-theme="dark"] body.admin-layout-shell .policy-shell .rounded-xl.border.border-slate-200.bg-slate-50,
+html[data-theme="dark"] body.admin-layout-shell .policy-shell .rounded-xl.border.border-slate-200.bg-white,
+html[data-theme="dark"] body.admin-layout-shell .policy-shell input,
+html[data-theme="dark"] body.admin-layout-shell .policy-shell select,
+html[data-theme="dark"] body.admin-layout-shell .policy-shell textarea {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    background-image: none !important;
+    color: var(--theme-text) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .policy-shell .quick-catalog-btn {
+    border-color: var(--theme-border) !important;
+    background: #0f172a !important;
+    color: var(--theme-text) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .policy-shell #catalog-info {
+    border-color: rgba(14, 165, 233, 0.4) !important;
+    background: rgba(2, 132, 199, 0.12) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .policy-cat-shell {
+    --policy-cat-border: #334155;
+    --policy-cat-soft: #0f172a;
+    --policy-cat-shadow: 0 14px 34px rgba(2, 6, 23, 0.24);
+}
+
+html[data-theme="dark"] body.admin-layout-shell .policy-cat-shell .panel,
+html[data-theme="dark"] body.admin-layout-shell .policy-cat-shell .soft-block,
+html[data-theme="dark"] body.admin-layout-shell .policy-cat-shell .field {
+    border-color: var(--policy-cat-border) !important;
+    background: #111c2d !important;
+    color: var(--theme-text) !important;
+    box-shadow: none;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .catalog-shell {
+    --catalog-border: #334155;
+    --catalog-soft: #0f172a;
+    --catalog-shadow: 0 14px 34px rgba(2, 6, 23, 0.24);
+}
+
+html[data-theme="dark"] body.admin-layout-shell .catalog-shell .panel,
+html[data-theme="dark"] body.admin-layout-shell .catalog-shell .soft-block,
+html[data-theme="dark"] body.admin-layout-shell .catalog-shell .field,
+html[data-theme="dark"] body.admin-layout-shell .catalog-shell .catalog-edit-shell {
+    border-color: var(--catalog-border) !important;
+    background: #111c2d !important;
+    background-image: none !important;
+    color: var(--theme-text) !important;
+    box-shadow: none;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell {
+    --jobs-border: #334155;
+    --jobs-card: #111c2d;
+    --jobs-metric-card: #0f172a;
+    --jobs-shadow: 0 14px 34px rgba(2, 6, 23, 0.24);
+    --jobs-soft-shadow: 0 10px 24px rgba(2, 6, 23, 0.2);
+}
+
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell .jobs-panel,
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell .jobs-card,
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell .jobs-metric,
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell input,
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell select,
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell textarea,
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell .job-template {
+    border-color: var(--jobs-border) !important;
+    background: var(--jobs-card) !important;
+    color: var(--theme-text) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell .jobs-metric {
+    background: var(--jobs-metric-card) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell table {
+    border-color: var(--jobs-border) !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell thead tr,
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell tbody tr,
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell tbody td,
+html[data-theme="dark"] body.admin-layout-shell .jobs-shell tbody th {
+    border-color: var(--jobs-border) !important;
+    background: transparent !important;
+}
+
+html[data-theme="dark"] body.admin-layout-shell .doc-shell,
+html[data-theme="dark"] body.admin-layout-shell .doc-card,
+html[data-theme="dark"] body.admin-layout-shell .doc-feature-card,
+html[data-theme="dark"] body.admin-layout-shell .doc-example-box,
+html[data-theme="dark"] body.admin-layout-shell .doc-kbd {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    background-image: none !important;
+    color: var(--theme-text) !important;
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.18) !important;
 }

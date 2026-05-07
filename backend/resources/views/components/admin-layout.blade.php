@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 @php
     $brandingSetting = \App\Models\ControlPlaneSetting::query()->find('ui.branding');
     $branding = is_array($brandingSetting?->value ?? null) ? (($brandingSetting->value['value'] ?? []) ?: []) : [];
@@ -52,20 +52,24 @@
     };
     $brandLogo = $normalizeLocalAssetScheme($brandLogo);
     $brandFavicon = $normalizeLocalAssetScheme($brandFavicon);
+    $endpointIntelligenceSetting = \App\Models\ControlPlaneSetting::query()->find('endpoint_intelligence.enabled');
+    $endpointIntelligenceEnabled = is_array($endpointIntelligenceSetting?->value ?? null)
+        ? (bool) ($endpointIntelligenceSetting->value['value'] ?? true)
+        : true;
     $topbarUser = auth()->user();
     $topbarUserName = trim((string) ($topbarUser?->name ?? 'User')) ?: 'User';
     $topbarInitial = strtoupper(substr($topbarUserName, 0, 1));
     $topbarIsSuperAdmin = false;
     $topbarCanManageSaasTenants = false;
     $standaloneMode = (bool) config('dms.standalone_mode', true);
-    if ($topbarUser && ! $standaloneMode) {
+    if ($topbarUser) {
         $topbarIsSuperAdmin = \Illuminate\Support\Facades\DB::table('role_user')
             ->join('roles', 'roles.id', '=', 'role_user.role_id')
             ->where('role_user.user_id', $topbarUser->id)
             ->where('roles.slug', 'super-admin')
             ->exists();
 
-        if ($topbarIsSuperAdmin) {
+        if ($topbarIsSuperAdmin && ! $standaloneMode) {
             if (empty($topbarUser->tenant_id)) {
                 $topbarCanManageSaasTenants = true;
             } else {
@@ -79,7 +83,67 @@
             }
         }
     }
+    $topbarPermissionSlugs = collect();
+    if ($topbarUser) {
+        $topbarPermissionSlugs = \Illuminate\Support\Facades\DB::table('role_user')
+            ->join('roles', 'roles.id', '=', 'role_user.role_id')
+            ->join('permission_role', 'permission_role.role_id', '=', 'roles.id')
+            ->join('permissions', 'permissions.id', '=', 'permission_role.permission_id')
+            ->where('role_user.user_id', $topbarUser->id)
+            ->pluck('permissions.slug')
+            ->map(fn ($slug) => (string) $slug)
+            ->unique()
+            ->values();
+    }
+    $topbarCan = function ($permissions) use ($topbarIsSuperAdmin, $topbarPermissionSlugs): bool {
+        if ($topbarIsSuperAdmin) {
+            return true;
+        }
+
+        foreach ((array) $permissions as $permission) {
+            if ($topbarPermissionSlugs->contains((string) $permission)) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+    $navCanManageDevices = $topbarCan(['devices.read', 'devices.write']);
+    $navCanWriteDevices = $topbarCan('devices.write');
+    $navCanManageGroups = $topbarCan(['groups.read', 'groups.write']);
+    $navCanWriteGroups = $topbarCan('groups.write');
+    $navCanManagePackages = $topbarCan(['packages.read', 'packages.write']);
+    $navCanWritePackages = $topbarCan('packages.write');
+    $navCanManagePolicies = $topbarCan(['policies.read', 'policies.write']);
+    $navCanWritePolicies = $topbarCan('policies.write');
+    $navCanManageJobs = $topbarCan(['jobs.read', 'jobs.write']);
+    $navCanAccessAudit = $topbarCan('audit.read');
+    $navCanUseAssistant = $topbarCan('assistant.use');
+    $navCanReadHealth = $topbarCan('health.read');
+    $navCanReadRisk = $topbarCan('risk.read');
+    $navCanReadIncidents = $topbarCan('incidents.read');
+    $navCanReadRemediation = $topbarCan('remediation.read');
+    $navCanApproveRemediation = $topbarCan('remediation.approve');
+    $navCanManageAutonomy = $topbarCan('autonomy.manage');
+    $navCanReadAutonomous = $topbarCan('autonomous.read');
+    $navCanManageAutonomous = $topbarCan('autonomous.manage');
+    $navCanApproveAutonomous = $topbarCan('autonomous.approve');
+    $navCanExecuteAutonomous = $topbarCan('autonomous.execute');
+    $navShowEndpointIntelligence = $endpointIntelligenceEnabled && (
+        $navCanReadHealth
+        || $navCanReadRisk
+        || $navCanReadIncidents
+        || $navCanUseAssistant
+        || $navCanReadRemediation
+        || $navCanApproveRemediation
+        || $navCanManageAutonomy
+        || $navCanReadAutonomous
+        || $navCanManageAutonomous
+        || $navCanApproveAutonomous
+        || $navCanExecuteAutonomous
+    );
     $topbarUserAvatar = null;
+    $profileSettingValue = [];
     if ($topbarUser) {
         $profileSetting = \App\Models\ControlPlaneSetting::query()->find('users.profile.'.$topbarUser->id);
         $profileSettingValue = is_array($profileSetting?->value ?? null) ? ($profileSetting->value['value'] ?? []) : [];
@@ -87,6 +151,9 @@
             $topbarUserAvatar = trim((string) $profileSettingValue['avatar_url']) ?: null;
         }
     }
+    $supportedLocales = \App\Support\LocaleManager::supported();
+    $topbarCurrentLocale = \App\Support\LocaleManager::normalize((string) (session('locale') ?? ($profileSettingValue['locale'] ?? config('app.locale', 'en'))));
+    $topbarCurrentLocaleLabel = $supportedLocales[$topbarCurrentLocale] ?? strtoupper($topbarCurrentLocale);
     if (is_string($topbarUserAvatar) && $topbarUserAvatar !== '') {
         if (preg_match('/^https?:\/\//i', $topbarUserAvatar) === 1) {
             $path = parse_url($topbarUserAvatar, PHP_URL_PATH);
@@ -383,6 +450,7 @@
     @if($brandFavicon !== '')
         <link rel="icon" type="image/png" href="{{ $brandFavicon }}">
     @endif
+    @include('partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -407,11 +475,12 @@
         --brand-radius-2xl: calc(var(--brand-radius-base) + 4px);
         --brand-radius-3xl: calc(var(--brand-radius-base) + 8px);
         --brand-background: {{ $brandBackground }};
-        background: var(--brand-background);
+        --brand-background-light: {{ $brandBackground }};
+        background: var(--theme-page, var(--brand-background-light));
     "
 >
 <div id="admin-shell" class="flex min-h-screen">
-    <aside class="w-72 hidden lg:flex lg:flex-col border-r border-slate-200/60 glass" style="background: {{ $brandSidebarTint }}CC;">
+    <aside class="w-72 hidden lg:flex lg:flex-col border-r border-slate-200/60 glass" style="--sidebar-tint-light: {{ $brandSidebarTint }}CC; background: var(--theme-sidebar, var(--sidebar-tint-light));">
         <div class="px-6 py-4 border-b border-slate-200/60">
             <div class="flex items-center justify-center">
                 @if($brandLogo !== '')
@@ -427,53 +496,134 @@
             </div>
         </div>
         <nav class="px-4 py-3 space-y-3.5 text-sm font-medium">
-            <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.enroll-devices*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.enroll-devices') }}">Enroll Devices</a>
+            @if($navCanWriteDevices)
+                <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.enroll-devices*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.enroll-devices') }}">Enroll Devices</a>
+            @endif
             <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.dashboard') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.dashboard') }}">Overview</a>
-            <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.devices') || request()->routeIs('admin.devices.show') || request()->routeIs('admin.devices.live') || request()->routeIs('admin.devices.update') || request()->routeIs('admin.devices.delete') || request()->routeIs('admin.devices.reenroll') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.devices') }}">Devices</a>
-            <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.groups*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.groups') }}">Groups</a>
-            <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.packages*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.packages') }}">Software Packages</a>
-            <details class="pt-2 group" {{ request()->routeIs('admin.assets*') ? 'open' : '' }}>
-                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.assets*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                    <span>Asset Management</span>
-                    <span class="expand-indicator text-xs"></span>
-                </summary>
-                <div class="mt-3 pl-2 space-y-2">
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets') }}">Asset Overview</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets.hardware') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.hardware') }}">Hardware Inventory</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets.software') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.software') }}">Software Inventory</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets.clients') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.clients') }}">Client Management</a>
-                </div>
-            </details>
+            @if($navCanManageDevices)
+                <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.devices') || request()->routeIs('admin.devices.show') || request()->routeIs('admin.devices.live') || request()->routeIs('admin.devices.update') || request()->routeIs('admin.devices.delete') || request()->routeIs('admin.devices.reenroll') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.devices') }}">Devices</a>
+                <details class="pt-2 group" {{ request()->routeIs('admin.assets*') ? 'open' : '' }}>
+                    <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.assets*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                        <span>Asset Management</span>
+                        <span class="expand-indicator text-xs"></span>
+                    </summary>
+                    <div class="mt-3 pl-2 space-y-2">
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets') }}">Asset Overview</a>
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets.hardware') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.hardware') }}">Hardware Inventory</a>
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets.software') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.software') }}">Software Inventory</a>
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.assets.clients') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.clients') }}">Client Management</a>
+                    </div>
+                </details>
+            @endif
+            @if($navCanManageGroups)
+                <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.groups*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.groups') }}">Groups</a>
+            @endif
+            @if($navCanManagePackages)
+                <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.packages*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.packages') }}">Software Packages</a>
+            @endif
 
-            <details class="pt-2 group" {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'open' : '' }}>
-                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                    <span>Policy Center</span>
-                    <span class="expand-indicator text-xs"></span>
-                </summary>
-                <div class="mt-3 pl-2 space-y-2">
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.policies*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.policies') }}">Policies</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.catalog*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.catalog') }}">Policy Catalog</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.policy-categories') }}">Policy Categories</a>
-                </div>
-            </details>
-            <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
-            <details class="pt-2 group" {{ request()->routeIs('admin.intelligence.*') ? 'open' : '' }}>
-                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.intelligence.*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                    <span>Endpoint Intelligence</span>
-                    <span class="expand-indicator text-xs"></span>
-                </summary>
-                <div class="mt-3 pl-2 space-y-2">
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.health*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.health') }}">Fleet Health</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.risk*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.risk') }}">Risk Dashboard</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.incidents*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.incidents') }}">Incidents</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.assistant*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.assistant') }}">AI Assistant</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.remediation') }}">Remediation</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.approvals*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.approvals') }}">Approvals</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.actions*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.actions') }}">Action History</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.autonomy*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomy') }}">Autonomy</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.tuning*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.tuning') }}">Tuning</a>
-                </div>
-            </details>
+            @if($navCanManagePolicies)
+                <details class="pt-2 group" {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'open' : '' }}>
+                    <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                        <span>Policy Center</span>
+                        <span class="expand-indicator text-xs"></span>
+                    </summary>
+                    <div class="mt-3 pl-2 space-y-2">
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.policies*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.policies') }}">Policies</a>
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.catalog*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.catalog') }}">Policy Catalog</a>
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.policy-categories') }}">Policy Categories</a>
+                    </div>
+                </details>
+            @endif
+            @if($navCanManageJobs)
+                <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
+            @endif
+            @if($navShowEndpointIntelligence)
+                <details class="pt-2 group" {{ request()->routeIs('admin.intelligence.*') ? 'open' : '' }}>
+                    <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.intelligence.*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                        <span>Endpoint Intelligence</span>
+                        <span class="expand-indicator text-xs"></span>
+                    </summary>
+                        <div class="mt-3 pl-2 space-y-2">
+                            @if($navCanReadHealth)
+                            <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.health*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.health') }}">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 12h3l2-5 4 10 2-5h5"/><path d="M12 21c5-3.2 8-6.3 8-10.4A4.6 4.6 0 0 0 12 7a4.6 4.6 0 0 0-8 3.6C4 14.7 7 17.8 12 21Z"/></svg>
+                                <span>Fleet Health</span>
+                            </a>
+                                @endif
+                                @if($navCanReadRisk)
+                            <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.risk*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.risk') }}">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M12 3 5 6v5c0 5 3.2 8.5 7 10 3.8-1.5 7-5 7-10V6l-7-3Z"/><path d="M12 8v4"/><circle cx="12" cy="15.5" r="0.9" fill="currentColor" stroke="none"/></svg>
+                                <span>Risk Dashboard</span>
+                            </a>
+                                @endif
+                                @if($navCanReadIncidents)
+                            <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.incidents*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.incidents') }}">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.2 7.2 15.6 17"/><path d="M15.7 8.8 12.9 15.6"/></svg>
+                                <span>Incidents</span>
+                            </a>
+                                @endif
+                                @if($navCanUseAssistant)
+                            <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.assistant*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.assistant') }}">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M12 3 9.9 8.4 4 10.5l5.9 2.1L12 18l2.1-5.4 5.9-2.1-5.9-2.1L12 3Z"/><path d="M5 3v3"/><path d="M19 18v3"/><path d="M3 5h3"/><path d="M18 19h3"/></svg>
+                                <span>AI Assistant</span>
+                            </a>
+                                @endif
+                                @if($navCanReadRemediation)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.remediation') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="m14.5 5.5 4 4"/><path d="M6.8 17.2 17 7a2.8 2.8 0 1 0-4-4L2.8 13.2a2 2 0 0 0-.5 1L2 20l5.8-.3a2 2 0 0 0 1-.5Z"/><path d="m12 8 4 4"/></svg>
+                                        <span>Remediation</span>
+                                    </a>
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.actions*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.actions') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
+                                        <span>Action History</span>
+                                    </a>
+                                @endif
+                                @if($navCanApproveRemediation)
+                            <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.approvals*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.approvals') }}">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M12 3 5 6v6c0 4.7 3 7.9 7 9 4-1.1 7-4.3 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+                                <span>Approvals</span>
+                            </a>
+                                @endif
+                                @if($navCanManageAutonomy)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.autonomy*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomy') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 7h16"/><path d="M4 17h16"/><path d="M7 7v10"/><path d="M17 7v10"/><circle cx="7" cy="11" r="2.5"/><circle cx="17" cy="13" r="2.5"/></svg>
+                                        <span>Autonomy</span>
+                                    </a>
+                                @endif
+                                @if($navCanReadAutonomous)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.autonomous.decisions*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.decisions') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4 7-9V6l-7-3Z"/><path d="M8 12h8M12 8v8"/></svg>
+                                        <span>Autonomous Decisions</span>
+                                    </a>
+                                @endif
+                                @if($navCanManageAutonomous)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.autonomous.policies*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.policies') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 7h16"/><path d="M4 17h16"/><path d="M7 7v10"/><path d="M17 7v10"/><circle cx="7" cy="11" r="2.5"/><circle cx="17" cy="13" r="2.5"/></svg>
+                                        <span>Autonomous Policies</span>
+                                    </a>
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.autonomous.mappings*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.mappings') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/><circle cx="17" cy="18" r="2"/></svg>
+                                        <span>Risk Mappings</span>
+                                    </a>
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.autonomous.catalog*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.catalog') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 0-3 3V4Z"/><path d="M8 8h7M8 12h7M8 16h5"/></svg>
+                                        <span>Action Catalog</span>
+                                    </a>
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.autonomous.simulate*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.simulate') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M8 8a4 4 0 1 1 5.7 3.6L12 13l1.7 1.4A4 4 0 1 1 8 16"/><path d="M8 8h8"/><path d="M8 16h8"/></svg>
+                                        <span>Simulation</span>
+                                    </a>
+                                @endif
+                                @if($navCanReadHealth)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.intelligence.tuning*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.tuning') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 6h7"/><path d="M13 6h7"/><path d="M4 18h11"/><path d="M17 18h3"/><path d="M9 3v6"/><path d="M15 15v6"/><circle cx="12" cy="6" r="1.8"/><circle cx="16" cy="18" r="1.8"/></svg>
+                                        <span>Tuning</span>
+                                    </a>
+                                @endif
+                            </div>
+                        </details>
+            @endif
             <details class="pt-2 group" {{ request()->routeIs('admin.agent*') ? 'open' : '' }}>
                 <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.agent*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
                     <span>Deployment Center</span>
@@ -483,18 +633,43 @@
                     <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.agent*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.agent') }}">Agent Delivery</a>
                 </div>
             </details>
-            <details class="pt-2 group" {{ request()->routeIs('admin.settings*') || request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'open' : '' }}>
-                <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.settings*') || request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                    <span>Settings</span>
-                    <span class="expand-indicator text-xs"></span>
-                </summary>
-                <div class="mt-3 pl-2 space-y-2">
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.settings') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings') }}">General</a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.security-hardening') }}" data-iconized="1"><span aria-hidden="true" class="text-current"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 5 6v6c0 5 3 7.7 7 9 4-1.3 7-4 7-9V6l-7-3Z"></path><path d="m9.5 12 1.8 1.8L14.8 10"></path></svg></span><span>Security Hardening</span></a>
-                    <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.settings.branding*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings.branding') }}">Branding</a>
-                </div>
-            </details>
-            <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.access*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.access') }}">Access Control</a>
+            @if($topbarIsSuperAdmin)
+                <details class="pt-2 group" {{ request()->routeIs('admin.settings*') || request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'open' : '' }}>
+                    <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.settings*') || request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                        <span>Settings</span>
+                        <span class="expand-indicator text-xs"></span>
+                    </summary>
+                    <div class="mt-3 pl-2 space-y-2">
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.settings') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings') }}">General</a>
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }} flex items-center gap-2" href="{{ route('admin.security-hardening') }}" data-iconized="1"><span aria-hidden="true" class="text-current"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3 5 6v6c0 5 3 7.7 7 9 4-1.3 7-4 7-9V6l-7-3Z"></path><path d="m9.5 12 1.8 1.8L14.8 10"></path></svg></span><span>Security Hardening</span></a>
+                        <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.settings.branding*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings.branding') }}">Branding</a>
+                    </div>
+                </details>
+                <details class="pt-2 group" {{ request()->routeIs('admin.access*') ? 'open' : '' }}>
+                    <summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 flex items-center justify-between {{ request()->routeIs('admin.access*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                        <span>Access Control</span>
+                        <span class="expand-indicator text-xs"></span>
+                    </summary>
+                    <div class="mt-3 pl-2 space-y-2">
+                        <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.access.users') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.access.users') }}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9.5" cy="7" r="3"></circle>
+                                <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                                <path d="M16 4.13a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                            <span>Users</span>
+                        </a>
+                        <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.access.roles') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.access.roles') }}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true">
+                                <path d="M12 3 4 7v6c0 4.5 3 7.7 8 9 5-1.3 8-4.5 8-9V7l-8-4Z"></path>
+                                <path d="m9.5 12 1.8 1.8L14.8 10"></path>
+                            </svg>
+                            <span>Roles</span>
+                        </a>
+                    </div>
+                </details>
+            @endif
             @if($topbarCanManageSaasTenants)
                 <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.saas.dashboard*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.saas.dashboard') }}">SaaS Dashboard</a>
                 <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.saas.tenants*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.saas.tenants') }}">SaaS Tenants</a>
@@ -508,7 +683,9 @@
                 </svg>
                 <span>Admin Notes</span>
             </a>
-            <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.audit*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.audit') }}">Audit Logs</a>
+            @if($navCanAccessAudit)
+                <a class="nav-link block rounded-lg px-3 py-1.5 {{ request()->routeIs('admin.audit*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.audit') }}">Audit Logs</a>
+            @endif
         </nav>
     </aside>
 
@@ -533,23 +710,25 @@
                 </div>
             </div>
             <div class="hidden lg:flex items-center gap-2">
-                <a href="{{ route('admin.security-hardening') }}" class="flex w-[198px] items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm" title="Open Security Hardening">
-                    <span class="h-8 w-8 rounded-lg border {{ $topbarSecurityTone['bg'] }} flex items-center justify-center">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4 {{ $topbarSecurityTone['text'] }}">
-                            <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-3Z"/>
-                            <path d="m9 12 2 2 4-4"/>
-                        </svg>
-                    </span>
-                    <div class="min-w-0 flex-1 leading-tight">
-                        <p class="text-[10px] uppercase tracking-wide text-slate-500">Security Score</p>
-                        <div class="mt-0.5 flex items-center gap-2">
-                            <p class="text-2xl font-semibold text-slate-900 leading-none">{{ $topbarSecurityScore }}%</p>
-                            <div class="h-1.5 flex-1 rounded-full bg-slate-200 overflow-hidden">
-                                <div class="h-full {{ $topbarSecurityTone['bar'] }}" style="width: {{ $topbarSecurityScore }}%"></div>
+                @if($topbarIsSuperAdmin)
+                    <a href="{{ route('admin.security-hardening') }}" class="flex w-[198px] items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm" title="Open Security Hardening">
+                        <span class="h-8 w-8 rounded-lg border {{ $topbarSecurityTone['bg'] }} flex items-center justify-center">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4 {{ $topbarSecurityTone['text'] }}">
+                                <path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-3Z"/>
+                                <path d="m9 12 2 2 4-4"/>
+                            </svg>
+                        </span>
+                        <div class="min-w-0 flex-1 leading-tight">
+                            <p class="text-[10px] uppercase tracking-wide text-slate-500">Security Score</p>
+                            <div class="mt-0.5 flex items-center gap-2">
+                                <p class="text-2xl font-semibold text-slate-900 leading-none">{{ $topbarSecurityScore }}%</p>
+                                <div class="h-1.5 flex-1 rounded-full bg-slate-200 overflow-hidden">
+                                    <div class="h-full {{ $topbarSecurityTone['bar'] }}" style="width: {{ $topbarSecurityScore }}%"></div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </a>
+                    </a>
+                @endif
                 <button
                     type="button"
                     class="topbar-kill-switch-card flex w-[198px] items-center gap-2 rounded-xl border bg-white px-3 py-2 text-left shadow-sm {{ $topbarKillSwitchCardClass }}"
@@ -578,22 +757,59 @@
                 </button>
             </div>
             <div class="flex items-center gap-2">
+                <form method="POST" action="{{ route('admin.locale.update') }}" class="topbar-locale-form hidden md:flex items-center">
+                    @csrf
+                    <label class="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
+                        <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-600" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4">
+                                <circle cx="12" cy="12" r="9"></circle>
+                                <path d="M3 12h18"></path>
+                                <path d="M12 3a15.3 15.3 0 0 1 0 18"></path>
+                                <path d="M12 3a15.3 15.3 0 0 0 0 18"></path>
+                            </svg>
+                        </span>
+                        <div class="leading-tight">
+                            <p class="text-[10px] uppercase tracking-[0.16em] text-slate-500">{{ __('ui.locale.label') }}</p>
+                        </div>
+                        <select name="locale" onchange="this.form.submit()" class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 focus:border-slate-300 focus:outline-none">
+                            @foreach($supportedLocales as $localeCode => $localeLabel)
+                                <option value="{{ $localeCode }}" @selected($topbarCurrentLocale === $localeCode)>{{ $localeLabel }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                </form>
+                <x-theme-select
+                    id="admin-theme-select"
+                    wrapper-class="hidden md:flex items-center"
+                    label-class="text-[10px] uppercase tracking-[0.18em] text-slate-500"
+                    select-class="theme-select-topbar"
+                />
                 <nav class="hidden md:flex items-center gap-1.5 px-0 py-0" aria-label="Top shortcuts">
-                    <a href="{{ route('admin.enroll-devices') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.enroll-devices*') ? 'text-skyline' : '' }}" title="Enroll Devices" aria-label="Enroll Devices">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 20h10"/><path d="m9 11 2 2 4-4"/></svg>
-                    </a>
-                    <a href="{{ route('admin.devices') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.devices*') ? 'text-skyline' : '' }}" title="Devices" aria-label="Devices">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><rect x="4" y="3" width="16" height="12" rx="2"/><path d="M8 21h8M12 15v6"/></svg>
-                    </a>
-                    <a href="{{ route('admin.policies') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'text-skyline' : '' }}" title="Policies" aria-label="Policies">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M12 3v18"/><path d="M6 7h12"/><path d="M6 17h12"/><path d="M8.5 7a3.5 3.5 0 0 1 0 7"/><path d="M15.5 17a3.5 3.5 0 0 0 0-7"/></svg>
-                    </a>
-                    <a href="{{ route('admin.packages') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.packages*') ? 'text-skyline' : '' }}" title="Software Packages" aria-label="Software Packages">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M12 3 4 7l8 4 8-4-8-4Z"/><path d="M4 7v10l8 4 8-4V7"/></svg>
-                    </a>
-                    <a href="{{ route('admin.jobs') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.jobs*') ? 'text-skyline' : '' }}" title="Jobs" aria-label="Jobs">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
-                    </a>
+                    @if($navCanWriteDevices)
+                        <a href="{{ route('admin.enroll-devices') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.enroll-devices*') ? 'text-skyline' : '' }}" title="Enroll Devices" aria-label="Enroll Devices">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 20h10"/><path d="m9 11 2 2 4-4"/></svg>
+                        </a>
+                    @endif
+                    @if($navCanManageDevices)
+                        <a href="{{ route('admin.devices') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.devices*') ? 'text-skyline' : '' }}" title="Devices" aria-label="Devices">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><rect x="4" y="3" width="16" height="12" rx="2"/><path d="M8 21h8M12 15v6"/></svg>
+                        </a>
+                    @endif
+                    @if($navCanManagePolicies)
+                        <a href="{{ route('admin.policies') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'text-skyline' : '' }}" title="Policies" aria-label="Policies">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M12 3v18"/><path d="M6 7h12"/><path d="M6 17h12"/><path d="M8.5 7a3.5 3.5 0 0 1 0 7"/><path d="M15.5 17a3.5 3.5 0 0 0 0-7"/></svg>
+                        </a>
+                    @endif
+                    @if($navCanManagePackages)
+                        <a href="{{ route('admin.packages') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.packages*') ? 'text-skyline' : '' }}" title="Software Packages" aria-label="Software Packages">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M12 3 4 7l8 4 8-4-8-4Z"/><path d="M4 7v10l8 4 8-4V7"/></svg>
+                        </a>
+                    @endif
+                    @if($navCanManageJobs)
+                        <a href="{{ route('admin.jobs') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.jobs*') ? 'text-skyline' : '' }}" title="Jobs" aria-label="Jobs">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+                        </a>
+                    @endif
                     <button
                         type="button"
                         class="hidden h-9 w-9 rounded-full items-center justify-center transition md:flex lg:hidden {{ $topbarKillSwitchEnabled ? 'text-rose-700 hover:text-rose-800' : 'text-emerald-700 hover:text-emerald-800' }}"
@@ -608,9 +824,11 @@
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M12 3v7"/><path d="M7.8 6.8a7 7 0 1 0 8.4 0"/></svg>
                     </button>
-                    <a href="{{ route('admin.settings') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.settings*') ? 'text-skyline' : '' }}" title="Settings" aria-label="Settings">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M10.3 3h3.4l.6 2.2a7.8 7.8 0 0 1 1.8.8l2-1.1 2.4 2.4-1.1 2a7.8 7.8 0 0 1 .8 1.8l2.2.6v3.4l-2.2.6a7.8 7.8 0 0 1-.8 1.8l1.1 2-2.4 2.4-2-1.1a7.8 7.8 0 0 1-1.8.8l-.6 2.2h-3.4l-.6-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1.1-2.4-2.4 1.1-2a7.8 7.8 0 0 1-.8-1.8L3 13.7v-3.4l2.2-.6a7.8 7.8 0 0 1 .8-1.8l-1.1-2 2.4-2.4 2 1.1a7.8 7.8 0 0 1 1.8-.8l.6-2.2Z"/><circle cx="12" cy="12" r="3"/></svg>
-                    </a>
+                    @if($topbarIsSuperAdmin)
+                        <a href="{{ route('admin.settings') }}" class="h-9 w-9 rounded-full flex items-center justify-center text-slate-600 hover:text-skyline transition {{ request()->routeIs('admin.settings*') ? 'text-skyline' : '' }}" title="Settings" aria-label="Settings">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5"><path d="M10.3 3h3.4l.6 2.2a7.8 7.8 0 0 1 1.8.8l2-1.1 2.4 2.4-1.1 2a7.8 7.8 0 0 1 .8 1.8l2.2.6v3.4l-2.2.6a7.8 7.8 0 0 1-.8 1.8l1.1 2-2.4 2.4-2-1.1a7.8 7.8 0 0 1-1.8.8l-.6 2.2h-3.4l-.6-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1.1-2.4-2.4 1.1-2a7.8 7.8 0 0 1-.8-1.8L3 13.7v-3.4l2.2-.6a7.8 7.8 0 0 1 .8-1.8l-1.1-2 2.4-2.4 2 1.1a7.8 7.8 0 0 1 1.8-.8l.6-2.2Z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </a>
+                    @endif
                 </nav>
                 <button
                     type="button"
@@ -635,20 +853,23 @@
                             <span class="h-8 w-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-xs font-semibold">{{ $topbarInitial }}</span>
                         @endif
                     </button>
-                    <div id="topbar-profile-menu" class="hidden absolute right-0 mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-xl z-50">
+                    <div id="topbar-profile-menu" class="hidden absolute right-0 mt-2 w-64 rounded-xl border border-slate-200 bg-white shadow-xl z-50">
                         <div class="px-3 py-2 border-b border-slate-200">
                             <p class="text-sm font-medium text-slate-800 truncate">{{ $topbarUserName }}</p>
                             <p class="text-xs text-slate-500 truncate">{{ $topbarUser?->email }}</p>
                         </div>
                     <div class="p-1">
-                            <a href="{{ route('admin.profile') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Profile</a>
-                            <a href="{{ route('admin.settings') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Settings</a>
-                            <a href="{{ route('admin.security-hardening') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Security Hardening</a>
-                            <a href="{{ route('admin.docs') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Documentation</a>
-                            <a href="{{ route('admin.notes') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Admin Notes</a>
+                            <a href="{{ route('admin.profile') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">{{ __('ui.menu.profile') }}</a>
+                            @if($topbarIsSuperAdmin)
+                                <a href="{{ route('admin.settings') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">{{ __('ui.menu.settings') }}</a>
+                                <a href="{{ route('admin.access') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">{{ __('ui.menu.access_control') }}</a>
+                                <a href="{{ route('admin.security-hardening') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">{{ __('ui.menu.security_hardening') }}</a>
+                            @endif
+                            <a href="{{ route('admin.docs') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">{{ __('ui.menu.documentation') }}</a>
+                            <a href="{{ route('admin.notes') }}" class="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">{{ __('ui.menu.admin_notes') }}</a>
                             <form method="POST" action="{{ route('admin.logout') }}">
                                 @csrf
-                                <button type="submit" class="w-full text-left rounded-lg px-3 py-2 text-sm text-rose-700 hover:bg-rose-50">Logout</button>
+                                <button type="submit" class="w-full text-left rounded-lg px-3 py-2 text-sm text-rose-700 hover:bg-rose-50">{{ __('ui.menu.logout') }}</button>
                             </form>
                         </div>
                     </div>
@@ -657,7 +878,7 @@
         </header>
         <div id="mobile-nav-overlay" class="fixed inset-0 z-40 hidden lg:hidden">
             <button type="button" class="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" data-mobile-nav-close aria-label="Close menu"></button>
-            <aside id="mobile-nav-drawer" class="absolute inset-y-0 left-0 flex h-full w-[86vw] max-w-sm flex-col border-r border-slate-200/70 shadow-2xl" style="background: {{ $brandSidebarTint }};">
+            <aside id="mobile-nav-drawer" class="absolute inset-y-0 left-0 flex h-full w-[86vw] max-w-sm flex-col border-r border-slate-200/70 shadow-2xl" style="--sidebar-tint-light: {{ $brandSidebarTint }}; background: var(--theme-sidebar, var(--sidebar-tint-light));">
                 <div class="flex items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-4">
                     <div class="min-w-0">
                         <p class="text-[10px] uppercase tracking-[0.22em] text-slate-500">Navigation</p>
@@ -670,37 +891,136 @@
                     </button>
                 </div>
                 <nav id="mobile-nav-scroll" class="flex-1 overflow-y-auto px-4 py-4 space-y-3.5 text-sm font-medium">
-                    <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.enroll-devices*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.enroll-devices') }}">Enroll Devices</a>
+                    @if($navCanWriteDevices)
+                        <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.enroll-devices*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.enroll-devices') }}">Enroll Devices</a>
+                    @endif
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.dashboard') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.dashboard') }}">Overview</a>
-                    <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.devices') || request()->routeIs('admin.devices.show') || request()->routeIs('admin.devices.live') || request()->routeIs('admin.devices.update') || request()->routeIs('admin.devices.delete') || request()->routeIs('admin.devices.reenroll') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.devices') }}">Devices</a>
-                    <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.groups*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.groups') }}">Groups</a>
-                    <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.packages*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.packages') }}">Software Packages</a>
-                    <details class="pt-1 group" {{ request()->routeIs('admin.assets*') ? 'open' : '' }}>
-                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.assets*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                            <span>Asset Management</span>
-                            <span class="expand-indicator text-xs"></span>
-                        </summary>
-                        <div class="mt-3 pl-2 space-y-2">
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets') }}">Asset Overview</a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets.hardware') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.hardware') }}">Hardware Inventory</a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets.software') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.software') }}">Software Inventory</a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets.clients') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.clients') }}">Client Management</a>
-                        </div>
-                    </details>
+                    @if($navCanManageDevices)
+                        <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.devices') || request()->routeIs('admin.devices.show') || request()->routeIs('admin.devices.live') || request()->routeIs('admin.devices.update') || request()->routeIs('admin.devices.delete') || request()->routeIs('admin.devices.reenroll') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.devices') }}">Devices</a>
+                        <details class="pt-1 group" {{ request()->routeIs('admin.assets*') ? 'open' : '' }}>
+                            <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.assets*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                                <span>Asset Management</span>
+                                <span class="expand-indicator text-xs"></span>
+                            </summary>
+                            <div class="mt-3 pl-2 space-y-2">
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets') }}">Asset Overview</a>
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets.hardware') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.hardware') }}">Hardware Inventory</a>
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets.software') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.software') }}">Software Inventory</a>
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.assets.clients') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.assets.clients') }}">Client Management</a>
+                            </div>
+                        </details>
+                    @endif
 
-                    <details class="pt-1 group" {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'open' : '' }}>
-                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                            <span>Policy Center</span>
-                            <span class="expand-indicator text-xs"></span>
-                        </summary>
-                        <div class="mt-3 pl-2 space-y-2">
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.policies*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.policies') }}">Policies</a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.catalog*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.catalog') }}">Policy Catalog</a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.policy-categories') }}">Policy Categories</a>
-                        </div>
-                    </details>
+                    @if($navCanManageGroups)
+                        <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.groups*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.groups') }}">Groups</a>
+                    @endif
+                    @if($navCanManagePackages)
+                        <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.packages*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.packages') }}">Software Packages</a>
+                    @endif
+                    @if($navCanManagePolicies)
+                        <details class="pt-1 group" {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'open' : '' }}>
+                            <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.policies*') || request()->routeIs('admin.catalog*') || request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                                <span>Policy Center</span>
+                                <span class="expand-indicator text-xs"></span>
+                            </summary>
+                            <div class="mt-3 pl-2 space-y-2">
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.policies*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.policies') }}">Policies</a>
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.catalog*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.catalog') }}">Policy Catalog</a>
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.policy-categories*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.policy-categories') }}">Policy Categories</a>
+                            </div>
+                        </details>
+                    @endif
 
-                    <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
+                    @if($navCanManageJobs)
+                        <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.jobs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.jobs') }}">Jobs</a>
+                    @endif
+
+                    @if($navShowEndpointIntelligence)
+                        <details class="pt-1 group" {{ request()->routeIs('admin.intelligence.*') ? 'open' : '' }}>
+                            <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.intelligence.*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                                <span>Endpoint Intelligence</span>
+                                <span class="expand-indicator text-xs"></span>
+                            </summary>
+                            <div class="mt-3 pl-2 space-y-2">
+                                @if($navCanReadHealth)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.health*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.health') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 12h3l2-5 4 10 2-5h5"/><path d="M12 21c5-3.2 8-6.3 8-10.4A4.6 4.6 0 0 0 12 7a4.6 4.6 0 0 0-8 3.6C4 14.7 7 17.8 12 21Z"/></svg>
+                                        <span>Fleet Health</span>
+                                    </a>
+                                @endif
+                                @if($navCanReadRisk)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.risk*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.risk') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M12 3 5 6v5c0 5 3.2 8.5 7 10 3.8-1.5 7-5 7-10V6l-7-3Z"/><path d="M12 8v4"/><circle cx="12" cy="15.5" r="0.9" fill="currentColor" stroke="none"/></svg>
+                                        <span>Risk Dashboard</span>
+                                    </a>
+                                @endif
+                                @if($navCanReadIncidents)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.incidents*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.incidents') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.2 7.2 15.6 17"/><path d="M15.7 8.8 12.9 15.6"/></svg>
+                                        <span>Incidents</span>
+                                    </a>
+                                @endif
+                                @if($navCanUseAssistant)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.assistant*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.assistant') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M12 3 9.9 8.4 4 10.5l5.9 2.1L12 18l2.1-5.4 5.9-2.1-5.9-2.1L12 3Z"/><path d="M5 3v3"/><path d="M19 18v3"/><path d="M3 5h3"/><path d="M18 19h3"/></svg>
+                                        <span>AI Assistant</span>
+                                    </a>
+                                @endif
+                                @if($navCanReadRemediation)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.remediation*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.remediation') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="m14.5 5.5 4 4"/><path d="M6.8 17.2 17 7a2.8 2.8 0 1 0-4-4L2.8 13.2a2 2 0 0 0-.5 1L2 20l5.8-.3a2 2 0 0 0 1-.5Z"/><path d="m12 8 4 4"/></svg>
+                                        <span>Remediation</span>
+                                    </a>
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.actions*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.actions') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
+                                        <span>Action History</span>
+                                    </a>
+                                @endif
+                                @if($navCanApproveRemediation)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.approvals*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.approvals') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M12 3 5 6v6c0 4.7 3 7.9 7 9 4-1.1 7-4.3 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+                                        <span>Approvals</span>
+                                    </a>
+                                @endif
+                                @if($navCanManageAutonomy)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.autonomy*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomy') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 7h16"/><path d="M4 17h16"/><path d="M7 7v10"/><path d="M17 7v10"/><circle cx="7" cy="11" r="2.5"/><circle cx="17" cy="13" r="2.5"/></svg>
+                                        <span>Autonomy</span>
+                                    </a>
+                                @endif
+                                @if($navCanReadAutonomous)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.autonomous.decisions*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.decisions') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4 7-9V6l-7-3Z"/><path d="M8 12h8M12 8v8"/></svg>
+                                        <span>Autonomous Decisions</span>
+                                    </a>
+                                @endif
+                                @if($navCanManageAutonomous)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.autonomous.policies*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.policies') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 7h16"/><path d="M4 17h16"/><path d="M7 7v10"/><path d="M17 7v10"/><circle cx="7" cy="11" r="2.5"/><circle cx="17" cy="13" r="2.5"/></svg>
+                                        <span>Autonomous Policies</span>
+                                    </a>
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.autonomous.mappings*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.mappings') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/><circle cx="17" cy="18" r="2"/></svg>
+                                        <span>Risk Mappings</span>
+                                    </a>
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.autonomous.catalog*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.catalog') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 0-3 3V4Z"/><path d="M8 8h7M8 12h7M8 16h5"/></svg>
+                                        <span>Action Catalog</span>
+                                    </a>
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.autonomous.simulate*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.autonomous.simulate') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M8 8a4 4 0 1 1 5.7 3.6L12 13l1.7 1.4A4 4 0 1 1 8 16"/><path d="M8 8h8"/><path d="M8 16h8"/></svg>
+                                        <span>Simulation</span>
+                                    </a>
+                                @endif
+                                @if($navCanReadHealth)
+                                    <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.intelligence.tuning*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.intelligence.tuning') }}">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true"><path d="M4 6h7"/><path d="M13 6h7"/><path d="M4 18h11"/><path d="M17 18h3"/><path d="M9 3v6"/><path d="M15 15v6"/><circle cx="12" cy="6" r="1.8"/><circle cx="16" cy="18" r="1.8"/></svg>
+                                        <span>Tuning</span>
+                                    </a>
+                                @endif
+                            </div>
+                        </details>
+                    @endif
 
                     <details class="pt-1 group" {{ request()->routeIs('admin.agent*') ? 'open' : '' }}>
                         <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.agent*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
@@ -712,30 +1032,74 @@
                         </div>
                     </details>
 
-                    <details class="pt-1 group" {{ request()->routeIs('admin.settings*') || request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'open' : '' }}>
-                        <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.settings*') || request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
-                            <span>Settings</span>
-                            <span class="expand-indicator text-xs"></span>
-                        </summary>
-                        <div class="mt-3 pl-2 space-y-2">
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.settings') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings') }}">General</a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.security-hardening') }}">Security Hardening</a>
-                            <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.settings.branding*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings.branding') }}">Branding</a>
-                        </div>
-                    </details>
+                    @if($topbarIsSuperAdmin)
+                        <details class="pt-1 group" {{ request()->routeIs('admin.settings*') || request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'open' : '' }}>
+                            <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.settings*') || request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                                <span>Settings</span>
+                                <span class="expand-indicator text-xs"></span>
+                            </summary>
+                            <div class="mt-3 pl-2 space-y-2">
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.settings') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings') }}">General</a>
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.security-hardening*') || request()->routeIs('admin.security-command-center*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.security-hardening') }}">Security Hardening</a>
+                                <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.settings.branding*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.settings.branding') }}">Branding</a>
+                            </div>
+                        </details>
 
-                    <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.access*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.access') }}">Access Control</a>
+                        <details class="pt-1 group" {{ request()->routeIs('admin.access*') ? 'open' : '' }}>
+                            <summary class="list-none cursor-pointer rounded-lg px-3 py-2 flex items-center justify-between {{ request()->routeIs('admin.access*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}">
+                                <span>Access Control</span>
+                                <span class="expand-indicator text-xs"></span>
+                            </summary>
+                            <div class="mt-3 pl-2 space-y-2">
+                                <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.access.users') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.access.users') }}">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true">
+                                        <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                                        <circle cx="9.5" cy="7" r="3"></circle>
+                                        <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                                        <path d="M16 4.13a4 4 0 0 1 0 7.75"></path>
+                                    </svg>
+                                    <span>Users</span>
+                                </a>
+                                <a class="nav-link flex items-center gap-2 rounded-lg px-3 py-2 {{ request()->routeIs('admin.access.roles') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.access.roles') }}">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4" aria-hidden="true">
+                                        <path d="M12 3 4 7v6c0 4.5 3 7.7 8 9 5-1.3 8-4.5 8-9V7l-8-4Z"></path>
+                                        <path d="m9.5 12 1.8 1.8L14.8 10"></path>
+                                    </svg>
+                                    <span>Roles</span>
+                                </a>
+                            </div>
+                        </details>
+                    @endif
                     @if($topbarCanManageSaasTenants)
                         <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.saas.dashboard*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.saas.dashboard') }}">SaaS Dashboard</a>
                         <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.saas.tenants*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.saas.tenants') }}">SaaS Tenants</a>
                     @endif
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.docs*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.docs') }}">Docs</a>
                     <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.notes*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.notes') }}">Notes</a>
-                    <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.audit*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.audit') }}">Audit Logs</a>
+                    @if($navCanAccessAudit)
+                        <a class="nav-link block rounded-lg px-3 py-2 {{ request()->routeIs('admin.audit*') ? 'bg-skyline text-white' : 'text-slate-700 hover:bg-white' }}" href="{{ route('admin.audit') }}">Audit Logs</a>
+                    @endif
                 </nav>
                 <div class="border-t border-slate-200/70 px-4 py-4">
+                    <form method="POST" action="{{ route('admin.locale.update') }}" class="mb-3 rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+                        @csrf
+                        <label class="flex items-center justify-between gap-3">
+                            <span class="text-xs uppercase tracking-[0.18em] text-slate-500">{{ __('ui.locale.label') }}</span>
+                            <select name="locale" onchange="this.form.submit()" class="min-w-[7rem] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">
+                                @foreach($supportedLocales as $localeCode => $localeLabel)
+                                    <option value="{{ $localeCode }}" @selected($topbarCurrentLocale === $localeCode)>{{ $localeLabel }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                    </form>
+                    <x-theme-select
+                        id="mobile-theme-select"
+                        wrapper-class="mb-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm"
+                        label-class="text-xs uppercase tracking-[0.18em] text-slate-500"
+                        select-class="min-w-[7rem] text-xs"
+                    />
                     <a href="{{ route('admin.profile') }}" class="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 shadow-sm">
-                        <span>Open Profile</span>
+                        <span>{{ __('ui.menu.open_profile') }}</span>
                         <span class="text-xs text-slate-400">{{ $topbarUserName }}</span>
                     </a>
                 </div>

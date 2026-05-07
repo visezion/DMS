@@ -15,6 +15,7 @@ use App\Models\AssistantMessage;
 use App\Models\AssistantSession;
 use App\Models\AutonomyPolicy;
 use App\Models\CorrelatedIncident;
+use App\Models\ControlPlaneSetting;
 use App\Models\Device;
 use App\Models\DeviceGroup;
 use App\Models\DeviceHealthScore;
@@ -40,6 +41,15 @@ class AdminEndpointIntelligenceController extends Controller
         private readonly AutonomyPolicyUpsertService $autonomyPolicies,
         private readonly CurrentPostureService $currentPosture,
     ) {
+        $this->middleware(function ($request, $next) {
+            if (! $this->endpointIntelligenceEnabled()) {
+                return redirect()
+                    ->route('admin.dashboard')
+                    ->with('status', 'Endpoint Intelligence is disabled in Admin Settings.');
+            }
+
+            return $next($request);
+        });
     }
 
     public function fleetHealthOverview(): View
@@ -803,5 +813,15 @@ class AdminEndpointIntelligenceController extends Controller
         }
 
         return false;
+    }
+
+    private function endpointIntelligenceEnabled(): bool
+    {
+        $setting = ControlPlaneSetting::query()->find('endpoint_intelligence.enabled');
+        if (! $setting || ! is_array($setting->value)) {
+            return true;
+        }
+
+        return (bool) ($setting->value['value'] ?? true);
     }
 }

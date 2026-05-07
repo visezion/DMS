@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 @php
     $brandingSetting = \App\Models\ControlPlaneSetting::query()->find('ui.branding');
     $branding = is_array($brandingSetting?->value ?? null) ? (($brandingSetting->value['value'] ?? []) ?: []) : [];
@@ -16,6 +16,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ $brandName }} Sign Up</title>
+    @include('partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,7 +24,7 @@
 </head>
 <body
     class="min-h-screen text-slate-900 flex items-center justify-center p-6 admin-auth-register"
-    style="--brand-primary: {{ $brandPrimary }}; --brand-background: {{ $brandBackground }};"
+    style="--brand-primary: {{ $brandPrimary }}; --brand-background: {{ $brandBackground }}; --brand-background-light: {{ $brandBackground }};"
 >
     <div class="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
         <div class="flex items-center justify-between gap-4">
@@ -44,9 +45,17 @@
                     <p class="text-xs text-slate-500">{{ $brandTagline }}</p>
                 </div>
             </div>
-            <a href="{{ route('admin.login') }}" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
-                Back To Login
-            </a>
+            <div class="flex items-center gap-2">
+                <x-theme-select
+                    id="register-theme-select"
+                    wrapper-class="items-end gap-1.5 text-right"
+                    label-class="text-[10px] uppercase tracking-[0.18em] text-slate-500"
+                    select-class="min-w-[7rem] text-xs"
+                />
+                <a href="{{ route('admin.login') }}" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                    Back To Login
+                </a>
+            </div>
         </div>
 
         @if($errors->any())

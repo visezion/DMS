@@ -857,6 +857,7 @@ public sealed class PolicyApplyHandler : IJobHandler
                         "firewall" => await ApplyFirewallAsync(config, enforce, cancellationToken),
                         "dns" => await ApplyDnsAsync(config, enforce, cancellationToken),
                         "network_adapter" => await ApplyNetworkAdapterAsync(config, enforce, cancellationToken),
+                        "time" => await ApplyTimeSyncAsync(config, enforce, cancellationToken),
                         "registry" => ApplyRegistry(config, enforce),
                         "local_group" => await ApplyLocalGroupAsync(config, enforce, cancellationToken),
                         "windows_update" => ApplyWindowsUpdate(config, enforce),
@@ -1280,6 +1281,301 @@ public sealed class PolicyApplyHandler : IJobHandler
             ? (true, $"ipv4 static {staticSummary} on {interfaceLabel}")
             : (false, $"ipv4 configuration mismatch on {interfaceLabel}");
     }
+
+    private sealed class TimeSyncSnapshot
+    {
+        public string TimeZoneId { get; init; } = string.Empty;
+        public string SyncType { get; init; } = string.Empty;
+        public List<string> NtpServers { get; init; } = new();
+        public string ServiceStatus { get; init; } = string.Empty;
+        public string ServiceStartType { get; init; } = string.Empty;
+    }
+
+    private static async Task<(bool Compliant, string Message)> ApplyTimeSyncAsync(JsonElement config, bool enforce, CancellationToken cancellationToken)
+    {
+        bool dryRun = SnapshotJobSupport.ReadBool(config, "dry_run");
+        string timezone = SnapshotJobSupport.ReadString(config, "timezone").Trim();
+        string syncModeRaw = SnapshotJobSupport.ReadString(config, "sync_mode").Trim();
+        string syncMode = NormalizeTimeSyncMode(syncModeRaw);
+        var ntpServers = NormalizeNtpServers(SnapshotJobSupport.ReadStringList(config, "ntp_servers"));
+        bool resync = SnapshotJobSupport.ReadBool(config, "resync", true);
+
+        bool hasTimezone = !string.IsNullOrWhiteSpace(timezone);
+        bool hasSyncSettings = !string.IsNullOrWhiteSpace(syncMode) || ntpServers.Count > 0;
+        if (!hasTimezone && !hasSyncSettings)
+        {
+            return (false, "time: timezone or ntp settings required");
+        }
+
+        if (string.IsNullOrWhiteSpace(syncMode) && ntpServers.Count > 0)
+        {
+            syncMode = "manual";
+        }
+
+        if (!string.IsNullOrWhiteSpace(syncMode) && syncMode is not ("manual" or "domhier" or "all"))
+        {
+            return (false, "time: sync_mode must be manual, domhier, or all");
+        }
+
+        if (syncMode == "manual" && ntpServers.Count == 0)
+        {
+            return (false, "time: ntp_servers required when sync_mode=manual");
+        }
+
+        if (!string.IsNullOrWhiteSpace(syncMode) && syncMode != "manual" && ntpServers.Count > 0)
+        {
+            return (false, "time: ntp_servers only allowed with sync_mode=manual");
+        }
+
+        if (dryRun)
+        {
+            var parts = new List<string>();
+            if (hasTimezone)
+            {
+                parts.Add($"timezone {timezone}");
+            }
+            if (hasSyncSettings)
+            {
+                parts.Add(syncMode == "manual"
+                    ? $"ntp manual {string.Join(", ", ntpServers)}"
+                    : $"ntp {syncMode}");
+            }
+            return (true, $"time dry-run {string.Join("; ", parts)}");
+        }
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return (false, "time policy requires Windows endpoint");
+        }
+
+        if (enforce && !IsWindowsAdministrator(out string currentIdentity))
+        {
+            return (false, $"time policy requires elevated context (Administrator/SYSTEM). current_identity={currentIdentity}");
+        }
+
+        if (enforce)
+        {
+            var apply = await ApplyTimeSyncConfigurationAsync(timezone, syncMode, ntpServers, resync, cancellationToken);
+            if (!apply.Compliant)
+            {
+                return apply;
+            }
+        }
+
+        TimeSyncSnapshot snapshot;
+        try
+        {
+            snapshot = await ReadTimeSyncSnapshotAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+
+        var messageParts = new List<string>();
+        bool compliant = true;
+
+        if (hasTimezone)
+        {
+            bool tzOk = string.Equals(snapshot.TimeZoneId, timezone, StringComparison.OrdinalIgnoreCase);
+            compliant &= tzOk;
+            messageParts.Add(tzOk
+                ? $"timezone {timezone}"
+                : $"timezone mismatch (current {snapshot.TimeZoneId})");
+        }
+
+        if (hasSyncSettings)
+        {
+            string snapshotMode = NormalizeTimeSyncMode(snapshot.SyncType);
+            bool syncOk = syncMode switch
+            {
+                "manual" => snapshotMode == "manual" && SequenceEqualIgnoreCase(NormalizeNtpServers(snapshot.NtpServers), ntpServers),
+                "domhier" => snapshotMode == "domhier",
+                "all" => snapshotMode == "all",
+                _ => false,
+            };
+            compliant &= syncOk;
+            if (syncMode == "manual")
+            {
+                string currentServers = snapshot.NtpServers.Count == 0 ? "none" : string.Join(", ", snapshot.NtpServers);
+                messageParts.Add(syncOk
+                    ? $"ntp manual {string.Join(", ", ntpServers)}"
+                    : $"ntp mismatch (current {currentServers})");
+            }
+            else
+            {
+                messageParts.Add(syncOk ? $"ntp {syncMode}" : $"ntp mode mismatch (current {snapshot.SyncType})");
+            }
+        }
+
+        return (compliant, string.Join("; ", messageParts));
+    }
+
+    private static async Task<TimeSyncSnapshot> ReadTimeSyncSnapshotAsync(CancellationToken cancellationToken)
+    {
+        string ps = string.Join(Environment.NewLine, new[]
+        {
+            "$ErrorActionPreference='Stop'",
+            "$tz = (Get-TimeZone).Id",
+            "$w32 = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\W32Time\\Parameters' -ErrorAction SilentlyContinue",
+            "$type = if ($null -ne $w32) { [string]$w32.Type } else { '' }",
+            "$ntp = if ($null -ne $w32) { [string]$w32.NtpServer } else { '' }",
+            "$servers = @()",
+            "if ($ntp) { $servers = $ntp -split ' ' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' } | ForEach-Object { ($_ -split ',')[0] } }",
+            "$svc = Get-Service -Name W32Time -ErrorAction SilentlyContinue",
+            "$result = [ordered]@{",
+            "  timezone = [string]$tz",
+            "  sync_type = [string]$type",
+            "  ntp_servers = @($servers)",
+            "  service_status = if ($null -ne $svc) { [string]$svc.Status } else { '' }",
+            "  service_start_type = if ($null -ne $svc) { [string]$svc.StartType } else { '' }",
+            "}",
+            "$result | ConvertTo-Json -Compress",
+        });
+
+        var run = await SnapshotJobSupport.RunPowerShellScriptAsync(ps, cancellationToken);
+        if (run.ExitCode != 0)
+        {
+            string detail = ExtractProcessFailureDetail(run.StdErr, run.StdOut);
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+                ? $"time inspection failed exit code {run.ExitCode}"
+                : detail);
+        }
+
+        if (string.IsNullOrWhiteSpace(run.StdOut))
+        {
+            throw new InvalidOperationException("time inspection returned no output");
+        }
+
+        using var doc = JsonDocument.Parse(run.StdOut);
+        JsonElement root = doc.RootElement;
+
+        return new TimeSyncSnapshot
+        {
+            TimeZoneId = ReadJsonStringProperty(root, "timezone"),
+            SyncType = ReadJsonStringProperty(root, "sync_type"),
+            NtpServers = ReadJsonStringListProperty(root, "ntp_servers"),
+            ServiceStatus = ReadJsonStringProperty(root, "service_status"),
+            ServiceStartType = ReadJsonStringProperty(root, "service_start_type"),
+        };
+    }
+
+    private static async Task<(bool Compliant, string Message)> ApplyTimeSyncConfigurationAsync(
+        string timezone,
+        string syncMode,
+        IReadOnlyList<string> ntpServers,
+        bool resync,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(timezone))
+        {
+            var tzResult = await ProcessRunner.RunAsync("tzutil", $"/s \"{timezone}\"", cancellationToken);
+            if (tzResult.ExitCode != 0)
+            {
+                string detail = ExtractProcessFailureDetail(tzResult.StdErr, tzResult.StdOut);
+                return (false, string.IsNullOrWhiteSpace(detail)
+                    ? $"time timezone apply failed exit code {tzResult.ExitCode}"
+                    : detail);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(syncMode))
+        {
+            var svcResult = await SnapshotJobSupport.RunPowerShellScriptAsync(string.Join(Environment.NewLine, new[]
+            {
+                "$ErrorActionPreference='Stop'",
+                "Set-Service -Name W32Time -StartupType Automatic -ErrorAction SilentlyContinue",
+                "Start-Service -Name W32Time -ErrorAction SilentlyContinue",
+            }), cancellationToken);
+            if (svcResult.ExitCode != 0)
+            {
+                string detail = ExtractProcessFailureDetail(svcResult.StdErr, svcResult.StdOut);
+                return (false, string.IsNullOrWhiteSpace(detail)
+                    ? $"time service start failed exit code {svcResult.ExitCode}"
+                    : detail);
+            }
+
+            if (syncMode == "manual")
+            {
+                string peerList = string.Join(" ", ntpServers.Select(server => $"{server},0x8"));
+                var cfg = await ProcessRunner.RunAsync("w32tm", $"/config /syncfromflags:manual /manualpeerlist:\"{peerList}\" /update", cancellationToken);
+                if (cfg.ExitCode != 0)
+                {
+                    string detail = ExtractProcessFailureDetail(cfg.StdErr, cfg.StdOut);
+                    return (false, string.IsNullOrWhiteSpace(detail)
+                        ? $"time sync config failed exit code {cfg.ExitCode}"
+                        : detail);
+                }
+            }
+            else if (syncMode == "domhier")
+            {
+                var cfg = await ProcessRunner.RunAsync("w32tm", "/config /syncfromflags:domhier /update", cancellationToken);
+                if (cfg.ExitCode != 0)
+                {
+                    string detail = ExtractProcessFailureDetail(cfg.StdErr, cfg.StdOut);
+                    return (false, string.IsNullOrWhiteSpace(detail)
+                        ? $"time sync config failed exit code {cfg.ExitCode}"
+                        : detail);
+                }
+            }
+            else if (syncMode == "all")
+            {
+                var cfg = await ProcessRunner.RunAsync("w32tm", "/config /syncfromflags:all /update", cancellationToken);
+                if (cfg.ExitCode != 0)
+                {
+                    string detail = ExtractProcessFailureDetail(cfg.StdErr, cfg.StdOut);
+                    return (false, string.IsNullOrWhiteSpace(detail)
+                        ? $"time sync config failed exit code {cfg.ExitCode}"
+                        : detail);
+                }
+            }
+
+            if (resync)
+            {
+                var resyncResult = await ProcessRunner.RunAsync("w32tm", "/resync /force", cancellationToken);
+                if (resyncResult.ExitCode != 0)
+                {
+                    string detail = ExtractProcessFailureDetail(resyncResult.StdErr, resyncResult.StdOut);
+                    return (false, string.IsNullOrWhiteSpace(detail)
+                        ? $"time resync failed exit code {resyncResult.ExitCode}"
+                        : detail);
+                }
+            }
+        }
+
+        return (true, "time configuration applied");
+    }
+
+    private static string NormalizeTimeSyncMode(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        string normalized = value.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "manual" => "manual",
+            "ntp" => "manual",
+            "domhier" => "domhier",
+            "domain" => "domhier",
+            "nt5ds" => "domhier",
+            "auto" => "domhier",
+            "automatic" => "domhier",
+            "all" => "all",
+            "allsync" => "all",
+            _ => normalized,
+        };
+    }
+
+    private static List<string> NormalizeNtpServers(IEnumerable<string> servers)
+        => servers
+            .Select(server => (server ?? string.Empty).Trim())
+            .Where(server => !string.IsNullOrWhiteSpace(server))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(server => server, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     private static bool TryReadNetworkSelector(JsonElement config, out NetworkSelectorSpec selector, out string error)
     {
@@ -1872,9 +2168,25 @@ if ($null -eq $cfg) { throw "network interface configuration unavailable for sel
     {
         int start = config.TryGetProperty("active_hours_start", out var startNode) ? startNode.GetInt32() : 8;
         int end = config.TryGetProperty("active_hours_end", out var endNode) ? endNode.GetInt32() : 17;
+        string updateSource = config.TryGetProperty("update_source", out var sourceNode) ? (sourceNode.GetString() ?? string.Empty) : string.Empty;
+        string wsusServer = config.TryGetProperty("wsus_server", out var wsusNode) ? (wsusNode.GetString() ?? string.Empty) : string.Empty;
+        string wsusStatusServer = config.TryGetProperty("wsus_status_server", out var statusNode) ? (statusNode.GetString() ?? string.Empty) : string.Empty;
+        string targetGroup = config.TryGetProperty("target_group", out var groupNode) ? (groupNode.GetString() ?? string.Empty) : string.Empty;
+        bool enableTargetGroup = config.TryGetProperty("enable_target_group", out var enableGroupNode)
+            ? enableGroupNode.ValueKind is JsonValueKind.True or JsonValueKind.False && enableGroupNode.GetBoolean()
+            : !string.IsNullOrWhiteSpace(targetGroup);
+        bool blockInternetUpdates = config.TryGetProperty("block_internet_updates", out var blockNode)
+            && blockNode.ValueKind is JsonValueKind.True or JsonValueKind.False
+            && blockNode.GetBoolean();
         const string wuPath = @"HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings";
         const string wuPolicyRoot = @"HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate";
         const string wuPolicyAu = @"HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU";
+
+        updateSource = updateSource.Trim().ToLowerInvariant();
+        if (updateSource != "" && updateSource != "microsoft" && updateSource != "wsus")
+        {
+            updateSource = string.Empty;
+        }
 
         if (enforce)
         {
@@ -1896,6 +2208,35 @@ if ($null -eq $cfg) { throw "network interface configuration unavailable for sel
                     ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"DeferQualityUpdatesPeriodInDays","type":"DWORD","value":{{pauseDays}}}"""), true);
                     ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"DeferFeatureUpdatesPeriodInDays","type":"DWORD","value":{{pauseDays}}}"""), true);
                 }
+            }
+            if (updateSource == "wsus")
+            {
+                if (!string.IsNullOrWhiteSpace(wsusServer))
+                {
+                    ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"WUServer","type":"STRING","value":"{{wsusServer}}"}"""), true);
+                    string statusServerValue = string.IsNullOrWhiteSpace(wsusStatusServer) ? wsusServer : wsusStatusServer;
+                    ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"WUStatusServer","type":"STRING","value":"{{statusServerValue}}"}"""), true);
+                }
+                ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyAu}}","name":"UseWUServer","type":"DWORD","value":1}"""), true);
+                int targetEnabled = enableTargetGroup && !string.IsNullOrWhiteSpace(targetGroup) ? 1 : 0;
+                ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"TargetGroupEnabled","type":"DWORD","value":{{targetEnabled}}}"""), true);
+                if (targetEnabled == 1)
+                {
+                    ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"TargetGroup","type":"STRING","value":"{{targetGroup}}"}"""), true);
+                }
+                if (blockInternetUpdates)
+                {
+                    ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"DoNotConnectToWindowsUpdateInternetLocations","type":"DWORD","value":1}"""), true);
+                }
+            }
+            else if (updateSource == "microsoft")
+            {
+                ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyAu}}","name":"UseWUServer","type":"DWORD","value":0}"""), true);
+                ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"WUServer","type":"STRING","ensure":"absent"}"""), true);
+                ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"WUStatusServer","type":"STRING","ensure":"absent"}"""), true);
+                ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"TargetGroup","type":"STRING","ensure":"absent"}"""), true);
+                ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"TargetGroupEnabled","type":"DWORD","value":0}"""), true);
+                ApplyRegistry(JsonSerializer.Deserialize<JsonElement>($$"""{"path":"{{wuPolicyRoot}}","name":"DoNotConnectToWindowsUpdateInternetLocations","type":"DWORD","value":0}"""), true);
             }
         }
 
@@ -1980,6 +2321,12 @@ if ($null -eq $cfg) { throw "network interface configuration unavailable for sel
         schedule = schedule.Trim().ToLowerInvariant();
         string command = config.TryGetProperty("command", out var commandNode) ? commandNode.GetString() ?? string.Empty : string.Empty;
         string time = config.TryGetProperty("time", out var timeNode) ? timeNode.GetString() ?? string.Empty : string.Empty;
+        string runAs = config.TryGetProperty("run_as", out var runAsNode) ? (runAsNode.GetString() ?? "system") : "system";
+        runAs = runAs.Trim().ToLowerInvariant();
+        if (runAs is not ("system" or "current_user"))
+        {
+            return (false, "scheduled_task: run_as must be system or current_user");
+        }
         if (string.IsNullOrWhiteSpace(command))
         {
             return (false, "scheduled_task: command missing");
@@ -2008,7 +2355,8 @@ if ($null -eq $cfg) { throw "network interface configuration unavailable for sel
         if (enforce)
         {
             string escapedCommand = ProcessRunner.EscapeForSchtasksTaskRun(command);
-            string createArgs = $"/Create /TN \"{taskName}\" /TR \"{escapedCommand}\" {scheduleArgs}{timeArg} /F";
+            string runAsArgs = runAs == "system" ? " /RU SYSTEM /RL HIGHEST" : string.Empty;
+            string createArgs = $"/Create /TN \"{taskName}\" /TR \"{escapedCommand}\" {scheduleArgs}{timeArg}{runAsArgs} /F";
             var createResult = await ProcessRunner.RunAsync("schtasks", createArgs, cancellationToken);
             if (createResult.ExitCode != 0)
             {

@@ -3,11 +3,74 @@
         $members = $members ?? collect();
         $policies = $policies ?? collect();
         $packages = $packages ?? collect();
-        $memberIds = $members->pluck('device_id')->all();
-        $availableDevices = collect($devices ?? [])
-            ->reject(fn ($device) => in_array($device->id, $memberIds, true))
-            ->values();
+        $availableDevices = collect($availableDevices ?? []);
     @endphp
+    <style>
+        .group-detail-shell {
+            --gd-border: #d7deea;
+            --gd-border-strong: #cbd5e1;
+            --gd-panel-bg: #ffffff;
+            --gd-panel-muted: #f8fafc;
+            --gd-hero-start: #f8fbff;
+            --gd-hero-mid: #ffffff;
+            --gd-hero-end: #e8f0fb;
+            --gd-subtle-text: #64748b;
+            --gd-shadow: 0 18px 40px rgba(15, 23, 42, 0.07);
+        }
+
+        html[data-theme="dark"] .group-detail-shell {
+            --gd-border: #334155;
+            --gd-border-strong: #475569;
+            --gd-panel-bg: #0f172a;
+            --gd-panel-muted: #111c2d;
+            --gd-hero-start: #111827;
+            --gd-hero-mid: #0f172a;
+            --gd-hero-end: #172554;
+            --gd-subtle-text: #94a3b8;
+            --gd-shadow: 0 24px 60px rgba(2, 6, 23, 0.4);
+        }
+
+        .group-detail-shell .group-detail-panel {
+            border-color: var(--gd-border) !important;
+            background: var(--gd-panel-bg) !important;
+            box-shadow: var(--gd-shadow);
+        }
+
+        .group-detail-shell .group-detail-panel--hero {
+            background: linear-gradient(135deg, var(--gd-hero-start), var(--gd-hero-mid) 48%, var(--gd-hero-end)) !important;
+        }
+
+        .group-detail-shell .group-detail-subpanel,
+        .group-detail-shell .group-detail-list-card,
+        .group-detail-shell .group-detail-metric,
+        .group-detail-shell .group-detail-search,
+        .group-detail-shell .group-detail-chip {
+            border-color: var(--gd-border) !important;
+            background: var(--gd-panel-muted) !important;
+        }
+
+        .group-detail-shell .group-detail-empty {
+            color: var(--gd-subtle-text) !important;
+        }
+
+        html[data-theme="dark"] .group-detail-shell .border-emerald-200 {
+            border-color: rgba(52, 211, 153, 0.36) !important;
+        }
+
+        html[data-theme="dark"] .group-detail-shell [class*="bg-emerald-50"] {
+            background-color: rgba(6, 95, 70, 0.24) !important;
+        }
+
+        html[data-theme="dark"] .group-detail-shell [class*="bg-red-50"],
+        html[data-theme="dark"] .group-detail-shell .bg-red-100 {
+            background-color: rgba(127, 29, 29, 0.24) !important;
+        }
+
+        html[data-theme="dark"] .group-detail-shell .border-red-300 {
+            border-color: rgba(248, 113, 113, 0.35) !important;
+        }
+    </style>
+    <div class="group-detail-shell space-y-4">
 <div class="mb-3 flex items-center justify-between gap-2">
         <a href="{{ route('admin.groups') }}" class="inline-flex items-center gap-1 text-sm text-slate-700 hover:text-black">
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 19 8.5 12l7-7"/></svg>
@@ -16,11 +79,11 @@
         <form method="POST" action="{{ route('admin.groups.delete', $group->id) }}" onsubmit="return confirm('Delete this group? Members will be detached and cleanup jobs will be queued.');">
             @csrf
             @method('DELETE')
-            <button class="rounded border border-red-300 bg-white px-3 py-1.5 text-xs text-red-700 hover:bg-red-50">Delete Group</button>
+            <button class="group-detail-subpanel rounded border border-red-300 bg-white px-3 py-1.5 text-xs text-red-700 hover:bg-red-50">Delete Group</button>
         </form>
     </div>
 
-    <div class="rounded-2xl border bg-gradient-to-br from-slate-50 via-white to-slate-100 p-5 mb-4 group-shell">
+    <div class="group-detail-panel group-detail-panel--hero rounded-2xl border bg-gradient-to-br from-slate-50 via-white to-slate-100 p-5 mb-4 group-shell">
         <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
                 <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Device Group</p>
@@ -29,15 +92,15 @@
                 <p class="text-xs text-slate-500 mt-1">Last update: {{ $group->updated_at }}</p>
             </div>
             <div class="grid grid-cols-3 gap-2 text-xs min-w-[240px]">
-                <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-center">
+                <div class="group-detail-metric rounded-xl border border-slate-200 bg-white px-3 py-2 text-center">
                     <p class="uppercase tracking-wide text-slate-500">Members</p>
                     <p class="text-lg font-semibold text-slate-900">{{ $members->count() }}</p>
                 </div>
-                <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-center">
+                <div class="group-detail-metric rounded-xl border border-slate-200 bg-white px-3 py-2 text-center">
                     <p class="uppercase tracking-wide text-slate-500">Policies</p>
                     <p class="text-lg font-semibold text-slate-900">{{ $policies->count() }}</p>
                 </div>
-                <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-center">
+                <div class="group-detail-metric rounded-xl border border-slate-200 bg-white px-3 py-2 text-center">
                     <p class="uppercase tracking-wide text-slate-500">Packages</p>
                     <p class="text-lg font-semibold text-slate-900">{{ $packages->count() }}</p>
                 </div>
@@ -45,7 +108,7 @@
         </div>
     </div>
 
-    <section class="rounded-2xl border border-slate-200 bg-white p-4 mb-4 group-shell">
+    <section class="group-detail-panel rounded-2xl border border-slate-200 bg-white p-4 mb-4 group-shell">
         <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
             <div>
                 <h4 class="font-semibold text-slate-900 flex items-center gap-2">
@@ -54,7 +117,7 @@
                 </h4>
                 <p class="text-xs text-slate-500 mt-1">Applies composable lockdown controls to this group using your existing policy engine.</p>
             </div>
-            <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <div class="group-detail-subpanel rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 Target: <span class="font-semibold text-slate-800">{{ $group->name }}</span>
             </div>
         </div>
@@ -83,7 +146,7 @@
                             continue;
                         }
                     @endphp
-                    <label class="rounded-xl border px-3 py-2 {{ $allAssigned ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/70' }}">
+                    <label class="group-detail-subpanel rounded-xl border px-3 py-2 {{ $allAssigned ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50/70' }}">
                         <div class="flex items-center justify-between gap-2">
                             <span class="text-sm font-medium text-slate-900">{{ $section['label'] ?? $toggle }}</span>
                             <span class="text-[11px] {{ $allAssigned ? 'text-emerald-700' : 'text-slate-500' }}">{{ $allAssigned ? 'assigned' : 'not fully assigned' }}</span>
@@ -106,19 +169,19 @@
     </section>
 
     <div class="grid gap-4 xl:grid-cols-3">
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 group-shell">
+        <section class="group-detail-panel rounded-2xl border border-slate-200 bg-white p-4 group-shell">
             <h4 class="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                 <svg class="h-4 w-4 text-slate-700" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm-5.5 8a5.5 5.5 0 0 1 11 0h-11ZM13 20a5 5 0 0 1 8.5-3.5V20H13Z"/></svg>
                 Group Members
             </h4>
-            <form method="POST" action="{{ route('admin.groups.members.add', $group->id) }}" class="searchable-select-form search-panel-shell rounded-xl space-y-2 mb-3" data-empty-label="No devices match this search." data-placeholder-label="Add device..." data-count-label="available">
+            <form method="POST" action="{{ route('admin.groups.members.add', $group->id) }}" class="searchable-select-form search-panel-shell group-detail-search rounded-xl space-y-2 mb-3" data-empty-label="No devices match this search." data-placeholder-label="Add device..." data-count-label="available">
                 @csrf
                 <div class="flex items-center justify-between gap-2">
                     <div>
                         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Add Member</p>
                         <p class="text-[11px] text-slate-500">Search by hostname, then add the selected device to this group.</p>
                     </div>
-                    <span class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 searchable-select-count">
+                    <span class="group-detail-chip rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 searchable-select-count">
                         {{ $availableDevices->count() }} available
                     </span>
                 </div>
@@ -144,7 +207,7 @@
 
             <div class="max-h-80 overflow-auto space-y-2 pr-1">
                 @forelse($members as $member)
-                    <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div class="group-detail-list-card flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                         <div class="min-w-0">
                             <p class="text-sm font-medium text-slate-900 truncate">{{ $member->hostname }}</p>
                             <p class="text-[11px] text-slate-500">status: {{ $member->status }} | agent: {{ $member->agent_version }}</p>
@@ -156,24 +219,24 @@
                         </form>
                     </div>
                 @empty
-                    <p class="text-xs text-slate-500">No members yet.</p>
+                    <p class="group-detail-empty text-xs text-slate-500">No members yet.</p>
                 @endforelse
             </div>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 group-shell">
+        <section class="group-detail-panel rounded-2xl border border-slate-200 bg-white p-4 group-shell">
             <h4 class="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                 <svg class="h-4 w-4 text-slate-700" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 4 7v6c0 5 3.5 7.8 8 9 4.5-1.2 8-4 8-9V7l-8-4Z"/></svg>
                 Group Policies
             </h4>
-            <form method="POST" action="{{ route('admin.groups.policies.add', $group->id) }}" class="searchable-select-form search-panel-shell rounded-xl space-y-2 mb-3" data-empty-label="No policies match this search." data-placeholder-label="Assign policy version..." data-count-label="versions">
+            <form method="POST" action="{{ route('admin.groups.policies.add', $group->id) }}" class="searchable-select-form search-panel-shell group-detail-search rounded-xl space-y-2 mb-3" data-empty-label="No policies match this search." data-placeholder-label="Assign policy version..." data-count-label="versions">
                 @csrf
                 <div class="flex items-center justify-between gap-2">
                     <div>
                         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Assign Policy</p>
                         <p class="text-[11px] text-slate-500">Search by policy name, slug, version, or status before adding it to this group.</p>
                     </div>
-                    <span class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 searchable-select-count">
+                    <span class="group-detail-chip rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 searchable-select-count">
                         {{ collect($policyVersionOptions ?? [])->count() }} versions
                     </span>
                 </div>
@@ -202,7 +265,7 @@
             </form>
             <div class="max-h-80 overflow-auto space-y-2 pr-1">
                 @forelse($policies as $policy)
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 flex items-start justify-between gap-2">
+                    <div class="group-detail-list-card rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 flex items-start justify-between gap-2">
                         <div class="min-w-0">
                             <p class="text-sm font-medium text-slate-900 truncate">{{ $policy->policy_name }}</p>
                             <p class="text-[11px] text-slate-500 font-mono truncate">{{ $policy->policy_slug }}</p>
@@ -215,12 +278,12 @@
                         </form>
                     </div>
                 @empty
-                    <p class="text-xs text-slate-500">No policy assignments for this group.</p>
+                    <p class="group-detail-empty text-xs text-slate-500">No policy assignments for this group.</p>
                 @endforelse
             </div>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 group-shell">
+        <section class="group-detail-panel rounded-2xl border border-slate-200 bg-white p-4 group-shell">
             <h4 class="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                 <svg class="h-4 w-4 text-slate-700" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 4 7l8 4 8-4-8-4Z"/><path d="M4 7v10l8 4 8-4V7"/></svg>
                 Group Packages
@@ -228,14 +291,14 @@
             @error('group_package')
                 <div class="mb-2 rounded border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700">{{ $message }}</div>
             @enderror
-            <form method="POST" action="{{ route('admin.groups.packages.add', $group->id) }}" class="searchable-select-form search-panel-shell rounded-xl space-y-2 mb-3" data-empty-label="No packages match this search." data-placeholder-label="Assign package version..." data-count-label="versions">
+            <form method="POST" action="{{ route('admin.groups.packages.add', $group->id) }}" class="searchable-select-form search-panel-shell group-detail-search rounded-xl space-y-2 mb-3" data-empty-label="No packages match this search." data-placeholder-label="Assign package version..." data-count-label="versions">
                 @csrf
                 <div class="flex items-center justify-between gap-2">
                     <div>
                         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Assign Package</p>
                         <p class="text-[11px] text-slate-500">Search by package name, slug, version, or type before deploying it to this group.</p>
                     </div>
-                    <span class="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 searchable-select-count">
+                    <span class="group-detail-chip rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 searchable-select-count">
                         {{ collect($packageVersionOptions ?? [])->count() }} versions
                     </span>
                 </div>
@@ -274,7 +337,7 @@
                             ? $pkg->run_summary
                             : ['pending' => 0, 'running' => 0, 'acked' => 0, 'success' => 0, 'failed' => 0];
                     @endphp
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div class="group-detail-list-card rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">
                                 <p class="text-sm font-medium text-slate-900 truncate">{{ $pkg->package_name ?? 'Unknown package' }} <span class="text-[11px] text-slate-500">v{{ $pkg->package_version ?? '-' }}</span></p>
@@ -295,7 +358,7 @@
                         </div>
                     </div>
                 @empty
-                    <p class="text-xs text-slate-500">No package assignments for this group.</p>
+                    <p class="group-detail-empty text-xs text-slate-500">No package assignments for this group.</p>
                 @endforelse
             </div>
         </section>
@@ -367,4 +430,5 @@
             });
         })();
     </script>
+    </div>
 </x-admin-layout>

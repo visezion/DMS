@@ -5,7 +5,8 @@
         $generateInstallJsonUrl = route('admin.agent.releases.generate-json');
     @endphp
 
-    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+<div class="enroll-shell space-y-5">
+    <section class="enroll-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div class="border-b border-slate-200 px-5 py-3">
             <h3 class="text-lg font-semibold">Enroll Devices</h3>
         </div>
@@ -35,10 +36,6 @@
             </div>
         </div>
 
-        <div class="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs italic text-amber-900">
-            Browser Based Enrollment now posts directly to the device enrollment API. Use Agent Based Enrollment for the install-script workflow.
-        </div>
-
         <div class="grid gap-0 p-5 lg:grid-cols-12">
             <div class="lg:col-span-7 lg:pr-5">
                 <div class="mb-3 flex items-center gap-2 border-b border-slate-200 text-sm">
@@ -46,16 +43,44 @@
                     <button type="button" data-enroll-tab-btn="agent" class="rounded-t-lg border border-b-0 border-slate-300 bg-white px-3 py-2 text-slate-500">Agent Based Enrollment</button>
                 </div>
 
-                <div data-enroll-tab-panel="browser" class="rounded-xl border border-slate-200 bg-slate-50/40 p-5">
+                <div data-enroll-tab-panel="browser" class="enroll-pane rounded-xl border border-slate-200 bg-slate-50/40 p-5">
                     <div class="mb-4">
                         <p class="font-semibold text-slate-900">Browser Based Enrollment</p>
-                        <p class="mt-1 text-sm text-slate-700">Just click the button below. The system will generate a fresh token and installer bundle automatically, then open the install script.</p>
+                        <p class="mt-1 text-sm text-slate-700">Click the button below to generate a fresh token and open the PowerShell install script.</p>
                     </div>
 
-                    <div class="rounded-lg border border-slate-200 bg-white px-4 py-4 text-sm text-slate-700">
-                        <p class="font-medium text-slate-900">Install agent with one click</p>
-                        <p class="mt-1 text-xs text-slate-600">This prepares a fresh token and downloads a Windows launcher. Open the downloaded file on the target PC and Windows will request administrator approval.</p>
-                        <div class="mt-3 flex flex-wrap gap-2">
+                    <div class="enroll-feature-panel rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-sky-50/70 px-5 py-5 text-sm text-slate-700 shadow-sm">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">One-Click Windows Installer</p>
+                                <h4 class="text-lg font-semibold text-slate-900">PowerShell Install Script</h4>
+                                <p class="mt-1 text-xs text-slate-600">Generates a fresh enrollment token, then opens the install script.</p>
+                            </div>
+                            <div class="flex flex-col items-end gap-1 text-xs">
+                                <span class="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-600">Active release: {{ $activeRelease?->file_name ?? 'None' }}</span>
+                                <span class="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-slate-700">Mode: Script</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 grid gap-3 sm:grid-cols-3">
+                            <div class="rounded-xl border border-slate-200 bg-white/80 p-3">
+                                <p class="text-[11px] uppercase tracking-wide text-slate-500">Step 1</p>
+                                <p class="text-sm font-semibold text-slate-900">Prepare token</p>
+                                <p class="mt-1 text-xs text-slate-600">A fresh token is generated for this install session.</p>
+                            </div>
+                            <div class="rounded-xl border border-slate-200 bg-white/80 p-3">
+                                <p class="text-[11px] uppercase tracking-wide text-slate-500">Step 2</p>
+                                <p class="text-sm font-semibold text-slate-900">Launch installer</p>
+                                <p class="mt-1 text-xs text-slate-600">Downloads the installer and requests admin approval.</p>
+                            </div>
+                            <div class="rounded-xl border border-slate-200 bg-white/80 p-3">
+                                <p class="text-[11px] uppercase tracking-wide text-slate-500">Step 3</p>
+                                <p class="text-sm font-semibold text-slate-900">Verify enrollment</p>
+                                <p class="mt-1 text-xs text-slate-600">Device appears in the Devices list automatically.</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 flex flex-wrap gap-2">
                             @if($activeRelease)
                                 <button
                                     type="button"
@@ -76,7 +101,7 @@
                     </div>
                 </div>
 
-                <div data-enroll-tab-panel="agent" class="hidden rounded-xl border border-slate-200 bg-slate-50/40 p-5">
+                <div data-enroll-tab-panel="agent" class="enroll-pane hidden rounded-xl border border-slate-200 bg-slate-50/40 p-5">
                     <p class="mb-3 font-semibold text-slate-900">Windows 10 & above, Windows 7 & 8.1</p>
                     <ol class="list-decimal space-y-2 pl-5 text-sm text-slate-700">
                         <li>Open <a href="{{ $agentPage }}" class="text-sky-700 underline">Agent Delivery</a> and prepare or activate an agent release.</li>
@@ -90,7 +115,7 @@
                         <button type="submit" form="generate-install-script-form" class="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Generate Install Script</button>
                     </div>
 
-                    <div class="mt-8 rounded-lg border border-slate-200 bg-white p-4">
+                    <div class="enroll-side-panel mt-8 rounded-lg border border-slate-200 bg-white p-4">
                         <p class="font-semibold text-slate-900">Start Managing</p>
                         <p class="mt-1 text-sm text-slate-700">After enrollment, assign policies and packages from Policy Center and Application Management.</p>
                     </div>
@@ -99,7 +124,7 @@
 
             <div class="border-t border-slate-200 pt-5 lg:col-span-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
                 <div class="space-y-4">
-                    <div class="rounded-xl border border-slate-200 bg-slate-50/40 p-4">
+                    <div class="enroll-side-panel rounded-xl border border-slate-200 bg-slate-50/40 p-4">
                         <h4 class="mb-3 font-semibold text-slate-900">Generate Client Installer Link</h4>
                         @error('agent_generate')
                             <div class="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">{{ $message }}</div>
@@ -135,8 +160,8 @@
         </div>
     </section>
 
-    @if($generated)
-        <section class="mt-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-5 shadow-sm">
+        @if($generated)
+        <section class="enroll-success-panel mt-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-5 shadow-sm">
             <h3 class="font-semibold text-emerald-900">Installer Ready</h3>
             <p class="mt-1 text-sm text-emerald-800">The install bundle has been prepared. Paste the PowerShell command into the target PC, or use the CMD launcher if you need Command Prompt.</p>
             <div class="mt-4 space-y-4">
@@ -174,7 +199,7 @@
         </section>
     @endif
 
-    <section class="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section class="enroll-table-panel mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div class="mb-3 flex items-center justify-between">
             <h3 class="text-lg font-semibold">Recent Enrollment Tokens</h3>
             <p class="text-xs text-slate-500">Latest 5 generated tokens.</p>
@@ -249,10 +274,11 @@
             const oneClickStatus = document.getElementById('browser-one-click-status');
             if (oneClickBtn && oneClickStatus) {
                 oneClickBtn.addEventListener('click', async function () {
+                        const installMode = 'silent';
                     oneClickBtn.disabled = true;
                     oneClickBtn.textContent = 'Preparing...';
                     oneClickStatus.className = 'mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700';
-                    oneClickStatus.textContent = 'Preparing token and installer bundle...';
+                        oneClickStatus.textContent = 'Preparing install bundle...';
                     oneClickStatus.classList.remove('hidden');
 
                     try {
@@ -265,9 +291,10 @@
                             },
                             body: JSON.stringify({
                                 release_id: oneClickBtn.getAttribute('data-release-id'),
-                                expires_hours: 24,
+                                expires_hours: 87600,
                                 api_base_url: oneClickBtn.getAttribute('data-api-base-url'),
-                                public_base_url: oneClickBtn.getAttribute('data-public-base-url')
+                                public_base_url: oneClickBtn.getAttribute('data-public-base-url'),
+                                install_mode: installMode
                             })
                         });
                         const data = await response.json().catch(function () { return {}; });
@@ -280,7 +307,7 @@
 
                         const bundle = data.bundle || {};
                         oneClickStatus.className = 'mt-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800';
-                        oneClickStatus.textContent = 'Installer ready. Downloading Windows launcher...';
+                        oneClickStatus.textContent = 'Installer ready. Opening install script...';
                         if (bundle.launcher_url || bundle.script_url) {
                             window.open(bundle.launcher_url || bundle.script_url, '_blank', 'noopener');
                         }
@@ -318,4 +345,5 @@
 
         })();
     </script>
+</div>
 </x-admin-layout>

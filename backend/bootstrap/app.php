@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Middleware\RequirePermission;
+use App\Http\Middleware\ApplyLocalizedUiStrings;
 use App\Http\Middleware\ResolveTenantContext;
+use App\Http\Middleware\SetPreferredLocale;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,14 +18,17 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         // bootstrap/app.php runs before config bindings are available.
         $standaloneMode = filter_var((string) env('DMS_STANDALONE_MODE', 'true'), FILTER_VALIDATE_BOOL);
+        $webMiddleware = [
+            SetPreferredLocale::class,
+            ApplyLocalizedUiStrings::class,
+        ];
         if (! $standaloneMode) {
-            $middleware->web(append: [
-                ResolveTenantContext::class,
-            ]);
+            $webMiddleware[] = ResolveTenantContext::class;
             $middleware->api(append: [
                 ResolveTenantContext::class,
             ]);
         }
+        $middleware->web(append: $webMiddleware);
         $middleware->alias([
             'permission' => RequirePermission::class,
         ]);

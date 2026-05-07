@@ -13,6 +13,45 @@ $ProgressPreference = "SilentlyContinue"
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
+$sdkVersion = "10.0.104"
+$dotnetRoot = Join-Path $AgentRoot ".dotnet"
+$dotnetExe = "dotnet"
+
+function Ensure-LocalDotNet {
+  param(
+    [Parameter(Mandatory = $true)][string]$DotnetRoot,
+    [Parameter(Mandatory = $true)][string]$SdkVersion
+  )
+
+  $exe = Join-Path $DotnetRoot "dotnet.exe"
+  if (Test-Path $exe) {
+    return $exe
+  }
+
+  New-Item -ItemType Directory -Path $DotnetRoot -Force | Out-Null
+  $installer = Join-Path $DotnetRoot "dotnet-install.ps1"
+  if (!(Test-Path $installer)) {
+    try {
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+      Invoke-WebRequest -UseBasicParsing -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $installer
+    }
+    catch {
+      throw "Unable to download dotnet-install.ps1. Install .NET SDK $SdkVersion (x64) manually."
+    }
+  }
+
+  & powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version $SdkVersion -InstallDir $DotnetRoot -Architecture "x64" -NoPath *> $null
+  if ($LASTEXITCODE -ne 0) {
+    throw "dotnet-install.ps1 failed with exit code $LASTEXITCODE. Install .NET SDK $SdkVersion (x64) manually."
+  }
+
+  if (!(Test-Path $exe)) {
+    throw "Local .NET SDK install did not produce dotnet.exe at $exe"
+  }
+
+  return $exe
+}
+
 function Assert-PublishOutput {
   param(
     [Parameter(Mandatory = $true)][string]$PublishDir,
@@ -134,6 +173,8 @@ $buildId = ([Guid]::NewGuid().ToString("N").Substring(0,8))
 
 $publishDir = Join-Path $AgentRoot "dist\agent-build-$safeVersion-$safeRuntime-$buildId"
 $bundleDir = Join-Path $AgentRoot "dist\bundle-$safeVersion-$safeRuntime-$buildId"
+$guiPublishDir = Join-Path $AgentRoot "dist\gui-installer-$safeRuntime-$buildId"
+$guiTemplatePath = Join-Path $AgentRoot "dist\installer-gui-template.exe"
 $installerDir = Join-Path $AgentRoot "installer"
 $dotnetHome = Join-Path $AgentRoot ".dotnet-home"
 $nugetPackages = Join-Path $dotnetHome ".nuget\packages"
@@ -182,6 +223,9 @@ $env:NUGET_PACKAGES = $nugetPackages
 $env:NUGET_HTTP_CACHE_PATH = $nugetHttpCache
 $env:NUGET_PLUGINS_CACHE_PATH = $nugetPluginCache
 $env:NUGET_COMMON_APPLICATION_DATA = $programData
+$dotnetExe = Ensure-LocalDotNet -DotnetRoot $dotnetRoot -SdkVersion $sdkVersion
+$env:DOTNET_ROOT = $dotnetRoot
+$env:PATH = "$dotnetRoot;$env:PATH"
 
 $sc = if ($SelfContained -eq "true") { "true" } else { "false" }
 $publishSingleFile = "false"
@@ -204,11 +248,11 @@ if (Test-Path $nugetConfigPath) { Remove-Item $nugetConfigPath -Force }
 Push-Location $AgentRoot
 try {
   $restoreTarget = ".\src\Dms.Agent.Service\Dms.Agent.Service.csproj"
-  & dotnet restore $restoreTarget -r $safeRuntime --nologo --configfile $nugetConfigPath --packages $nugetPackages
+  & $dotnetExe restore $restoreTarget -r $safeRuntime --nologo --configfile $nugetConfigPath --packages $nugetPackages
   if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed with exit code $LASTEXITCODE" }
 
   $informationalVersion = "$safeVersion+$buildId"
-  & dotnet publish $restoreTarget -c Release -r $safeRuntime -p:PublishSingleFile=$publishSingleFile -p:SelfContained=$sc -p:InformationalVersion=$informationalVersion -p:Version=$safeVersion --no-restore -o $publishDir --nologo
+  & $dotnetExe publish $restoreTarget -c Release -r $safeRuntime -p:PublishSingleFile=$publishSingleFile -p:SelfContained=$sc -p:InformationalVersion=$informationalVersion -p:Version=$safeVersion --no-restore -o $publishDir --nologo
   if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
 
   if (!(Test-Path $publishDir)) {
@@ -216,6 +260,20 @@ try {
   }
 
   Assert-PublishOutput -PublishDir $publishDir -SelfContained ($sc -eq "true")
+
+  $guiProject = ".\src\Dms.Agent.GuiInstaller\Dms.Agent.GuiInstaller.csproj"
+  if (Test-Path $guiProject) {
+    & $dotnetExe restore $guiProject -r $safeRuntime --nologo --configfile $nugetConfigPath --packages $nugetPackages
+    if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed for GUI installer with exit code $LASTEXITCODE" }
+
+    & $dotnetExe publish $guiProject -c Release -r $safeRuntime -p:PublishSingleFile=true -p:SelfContained=true --no-restore -o $guiPublishDir --nologo
+    if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for GUI installer with exit code $LASTEXITCODE" }
+
+    $guiExe = Join-Path $guiPublishDir "Dms.Agent.GuiInstaller.exe"
+    if (Test-Path $guiExe) {
+      Copy-Item $guiExe -Destination $guiTemplatePath -Force
+    }
+  }
 
   New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $bundleDir "agent") -Force | Out-Null

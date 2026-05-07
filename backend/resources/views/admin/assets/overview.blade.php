@@ -1,5 +1,6 @@
 <x-admin-layout title="Asset Management" heading="Asset Management">
     @php
+        $endpointIntelligenceEnabled = (bool) ($endpointIntelligenceEnabled ?? true);
         $freshnessThreshold = (int) data_get($intelligenceFreshness ?? [], 'stale_after_minutes', 120);
         $healthFreshnessAge = (string) data_get($intelligenceFreshness ?? [], 'health_latest.age_human', 'No data yet');
         $riskFreshnessAge = (string) data_get($intelligenceFreshness ?? [], 'risk_latest.age_human', 'No data yet');
@@ -36,34 +37,36 @@
         </div>
     </section>
 
-    <section class="rounded-2xl border border-slate-200 bg-white p-4">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-                <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Endpoint Intelligence Wire</p>
-                <h3 class="mt-1 text-base font-semibold text-slate-900">Freshness context for asset decisions</h3>
-                <p class="mt-1 text-sm text-slate-600">Stale threshold {{ $freshnessThreshold }} minutes. Use this before acting on software or compliance outliers.</p>
+    @if($endpointIntelligenceEnabled)
+        <section class="rounded-2xl border border-slate-200 bg-white p-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Endpoint Intelligence Wire</p>
+                    <h3 class="mt-1 text-base font-semibold text-slate-900">Freshness context for asset decisions</h3>
+                    <p class="mt-1 text-sm text-slate-600">Stale threshold {{ $freshnessThreshold }} minutes. Use this before acting on software or compliance outliers.</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <a href="{{ route('admin.intelligence.health') }}" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Open Health</a>
+                    <a href="{{ route('admin.intelligence.risk') }}" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Open Risk</a>
+                    <a href="{{ route('admin.intelligence.tuning') }}" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Open Tuning</a>
+                </div>
             </div>
-            <div class="flex flex-wrap gap-2">
-                <a href="{{ route('admin.intelligence.health') }}" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Open Health</a>
-                <a href="{{ route('admin.intelligence.risk') }}" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Open Risk</a>
-                <a href="{{ route('admin.intelligence.tuning') }}" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50">Open Tuning</a>
+            <div class="mt-3 grid gap-3 md:grid-cols-3">
+                <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p class="text-[11px] uppercase tracking-wide text-slate-500">Health Data Age</p>
+                    <p class="mt-1 text-base font-semibold text-slate-900">{{ $healthFreshnessAge }}</p>
+                </article>
+                <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p class="text-[11px] uppercase tracking-wide text-slate-500">Risk Data Age</p>
+                    <p class="mt-1 text-base font-semibold text-slate-900">{{ $riskFreshnessAge }}</p>
+                </article>
+                <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p class="text-[11px] uppercase tracking-wide text-slate-500">Findings Data Age</p>
+                    <p class="mt-1 text-base font-semibold text-slate-900">{{ $findingFreshnessAge }}</p>
+                </article>
             </div>
-        </div>
-        <div class="mt-3 grid gap-3 md:grid-cols-3">
-            <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p class="text-[11px] uppercase tracking-wide text-slate-500">Health Data Age</p>
-                <p class="mt-1 text-base font-semibold text-slate-900">{{ $healthFreshnessAge }}</p>
-            </article>
-            <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p class="text-[11px] uppercase tracking-wide text-slate-500">Risk Data Age</p>
-                <p class="mt-1 text-base font-semibold text-slate-900">{{ $riskFreshnessAge }}</p>
-            </article>
-            <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p class="text-[11px] uppercase tracking-wide text-slate-500">Findings Data Age</p>
-                <p class="mt-1 text-base font-semibold text-slate-900">{{ $findingFreshnessAge }}</p>
-            </article>
-        </div>
-    </section>
+        </section>
+    @endif
 
     <section class="grid gap-4 xl:grid-cols-2">
         <article class="rounded-2xl border border-slate-200 bg-white p-4">

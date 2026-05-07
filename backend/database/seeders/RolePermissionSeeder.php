@@ -57,6 +57,7 @@ class RolePermissionSeeder extends Seeder
             'assistant.use', 'assistant.convert',
             'remediation.read', 'remediation.plan', 'remediation.execute', 'remediation.approve',
             'autonomy.manage',
+            'autonomous.read', 'autonomous.manage', 'autonomous.approve', 'autonomous.execute',
         ];
 
         foreach ($permissionSlugs as $slug) {

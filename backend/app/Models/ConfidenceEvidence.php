@@ -1,0 +1,32 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class ConfidenceEvidence extends Model
+{
+    use HasFactory;
+    use HasUuids;
+
+    protected $guarded = [];
+    public $incrementing = false;
+    protected $keyType = 'string';
+
+    protected function casts(): array
+    {
+        return [
+            'factor_weight' => 'float',
+            'factor_value' => 'float',
+            'notes' => 'array',
+        ];
+    }
+
+    public function decision(): BelongsTo
+    {
+        return $this->belongsTo(AutonomousDecision::class, 'decision_id');
+    }
+}

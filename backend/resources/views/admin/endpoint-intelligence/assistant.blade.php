@@ -1,13 +1,43 @@
 <x-admin-layout title="AI Ops Assistant" heading="AI Ops Assistant">
+    @php
+        $heroBadges = [
+            ['class' => 'ei-chip ei-chip-primary', 'label' => 'Messages: '.((int) ($metrics['assistant_messages'] ?? 0))],
+            ['class' => 'ei-chip', 'label' => 'Open incidents: '.((int) ($metrics['open_incidents'] ?? 0))],
+            ['class' => 'ei-chip', 'label' => 'Pending approvals: '.((int) ($metrics['pending_approvals'] ?? 0))],
+        ];
+        $heroActions = [
+            ['href' => route('admin.intelligence.risk'), 'label' => 'Open Risk'],
+            ['href' => route('admin.intelligence.approvals'), 'label' => 'Open Approvals'],
+            ['href' => route('admin.intelligence.remediation'), 'label' => 'Open Remediation'],
+            ['href' => route('admin.intelligence.assistant', ['new' => 1]), 'class' => 'ei-button-primary rounded-xl px-4 py-3 text-sm font-medium text-white', 'label' => 'New Chat'],
+        ];
+        $summaryCards = [
+            ['label' => 'Sessions 24h', 'value' => (int) ($metrics['sessions_24h'] ?? 0), 'description' => 'Recent assistant sessions started in the last day.'],
+            ['label' => 'Assistant Messages', 'value' => (int) ($metrics['assistant_messages'] ?? 0), 'description' => 'Stored operator and assistant conversation messages.'],
+            ['label' => 'Devices With Scores', 'value' => (int) ($metrics['devices_with_scores'] ?? 0), 'description' => 'Endpoints with current intelligence scoring data.'],
+            ['class' => 'rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm', 'label_class' => 'text-xs uppercase tracking-[0.18em] text-amber-700', 'value_class' => 'mt-2 text-3xl font-semibold text-amber-900', 'description_class' => 'mt-1 text-sm text-amber-800', 'label' => 'Open Findings', 'value' => (int) ($metrics['open_findings'] ?? 0), 'description' => 'Signals you may want the assistant to explain.'],
+        ];
+    @endphp
     <div class="endpoint-intelligence-shell space-y-5">
-        @include('admin.endpoint-intelligence.partials.metric-cards', ['metrics' => $metrics])
+        @include('admin.endpoint-intelligence.partials.smart-nav')
+        @include('admin.endpoint-intelligence.partials.overview-hero', [
+            'eyebrow' => 'AI Assistant',
+            'title' => 'Ask one operational question and get a grounded next step',
+            'description' => 'Use the assistant to explain what is happening, identify likely causes, and suggest safe follow-up actions using current endpoint intelligence context.',
+            'badges' => $heroBadges,
+            'actions' => $heroActions,
+        ])
+
+        @include('admin.endpoint-intelligence.partials.overview-stats', [
+            'cards' => $summaryCards,
+        ])
 
         <section class="ei-assistant-workspace">
             <aside class="ei-assistant-sidebar">
                 <div class="ei-sidebar-head">
                     <div>
                         <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Conversations</p>
-                        <h3 class="mt-1 text-base font-semibold text-slate-900">Recent Chat</h3>
+                        <h3 class="mt-1 text-base font-semibold text-slate-900">Recent investigations</h3>
                     </div>
                     <a href="{{ route('admin.intelligence.assistant', ['new' => 1]) }}" class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700">New Chat</a>
                 </div>
@@ -34,12 +64,15 @@
                 </div>
 
                 <div class="ei-quick-guide">
-                    <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">How To Use</p>
-                    <ol class="mt-2 space-y-2 text-xs text-slate-700">
-                        <li><span class="font-semibold">1.</span> Pick mode and optional scope.</li>
-                        <li><span class="font-semibold">2.</span> Ask one clear operational question.</li>
-                        <li><span class="font-semibold">3.</span> Review actions, approvals, and gaps.</li>
-                    </ol>
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Workflow</p>
+                    <div class="mt-3 grid gap-2">
+                        @foreach ($assistantFlow as $step)
+                            <div class="ei-guide-step">
+                                <p class="text-xs font-semibold text-slate-900">{{ $step['title'] }}</p>
+                                <p class="mt-1 text-[11px] text-slate-500">{{ $step['description'] }}</p>
+                            </div>
+                        @endforeach
+                    </div>
                     <div class="mt-3 grid gap-2">
                         <a href="{{ route('admin.intelligence.risk') }}" class="ei-side-link">Open Risk Dashboard</a>
                         <a href="{{ route('admin.intelligence.approvals') }}" class="ei-side-link">Open Approval Center</a>
@@ -52,9 +85,9 @@
                 <header class="ei-panel-head">
                     <div class="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                            <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Assistant</p>
-                            <h3 class="mt-1 text-lg font-semibold text-slate-900">Simple Investigation Console</h3>
-                            <p class="mt-1 text-xs text-slate-600">Ask for facts, likely causes, and safe next actions.</p>
+                            <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Assistant Workspace</p>
+                            <h3 class="mt-1 text-lg font-semibold text-slate-900">Ask, review, and act</h3>
+                            <p class="mt-1 text-xs text-slate-600">Keep questions short and issue-specific for clearer answers.</p>
                         </div>
                         <a href="{{ route('admin.intelligence.assistant', ['new' => 1]) }}" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700">Start Fresh</a>
                     </div>
@@ -73,6 +106,38 @@
                         @endif
                     </div>
                 </header>
+
+                <div class="ei-thread-head">
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Conversation Output</p>
+                        <h4 class="mt-1 text-sm font-semibold text-slate-900">Answers with evidence, reasoning, and next actions</h4>
+                    </div>
+                </div>
+
+                <div id="assistant-thread" class="ei-chat-thread">
+                    @forelse ($recentMessages as $message)
+                        <div class="ei-msg-row {{ $message->role === 'user' ? 'is-user' : 'is-assistant' }}" data-chat-role="{{ $message->role }}">
+                            <div class="ei-msg-bubble">
+                                <div class="ei-msg-meta">
+                                    <span>{{ $message->role }}</span>
+                                    <span>{{ optional($message->created_at)->diffForHumans() }}</span>
+                                </div>
+                                <p class="ei-msg-content">{{ $message->content }}</p>
+                                @if ($message->role === 'assistant' && is_array($message->citations) && count($message->citations) > 0)
+                                    <p class="mt-2 text-[11px] text-slate-500">Citations: {{ implode(', ', $message->citations) }}</p>
+                                @endif
+                            </div>
+                        </div>
+                    @empty
+                        <div id="assistant-thread-empty" class="ei-thread-empty">
+                            Start with a direct question. Keep one issue per message for faster and clearer results.
+                        </div>
+                    @endforelse
+                </div>
+
+                <div id="assistant-status" class="ei-status-bar">
+                    Ready.
+                </div>
 
                 <form id="assistant-form" class="ei-assistant-form">
                     <input type="hidden" id="assistant-conversation-id" name="conversation_id" value="{{ $selectedConversationId ?? '' }}">
@@ -126,41 +191,19 @@
                     </div>
 
                     <div class="ei-composer-row mt-3">
-                        <textarea
-                            id="assistant-question"
-                            name="question"
-                            rows="2"
-                            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                            placeholder="Example: Which endpoints need action now, and what can be safely remediated without approval?"
-                        ></textarea>
-                        <button type="submit" class="ei-button-primary rounded-xl border px-4 py-2 text-sm font-medium">Send</button>
+                        <div class="ei-composer-main">
+                            <label for="assistant-question" class="ei-field-label">Question</label>
+                            <textarea
+                                id="assistant-question"
+                                name="question"
+                                rows="3"
+                                class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                placeholder="Example: Which endpoints need action now, and what can be safely remediated without approval?"
+                            ></textarea>
+                        </div>
+                        <button type="submit" class="ei-button-primary rounded-xl border px-4 py-3 text-sm font-medium">Ask Assistant</button>
                     </div>
                 </form>
-
-                <div id="assistant-thread" class="ei-chat-thread">
-                    @forelse ($recentMessages as $message)
-                        <div class="ei-msg-row {{ $message->role === 'user' ? 'is-user' : 'is-assistant' }}" data-chat-role="{{ $message->role }}">
-                            <div class="ei-msg-bubble">
-                                <div class="ei-msg-meta">
-                                    <span>{{ $message->role }}</span>
-                                    <span>{{ optional($message->created_at)->diffForHumans() }}</span>
-                                </div>
-                                <p class="ei-msg-content">{{ $message->content }}</p>
-                                @if ($message->role === 'assistant' && is_array($message->citations) && count($message->citations) > 0)
-                                    <p class="mt-2 text-[11px] text-slate-500">Citations: {{ implode(', ', $message->citations) }}</p>
-                                @endif
-                            </div>
-                        </div>
-                    @empty
-                        <div id="assistant-thread-empty" class="ei-thread-empty">
-                            Start with a direct question. Keep one issue per message for faster and clearer results.
-                        </div>
-                    @endforelse
-                </div>
-
-                <div id="assistant-status" class="ei-status-bar">
-                    Ready.
-                </div>
             </article>
         </section>
     </div>
@@ -168,8 +211,8 @@
     <style>
         .endpoint-intelligence-shell .ei-assistant-workspace {
             display: grid;
-            grid-template-columns: 270px minmax(0, 1fr);
-            gap: 0.85rem;
+            grid-template-columns: 290px minmax(0, 1fr);
+            gap: 1rem;
             align-items: stretch;
         }
 
@@ -182,10 +225,16 @@
             min-width: 0;
         }
 
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-assistant-sidebar,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-assistant-panel {
+            background: #111c2d;
+            box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);
+        }
+
         .endpoint-intelligence-shell .ei-assistant-sidebar {
             display: flex;
             flex-direction: column;
-            min-height: 640px;
+            min-height: 680px;
         }
 
         .endpoint-intelligence-shell .ei-sidebar-head {
@@ -193,15 +242,15 @@
             align-items: center;
             justify-content: space-between;
             gap: 0.75rem;
-            padding: 0.85rem;
+            padding: 1rem;
             border-bottom: 1px solid rgba(148, 163, 184, 0.22);
         }
 
         .endpoint-intelligence-shell .ei-history-list {
-            max-height: 350px;
-            min-height: 240px;
+            max-height: 360px;
+            min-height: 260px;
             overflow-y: auto;
-            padding: 0.65rem;
+            padding: 0.75rem;
             display: grid;
             gap: 0.5rem;
         }
@@ -213,6 +262,12 @@
             background: #ffffff;
             color: rgb(51 65 85);
             padding: 0.54rem 0.62rem;
+        }
+
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-history-item,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-side-link {
+            background: #0f172a;
+            color: rgb(226 232 240);
         }
 
         .endpoint-intelligence-shell .ei-history-item.is-active {
@@ -230,13 +285,26 @@
             font-size: 0.84rem;
         }
 
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-history-empty,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-quick-guide {
+            background: #0f172a;
+            color: rgb(148 163 184);
+        }
+
         .endpoint-intelligence-shell .ei-quick-guide {
-            margin: 0.65rem;
+            margin: 0.75rem;
             margin-top: auto;
             border: 1px solid rgba(148, 163, 184, 0.24);
             border-radius: var(--brand-radius-xl);
             background: #f8fafc;
-            padding: 0.68rem;
+            padding: 0.85rem;
+        }
+
+        .endpoint-intelligence-shell .ei-guide-step {
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: var(--brand-radius-lg);
+            background: #ffffff;
+            padding: 0.65rem 0.7rem;
         }
 
         .endpoint-intelligence-shell .ei-side-link {
@@ -258,14 +326,18 @@
         .endpoint-intelligence-shell .ei-assistant-panel {
             display: flex;
             flex-direction: column;
-            min-height: 640px;
+            min-height: 680px;
             overflow: hidden;
         }
 
         .endpoint-intelligence-shell .ei-panel-head {
-            padding: 0.85rem 0.85rem 0.75rem;
+            padding: 1rem 1rem 0.9rem;
             border-bottom: 1px solid rgba(148, 163, 184, 0.22);
             background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-panel-head {
+            background: linear-gradient(180deg, #111c2d 0%, #0f172a 100%);
         }
 
         .endpoint-intelligence-shell .ei-active-scope {
@@ -275,14 +347,14 @@
         }
 
         .endpoint-intelligence-shell .ei-assistant-form {
-            border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+            border-top: 1px solid rgba(148, 163, 184, 0.22);
             background: #ffffff;
-            padding: 0.75rem 0.85rem;
+            padding: 1rem;
         }
 
         .endpoint-intelligence-shell .ei-scope-grid {
             display: grid;
-            gap: 0.55rem;
+            gap: 0.65rem;
             grid-template-columns: repeat(4, minmax(0, 1fr));
         }
 
@@ -327,26 +399,44 @@
 
         .endpoint-intelligence-shell .ei-composer-row {
             display: flex;
-            align-items: center;
-            gap: 0.55rem;
+            align-items: flex-end;
+            gap: 0.75rem;
+        }
+
+        .endpoint-intelligence-shell .ei-composer-main {
+            flex: 1;
         }
 
         .endpoint-intelligence-shell #assistant-question {
-            min-height: 52px;
-            max-height: 130px;
+            min-height: 76px;
+            max-height: 150px;
             resize: vertical;
+        }
+
+        .endpoint-intelligence-shell .ei-thread-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.9rem 1rem 0.75rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+            background: #ffffff;
         }
 
         .endpoint-intelligence-shell .ei-chat-thread {
             flex: 1;
-            min-height: 280px;
-            max-height: 52vh;
+            min-height: 320px;
+            max-height: 56vh;
             overflow-y: auto;
             background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-            padding: 0.85rem;
+            padding: 1rem;
             display: grid;
             align-content: start;
-            gap: 0.58rem;
+            gap: 0.7rem;
+        }
+
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-chat-thread {
+            background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
         }
 
         .endpoint-intelligence-shell .ei-thread-empty {
@@ -356,6 +446,13 @@
             color: rgb(100 116 139);
             padding: 1rem;
             font-size: 0.88rem;
+        }
+
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-thread-empty,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-detail,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-status-bar {
+            background: #0f172a;
+            color: rgb(148 163 184);
         }
 
         .endpoint-intelligence-shell .ei-msg-row {
@@ -377,6 +474,14 @@
             border-radius: var(--brand-radius-xl);
             padding: 0.6rem 0.74rem;
             background: #ffffff;
+        }
+
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-msg-bubble,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-detail-item,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-detail summary,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-response-kpis .chip {
+            background: #111c2d;
+            color: rgb(226 232 240);
         }
 
         .endpoint-intelligence-shell .ei-msg-row.is-user .ei-msg-bubble {
@@ -469,6 +574,16 @@
             color: rgb(100 116 139);
         }
 
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-msg-meta,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-detail-item-meta,
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-field-label {
+            color: rgb(148 163 184);
+        }
+
+        html[data-theme="dark"] .endpoint-intelligence-shell .ei-msg-content {
+            color: rgb(226 232 240);
+        }
+
         .endpoint-intelligence-shell .ei-detail-code {
             margin-top: 0.32rem;
             border: 1px solid rgba(148, 163, 184, 0.28);
@@ -481,11 +596,11 @@
         }
 
         .endpoint-intelligence-shell .ei-status-bar {
-            margin: 0.6rem 0.85rem 0.85rem;
+            margin: 0.8rem 1rem 1rem;
             border: 1px solid #e2e8f0;
             border-radius: var(--brand-radius-lg);
             background: #f8fafc;
-            padding: 0.45rem 0.62rem;
+            padding: 0.6rem 0.75rem;
             font-size: 0.76rem;
             color: rgb(71 85 105);
         }

@@ -113,7 +113,7 @@
                         <div>
                             <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Rule Type</label>
                             <select id="catalog-create-rule-type" name="rule_type" class="field">
-                                @foreach(['registry','firewall','dns','network_adapter','bitlocker','local_group','windows_update','scheduled_task','command','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
+                                @foreach(['registry','firewall','dns','network_adapter','time','bitlocker','local_group','windows_update','scheduled_task','command','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
                                     <option value="{{ $ruleType }}">{{ $ruleType }}</option>
                                 @endforeach
                             </select>
@@ -145,7 +145,7 @@
                             <div>
                                 <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Remove Rule Type</label>
                                 <select name="remove_rule_type" class="field">
-                                    @foreach(['registry','scheduled_task','command','firewall','dns','network_adapter','bitlocker','local_group','windows_update','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
+                                    @foreach(['registry','scheduled_task','command','firewall','dns','network_adapter','time','bitlocker','local_group','windows_update','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
                                         <option value="{{ $ruleType }}">{{ $ruleType }}</option>
                                     @endforeach
                                 </select>
@@ -242,7 +242,7 @@
                                             <option value="group" {{ ($item['applies_to'] ?? '') === 'group' ? 'selected' : '' }}>Applies to group</option>
                                         </select>
                                         <select name="rule_type" class="field">
-                                            @foreach(['registry','firewall','dns','network_adapter','bitlocker','local_group','windows_update','scheduled_task','command','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
+                                            @foreach(['registry','firewall','dns','network_adapter','time','bitlocker','local_group','windows_update','scheduled_task','command','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
                                                 <option value="{{ $ruleType }}" {{ ($item['rule_type'] ?? '') === $ruleType ? 'selected' : '' }}>{{ $ruleType }}</option>
                                             @endforeach
                                         </select>
@@ -257,7 +257,7 @@
                                             <option value="command" {{ $entry['remove_mode'] === 'command' ? 'selected' : '' }}>Remove mode: command</option>
                                         </select>
                                         <select name="remove_rule_type" class="field">
-                                            @foreach(['registry','scheduled_task','command','firewall','dns','network_adapter','bitlocker','local_group','windows_update','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
+                                            @foreach(['registry','scheduled_task','command','firewall','dns','network_adapter','time','bitlocker','local_group','windows_update','baseline_profile','reboot_restore_mode','uwf'] as $ruleType)
                                                 <option value="{{ $ruleType }}" {{ $entry['remove_type'] === $ruleType ? 'selected' : '' }}>{{ $ruleType }}</option>
                                             @endforeach
                                         </select>

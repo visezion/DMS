@@ -11,10 +11,22 @@
         position: relative;
     }
 
+    html[data-theme="dark"] .endpoint-intelligence-shell {
+        --ei-border: #334155;
+        --ei-border-strong: #475569;
+        --ei-panel-bg: #111c2d;
+        --ei-sub-bg: rgba(14, 165, 233, 0.12);
+        --ei-surface-muted: #0f172a;
+    }
+
     .endpoint-intelligence-header {
         border-radius: var(--brand-radius-3xl);
         border: 1px solid var(--ei-border);
         background: #ffffff;
+    }
+
+    html[data-theme="dark"] .endpoint-intelligence-header {
+        background: var(--ei-panel-bg);
     }
 
     .endpoint-intelligence-header__layout {
@@ -112,6 +124,21 @@
         padding: 0.55rem 0.9rem;
     }
 
+    html[data-theme="dark"] .endpoint-intelligence-header__title,
+    html[data-theme="dark"] .endpoint-intelligence-header__highlight-value {
+        color: rgb(248 250 252);
+    }
+
+    html[data-theme="dark"] .endpoint-intelligence-header__description,
+    html[data-theme="dark"] .endpoint-intelligence-header__meta,
+    html[data-theme="dark"] .endpoint-intelligence-header__highlight-label {
+        color: rgb(148 163 184);
+    }
+
+    html[data-theme="dark"] .endpoint-intelligence-header__highlight {
+        background: #0f172a;
+    }
+
     .endpoint-intelligence-header__highlight-label {
         color: rgb(100 116 139);
         font-size: 0.66rem;
@@ -175,6 +202,10 @@
         letter-spacing: 0.12em;
     }
 
+    html[data-theme="dark"] .endpoint-intelligence-shell table thead th {
+        color: rgb(148 163 184);
+    }
+
     .endpoint-intelligence-shell table tbody tr {
         transition: background-color 120ms ease, border-color 120ms ease;
     }
@@ -189,6 +220,13 @@
         background: #ffffff;
     }
 
+    html[data-theme="dark"] .endpoint-intelligence-shell table tbody td {
+        border-top-color: rgba(51, 65, 85, 0.95);
+        border-bottom-color: rgba(51, 65, 85, 0.95);
+        background: #111c2d;
+        color: rgb(226 232 240);
+    }
+
     .endpoint-intelligence-shell table tbody td:first-child {
         border-left: 1px solid rgba(226, 232, 240, 0.95);
         border-radius: var(--brand-radius-lg) 0 0 var(--brand-radius-lg);
@@ -199,6 +237,14 @@
         border-right: 1px solid rgba(226, 232, 240, 0.95);
         border-radius: 0 var(--brand-radius-lg) var(--brand-radius-lg) 0;
         padding-right: 0.9rem;
+    }
+
+    html[data-theme="dark"] .endpoint-intelligence-shell table tbody td:first-child {
+        border-left-color: rgba(51, 65, 85, 0.95);
+    }
+
+    html[data-theme="dark"] .endpoint-intelligence-shell table tbody td:last-child {
+        border-right-color: rgba(51, 65, 85, 0.95);
     }
 
     .endpoint-intelligence-shell button.rounded-lg,
@@ -231,6 +277,11 @@
         background: #ffffff;
         color: rgb(51 65 85);
         border-radius: 9999px;
+    }
+
+    html[data-theme="dark"] .endpoint-intelligence-shell .ei-chip {
+        background: #0f172a;
+        color: rgb(226 232 240);
     }
 
     .endpoint-intelligence-shell .ei-chip-primary {
@@ -312,6 +363,13 @@
         background: #ffffff;
     }
 
+    html[data-theme="dark"] .endpoint-intelligence-shell .ei-assistant-panel,
+    html[data-theme="dark"] .endpoint-intelligence-shell .ei-assistant-item,
+    html[data-theme="dark"] .endpoint-intelligence-shell .ei-assistant-code details {
+        background: #111c2d;
+        color: rgb(226 232 240);
+    }
+
     .endpoint-intelligence-shell .ei-assistant-code summary {
         cursor: pointer;
         list-style: none;
@@ -325,12 +383,113 @@
         background: rgba(148, 163, 184, 0.18);
     }
 
+    .endpoint-intelligence-shell .ei-smart-nav__head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.85rem;
+    }
+
+    .endpoint-intelligence-shell .ei-smart-nav__eyebrow {
+        color: var(--brand-primary);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+    }
+
+    .endpoint-intelligence-shell .ei-smart-nav__title {
+        margin-top: 0.2rem;
+        color: rgb(15 23 42);
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    .endpoint-intelligence-shell .ei-smart-nav__tabs {
+        display: flex;
+        gap: 0.7rem;
+        overflow-x: auto;
+        padding: 0.95rem 0 0.2rem;
+        scrollbar-width: thin;
+    }
+
+    .endpoint-intelligence-shell .ei-smart-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        white-space: nowrap;
+        border: 1px solid var(--ei-border);
+        border-radius: 9999px;
+        background: #ffffff;
+        padding: 0.7rem 0.95rem;
+        color: rgb(51 65 85);
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .endpoint-intelligence-shell .ei-smart-tab:hover {
+        border-color: var(--ei-border-strong);
+        color: var(--brand-primary);
+    }
+
+    .endpoint-intelligence-shell .ei-smart-tab.is-active {
+        border-color: var(--brand-primary-border);
+        background: var(--brand-primary-soft);
+        color: var(--brand-primary);
+    }
+
+    .endpoint-intelligence-shell .ei-smart-tab__icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .endpoint-intelligence-shell .ei-smart-nav__guide {
+        margin-top: 0.95rem;
+        display: grid;
+        gap: 0.9rem;
+        border: 1px solid var(--ei-border);
+        border-radius: var(--brand-radius-xl);
+        background: var(--ei-surface-muted);
+        padding: 0.95rem 1rem;
+    }
+
+    .endpoint-intelligence-shell .ei-smart-nav__guide-label {
+        color: rgb(100 116 139);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+    }
+
+    .endpoint-intelligence-shell .ei-smart-nav__guide-text {
+        margin-top: 0.3rem;
+        color: rgb(51 65 85);
+        font-size: 0.9rem;
+        line-height: 1.55;
+    }
+
+    .endpoint-intelligence-shell .ei-smart-nav__guide-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+    }
+
     .endpoint-intelligence-shell select,
     .endpoint-intelligence-shell input,
     .endpoint-intelligence-shell textarea {
         border-color: rgba(148, 163, 184, 0.38);
         background: #ffffff;
         border-radius: var(--brand-radius-lg);
+    }
+
+    html[data-theme="dark"] .endpoint-intelligence-shell select,
+    html[data-theme="dark"] .endpoint-intelligence-shell input,
+    html[data-theme="dark"] .endpoint-intelligence-shell textarea {
+        border-color: rgba(71, 85, 105, 0.9);
+        background: #0f172a;
+        color: rgb(226 232 240);
     }
 
     .endpoint-intelligence-shell select:focus,
@@ -354,6 +513,10 @@
         border-radius: var(--brand-radius-2xl);
     }
 
+    html[data-theme="dark"] .endpoint-intelligence-metrics .ei-metric-card {
+        background: #111c2d;
+    }
+
     .endpoint-intelligence-metrics .ei-metric-icon {
         border: 1px solid var(--ei-border-strong);
         background: var(--brand-primary-soft);
@@ -367,6 +530,10 @@
     }
 
     @media (max-width: 768px) {
+        .endpoint-intelligence-shell .ei-smart-nav__guide {
+            padding: 0.85rem;
+        }
+
         .endpoint-intelligence-header__layout {
             grid-template-columns: 1fr;
         }

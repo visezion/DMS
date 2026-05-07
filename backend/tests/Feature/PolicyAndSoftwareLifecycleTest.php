@@ -827,6 +827,191 @@ class PolicyAndSoftwareLifecycleTest extends TestCase
         $this->assertStringContainsString('\\"Daily non-persistent lab reset\\"', $command);
     }
 
+    public function test_windows_update_policy_can_be_created_assigned_to_group_and_backfilled_for_new_members(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Tester',
+            'email' => 'tester-windows-update-group@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        $existingDevice = Device::query()->create([
+            'id' => (string) Str::uuid(),
+            'hostname' => 'TEST-WSUS-EXISTING',
+            'os_name' => 'Windows',
+            'os_version' => '10.0.19045',
+            'agent_version' => '2.0.2',
+            'status' => 'online',
+        ]);
+
+        $newDevice = Device::query()->create([
+            'id' => (string) Str::uuid(),
+            'hostname' => 'TEST-WSUS-NEW',
+            'os_name' => 'Windows',
+            'os_version' => '10.0.19045',
+            'agent_version' => '2.0.2',
+            'status' => 'online',
+        ]);
+
+        $group = DeviceGroup::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => 'Accounting Laptops',
+            'description' => 'Windows Update WSUS policy test group',
+        ]);
+
+        DB::table('device_group_memberships')->insert([
+            'device_group_id' => $group->id,
+            'device_id' => $existingDevice->id,
+            'created_at' => now(),
+        ]);
+
+        $policy = Policy::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => 'Windows Update Policy',
+            'slug' => 'windows-update-policy-test',
+            'category' => 'update/windows_update',
+            'status' => 'active',
+        ]);
+
+        $ruleConfig = [
+            'active_hours_start' => 7,
+            'active_hours_end' => 18,
+            'force_install_window' => '23:00-05:00',
+            'update_source' => 'wsus',
+            'wsus_server' => 'http://wsus:8530',
+            'wsus_status_server' => 'http://wsus:8530',
+            'target_group' => 'Accounting-Laptops',
+            'enable_target_group' => true,
+            'block_internet_updates' => true,
+        ];
+
+        $this->post(route('admin.policies.versions.create', $policy->id), [
+            'version_number' => 1,
+            'apply_mode' => 'json',
+            'rule_type' => 'windows_update',
+            'rule_json' => json_encode($ruleConfig, JSON_THROW_ON_ERROR),
+            'remove_mode' => 'auto',
+            'assign_now' => 1,
+            'target_type' => 'group',
+            'target_id' => $group->id,
+        ])->assertRedirect();
+
+        $version = PolicyVersion::query()
+            ->where('policy_id', $policy->id)
+            ->where('version_number', 1)
+            ->first();
+        $this->assertNotNull($version, 'Expected windows update policy version to be created.');
+
+        $this->assertDatabaseHas('policy_assignments', [
+            'policy_version_id' => $version->id,
+            'target_type' => 'group',
+            'target_id' => $group->id,
+        ]);
+
+        $groupJob = DmsJob::query()
+            ->where('job_type', 'apply_policy')
+            ->where('target_type', 'group')
+            ->where('target_id', $group->id)
+            ->where('payload->policy_version_id', $version->id)
+            ->latest('created_at')
+            ->first();
+        $this->assertNotNull($groupJob, 'Expected apply_policy job for group-assigned Windows Update policy.');
+
+        $payload = is_array($groupJob->payload) ? $groupJob->payload : [];
+        $rules = is_array($payload['rules'] ?? null) ? $payload['rules'] : [];
+        $this->assertCount(1, $rules);
+        $this->assertSame('windows_update', strtolower((string) ($rules[0]['type'] ?? '')));
+        $this->assertSame($ruleConfig, $rules[0]['config'] ?? []);
+
+        $this->assertDatabaseHas('job_runs', [
+            'job_id' => $groupJob->id,
+            'device_id' => $existingDevice->id,
+            'status' => 'pending',
+        ]);
+
+        $this->post(route('admin.groups.members.add', $group->id), [
+            'device_id' => $newDevice->id,
+        ])->assertRedirect();
+
+        $deviceJob = DmsJob::query()
+            ->where('job_type', 'apply_policy')
+            ->where('target_type', 'device')
+            ->where('target_id', $newDevice->id)
+            ->where('payload->policy_version_id', $version->id)
+            ->latest('created_at')
+            ->first();
+        $this->assertNotNull($deviceJob, 'Expected backfill apply_policy job for newly added group member.');
+
+        $devicePayload = is_array($deviceJob->payload) ? $deviceJob->payload : [];
+        $deviceRules = is_array($devicePayload['rules'] ?? null) ? $devicePayload['rules'] : [];
+        $this->assertCount(1, $deviceRules);
+        $this->assertSame('windows_update', strtolower((string) ($deviceRules[0]['type'] ?? '')));
+        $this->assertSame($ruleConfig, $deviceRules[0]['config'] ?? []);
+    }
+
+    public function test_windows_update_policy_queues_cleanup_when_removed_from_group(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Tester',
+            'email' => 'tester-windows-update-cleanup@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        [$device, $group] = $this->createDeviceAndGroupFixture('WSUS-CLEANUP', 'Windows Update Cleanup Group');
+        $version = $this->createPolicyVersionWithSingleRule(
+            $user,
+            'Windows Update WSUS Cleanup',
+            'windows-update-wsus-cleanup-test',
+            'windows_update',
+            [
+                'active_hours_start' => 7,
+                'active_hours_end' => 18,
+                'force_install_window' => '23:00-05:00',
+                'update_source' => 'wsus',
+                'wsus_server' => 'http://wsus:8530',
+                'wsus_status_server' => 'http://wsus:8530',
+                'target_group' => 'Accounting-Laptops',
+                'enable_target_group' => true,
+                'block_internet_updates' => true,
+            ]
+        );
+
+        $this->post(route('admin.groups.policies.add', $group->id), [
+            'policy_version_id' => $version->id,
+            'queue_now' => 0,
+        ])->assertRedirect();
+
+        $groupAssignmentId = (string) DB::table('policy_assignments')
+            ->where('target_type', 'group')
+            ->where('target_id', $group->id)
+            ->where('policy_version_id', $version->id)
+            ->value('id');
+        $this->assertNotSame('', $groupAssignmentId);
+
+        $this->delete(route('admin.groups.policies.remove', [$group->id, $groupAssignmentId]))
+            ->assertRedirect();
+
+        $this->assertLatestCleanupRulesForDevice($device->id, function (array $rules): void {
+            $cleanupRule = collect($rules)->first(function ($rule) {
+                return strtolower((string) ($rule['type'] ?? '')) === 'windows_update';
+            });
+
+            $this->assertNotNull($cleanupRule, 'Expected windows_update cleanup rule after group removal.');
+            $config = is_array($cleanupRule['config'] ?? null) ? $cleanupRule['config'] : [];
+            $this->assertSame(8, $config['active_hours_start'] ?? null);
+            $this->assertSame(17, $config['active_hours_end'] ?? null);
+            $this->assertSame('microsoft', $config['update_source'] ?? null);
+            $this->assertSame(false, $config['block_internet_updates'] ?? null);
+            $this->assertArrayNotHasKey('wsus_server', $config);
+            $this->assertArrayNotHasKey('wsus_status_server', $config);
+            $this->assertArrayNotHasKey('target_group', $config);
+        });
+    }
+
     public function test_installed_device_ids_excludes_device_after_successful_uninstall(): void
     {
         $user = User::query()->create([

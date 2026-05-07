@@ -1,5 +1,6 @@
 <x-admin-layout title="Engine / Rule Tuning" heading="Engine / Rule Tuning">
     <div class="endpoint-intelligence-shell space-y-5">
+    @include('admin.endpoint-intelligence.partials.smart-nav')
     @include('admin.endpoint-intelligence.partials.metric-cards', ['metrics' => $metrics])
 
     <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

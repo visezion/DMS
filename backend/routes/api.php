@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\Admin\AuditAdminController;
 use App\Http\Controllers\Api\V1\Admin\ApprovalController;
 use App\Http\Controllers\Api\V1\Admin\AssistantController;
+use App\Http\Controllers\Api\V1\Admin\AutonomousResponseController;
 use App\Http\Controllers\Api\V1\Admin\AutonomyPolicyController;
 use App\Http\Controllers\Api\V1\Admin\DeviceAdminController;
 use App\Http\Controllers\Api\V1\Admin\HealthController;
@@ -96,6 +97,25 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/autonomy/policies', [AutonomyPolicyController::class, 'index'])->middleware('permission:autonomy.manage');
             Route::post('/autonomy/policies', [AutonomyPolicyController::class, 'upsert'])->middleware('permission:autonomy.manage');
+
+            Route::get('/autonomous-response/dashboard', [AutonomousResponseController::class, 'dashboard'])->middleware('permission:autonomous.read');
+            Route::get('/autonomous-response/policies', [AutonomousResponseController::class, 'policyIndex'])->middleware('permission:autonomous.read');
+            Route::post('/autonomous-response/policies', [AutonomousResponseController::class, 'policyStore'])->middleware('permission:autonomous.manage');
+            Route::patch('/autonomous-response/policies/{policyId}', [AutonomousResponseController::class, 'policyUpdate'])->middleware('permission:autonomous.manage');
+            Route::delete('/autonomous-response/policies/{policyId}', [AutonomousResponseController::class, 'policyDelete'])->middleware('permission:autonomous.manage');
+            Route::get('/autonomous-response/mappings', [AutonomousResponseController::class, 'mappingIndex'])->middleware('permission:autonomous.read');
+            Route::post('/autonomous-response/mappings', [AutonomousResponseController::class, 'mappingStore'])->middleware('permission:autonomous.manage');
+            Route::patch('/autonomous-response/mappings/{mappingId}', [AutonomousResponseController::class, 'mappingUpdate'])->middleware('permission:autonomous.manage');
+            Route::delete('/autonomous-response/mappings/{mappingId}', [AutonomousResponseController::class, 'mappingDelete'])->middleware('permission:autonomous.manage');
+            Route::get('/autonomous-response/catalog', [AutonomousResponseController::class, 'catalogIndex'])->middleware('permission:autonomous.read');
+            Route::get('/autonomous-response/decisions', [AutonomousResponseController::class, 'decisions'])->middleware('permission:autonomous.read');
+            Route::get('/autonomous-response/decisions/{decisionId}', [AutonomousResponseController::class, 'showDecision'])->middleware('permission:autonomous.read');
+            Route::post('/autonomous-response/evaluate', [AutonomousResponseController::class, 'evaluate'])->middleware('permission:autonomous.manage');
+            Route::post('/autonomous-response/simulate', [AutonomousResponseController::class, 'simulate'])->middleware('permission:autonomous.manage');
+            Route::post('/autonomous-response/decisions/{decisionId}/approve', [AutonomousResponseController::class, 'approve'])->middleware('permission:autonomous.approve');
+            Route::post('/autonomous-response/decisions/{decisionId}/reject', [AutonomousResponseController::class, 'reject'])->middleware('permission:autonomous.approve');
+            Route::post('/autonomous-response/decisions/{decisionId}/execute', [AutonomousResponseController::class, 'execute'])->middleware('permission:autonomous.execute');
+            Route::post('/autonomous-response/decisions/{decisionId}/rollback', [AutonomousResponseController::class, 'rollback'])->middleware('permission:autonomous.execute');
         });
     });
 });

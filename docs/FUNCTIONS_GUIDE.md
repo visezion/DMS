@@ -2,7 +2,7 @@
 
 Complete functional inventory for the DMS workspace.
 
-Last updated: 2026-04-08
+Last updated: 2026-04-14
 
 ## Scope
 This guide covers:
@@ -11,6 +11,40 @@ This guide covers:
 - Console/Artisan functions
 - Backend operational scripts (`backend/scripts`)
 - Agent runtime functions and supported job handlers
+
+## 0. Project Capabilities (What DMS Can Do)
+Use this section as a quick map of what the platform does and why it exists.
+
+- **Enroll Windows endpoints**
+  - Meaning: Generate a signed PowerShell install script that enrolls a PC and starts the agent service.
+  - Example: Onboard `LAB-PC-22`, then verify it appears in Devices within minutes.
+- **Maintain device inventory**
+  - Meaning: Track hostnames, OS, agent version, IPs, and last check-in status.
+  - Example: Find a staff laptop, confirm it is online, and review hardware inventory.
+- **Target with groups**
+  - Meaning: Use groups as the targeting layer for policies, packages, and jobs.
+  - Example: Add all classroom devices to `Student Lab - Floor 2` and manage them as one unit.
+- **Deploy software packages**
+  - Meaning: Create package versions with hashes/detection rules and deploy them to devices or groups.
+  - Example: Deploy Notepad++ to the Accounting group and monitor job results.
+- **Apply policy rules**
+  - Meaning: Assign versioned policy rules (registry, firewall, DNS, scheduled tasks, etc.) with cleanup logic.
+  - Example: Disable Control Panel for student labs, then remove it to restore defaults.
+- **Run jobs and actions**
+  - Meaning: Queue jobs such as install/uninstall, run_command, snapshots, and reboot across targets.
+  - Example: Run a single `hostname` command against one endpoint to validate connectivity.
+- **Agent release lifecycle**
+  - Meaning: Upload/autobuild agent releases, activate them, and push updates to the fleet.
+  - Example: Activate agent 1.3.0, pilot on one device, then push update to all devices.
+- **Security and operations controls**
+  - Meaning: Kill switch, signature/allowlist controls, auth posture, and environment hardening settings.
+  - Example: Enable kill switch during maintenance to pause dispatch.
+- **Audit and access control**
+  - Meaning: Role-based access and immutable audit trail for changes and actions.
+  - Example: Grant helpdesk read-only access and audit who changed a policy.
+- **Endpoint intelligence (optional)**
+  - Meaning: Collect health/behavior telemetry and surface incidents, risk, and remediation queues.
+  - Example: Review a new incident, approve remediation, and track the action history.
 
 ## 1. Web/Admin Functions
 Source: `backend/routes/web.php`
@@ -355,10 +389,10 @@ When adding or changing any route/job type/script, update this file in the same 
   - Open `Overview`, identify the spike, then move into `Jobs` or `Policies` to fix or remove the bad assignment.
 
 ### 9.2 Enroll Devices
-- Generate an enrollment token, run the installer on Windows as Administrator, then verify the agent appears in `Devices`.
+- Click One-Click Install Agent to generate a signed PowerShell script, then run it on Windows as Administrator.
 - Example:
   - Onboard `LAB-PC-22`.
-  - Generate the install command in `Enroll Devices`, run it on the device, then add the device to `Student Lab`.
+  - Open `Enroll Devices`, click One-Click Install Agent, run the script on the device, then add it to `Student Lab`.
 
 ### 9.3 Devices
 - Use `Devices` and `Device Detail` to inspect inventory, network state, assignments, and one-off actions.

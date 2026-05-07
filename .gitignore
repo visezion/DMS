@@ -1,0 +1,13 @@
+# Local installer artifact
+tmp-installer.exe
+
+# Local agent SDK/runtime cache
+agent/.dotnet/
+agent/.dotnet-home/
+
+# Built distributables
+agent/dist/
+
+# .NET build outputs
+agent/src/**/bin/
+agent/src/**/obj/

@@ -4,8 +4,153 @@
         $inventory = is_array($device->tags) ? ($device->tags['inventory'] ?? null) : null;
         $inventoryUpdatedAt = is_array($device->tags) ? ($device->tags['inventory_updated_at'] ?? '') : '';
         $inventoryCollectedAt = is_array($inventory) ? ($inventory['collected_at'] ?? '') : '';
+        $endpointIntelligenceSetting = \App\Models\ControlPlaneSetting::query()->find('endpoint_intelligence.enabled');
+        $endpointIntelligenceEnabled = is_array($endpointIntelligenceSetting?->value ?? null)
+            ? (bool) ($endpointIntelligenceSetting->value['value'] ?? true)
+            : true;
     @endphp
-<div class="rounded-2xl border bg-gradient-to-br from-slate-50 via-white to-slate-100 p-5 win-panel">
+    <style>
+        .device-detail-shell {
+            --dd-border: #d7deea;
+            --dd-border-strong: #cbd5e1;
+            --dd-panel-bg: #ffffff;
+            --dd-panel-muted: #f8fafc;
+            --dd-panel-hero-start: #f8fbff;
+            --dd-panel-hero-mid: #ffffff;
+            --dd-panel-hero-end: #e8f0fb;
+            --dd-chip-bg: #eef2ff;
+            --dd-chip-text: #334155;
+            --dd-subtle-text: #64748b;
+            --dd-code-bg: #f8fafc;
+            --dd-shadow: 0 20px 45px rgba(15, 23, 42, 0.08);
+        }
+
+        html[data-theme="dark"] .device-detail-shell {
+            --dd-border: #334155;
+            --dd-border-strong: #475569;
+            --dd-panel-bg: #0f172a;
+            --dd-panel-muted: #111c2d;
+            --dd-panel-hero-start: #111827;
+            --dd-panel-hero-mid: #0f172a;
+            --dd-panel-hero-end: #172554;
+            --dd-chip-bg: rgba(30, 41, 59, 0.95);
+            --dd-chip-text: #dbeafe;
+            --dd-subtle-text: #94a3b8;
+            --dd-code-bg: #020617;
+            --dd-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
+        }
+
+        .device-detail-shell {
+            color: var(--theme-text, #0f172a);
+        }
+
+        .device-detail-shell .device-detail-panel {
+            border-color: var(--dd-border) !important;
+            background: var(--dd-panel-bg) !important;
+            box-shadow: var(--dd-shadow);
+        }
+
+        .device-detail-shell .device-detail-panel--hero {
+            background: linear-gradient(135deg, var(--dd-panel-hero-start), var(--dd-panel-hero-mid) 48%, var(--dd-panel-hero-end)) !important;
+        }
+
+        .device-detail-shell .device-detail-subpanel,
+        .device-detail-shell .device-detail-runtime-card,
+        .device-detail-shell .device-detail-list-card,
+        .device-detail-shell .device-detail-modal-panel,
+        .device-detail-shell .device-detail-modal-note {
+            border-color: var(--dd-border) !important;
+            background: var(--dd-panel-muted) !important;
+        }
+
+        .device-detail-shell .device-detail-runtime-card,
+        .device-detail-shell .device-detail-list-card {
+            color: var(--theme-text, #0f172a);
+        }
+
+        .device-detail-shell .device-detail-chip {
+            border: 1px solid var(--dd-border);
+            background: var(--dd-chip-bg);
+            color: var(--dd-chip-text);
+        }
+
+        .device-detail-shell .device-detail-code {
+            border-color: var(--dd-border) !important;
+            background: var(--dd-code-bg) !important;
+            color: #dbeafe !important;
+        }
+
+        .device-detail-shell .device-detail-divider {
+            border-color: var(--dd-border);
+        }
+
+        .device-detail-shell .device-detail-modal-panel {
+            box-shadow: 0 30px 80px rgba(15, 23, 42, 0.32);
+        }
+
+        .device-detail-shell .device-detail-modal-neutral {
+            border-color: var(--dd-border) !important;
+            background: var(--dd-panel-muted) !important;
+            color: var(--theme-text, #0f172a) !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell .device-detail-modal-danger {
+            border-color: rgba(248, 113, 113, 0.45) !important;
+            background: rgba(127, 29, 29, 0.2) !important;
+            color: #fecaca !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell .device-detail-modal-info {
+            border-color: rgba(96, 165, 250, 0.4) !important;
+            background: rgba(30, 64, 175, 0.22) !important;
+            color: #bfdbfe !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell [class*="bg-red-50"],
+        html[data-theme="dark"] .device-detail-shell .bg-red-100 {
+            background-color: rgba(127, 29, 29, 0.24) !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell [class*="bg-blue-50"] {
+            background-color: rgba(30, 64, 175, 0.22) !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell .bg-green-50,
+        html[data-theme="dark"] .device-detail-shell .bg-green-100,
+        html[data-theme="dark"] .device-detail-shell .bg-emerald-100 {
+            background-color: rgba(6, 95, 70, 0.24) !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell .bg-amber-50,
+        html[data-theme="dark"] .device-detail-shell .bg-amber-100 {
+            background-color: rgba(146, 64, 14, 0.24) !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell .border-red-200,
+        html[data-theme="dark"] .device-detail-shell .border-red-300 {
+            border-color: rgba(248, 113, 113, 0.35) !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell .border-blue-300 {
+            border-color: rgba(96, 165, 250, 0.35) !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell .border-green-700,
+        html[data-theme="dark"] .device-detail-shell .border-emerald-200,
+        html[data-theme="dark"] .device-detail-shell .border-emerald-700 {
+            border-color: rgba(52, 211, 153, 0.38) !important;
+        }
+
+        html[data-theme="dark"] .device-detail-shell .border-amber-200 {
+            border-color: rgba(251, 191, 36, 0.38) !important;
+        }
+
+        .device-detail-shell .device-detail-empty {
+            color: var(--dd-subtle-text) !important;
+        }
+    </style>
+    <div class="device-detail-shell space-y-4">
+<div class="device-detail-panel device-detail-panel--hero rounded-2xl border bg-gradient-to-br from-slate-50 via-white to-slate-100 p-5 win-panel">
         <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="flex items-start gap-4">
                 <div class="h-24 w-24 rounded-2xl border border-sky-100 bg-sky-50 text-sky-700 flex items-center justify-center">
@@ -21,39 +166,41 @@
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <span id="device-status" class="rounded-full win-chip px-3 py-1 text-xs text-slate-700">Status: {{ $device->status }}</span>
-                <span id="last-checkin" class="rounded-full win-chip px-3 py-1 text-xs text-slate-700">Last check-in: {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'never' }}</span>
+                <span id="device-status" class="device-detail-chip rounded-full win-chip px-3 py-1 text-xs text-slate-700">Status: {{ $device->status }}</span>
+                <span id="last-checkin" class="device-detail-chip rounded-full win-chip px-3 py-1 text-xs text-slate-700">Last check-in: {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'never' }}</span>
             </div>
         </div>
         <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div class="rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <div class="device-detail-subpanel rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Device ID</p>
                 <p class="font-mono text-xs text-slate-700 break-all">{{ $device->id }}</p>
             </div>
-            <div class="rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <div class="device-detail-subpanel rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Operating System</p>
                 <p class="text-sm font-medium text-slate-800">{{ $device->os_name ?: 'Unknown' }}</p>
             </div>
-            <div class="rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <div class="device-detail-subpanel rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">OS Version</p>
                 <p class="text-sm font-medium text-slate-800">{{ $device->os_version ?: 'Unknown' }}</p>
             </div>
-            <div class="rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <div class="device-detail-subpanel rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <p class="text-[11px] uppercase tracking-wide text-slate-500">Agent Version</p>
                 <p class="text-sm font-medium text-slate-800">{{ $device->agent_version ?: 'Unknown' }}</p>
             </div>
         </div>
-        <div class="mt-4 flex flex-wrap gap-2">
-            <a href="{{ route('admin.intelligence.health.device', $device->id) }}" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-slate-400">
-                Device Health
-            </a>
-            <a href="{{ route('admin.intelligence.executive', $device->id) }}" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-slate-400">
-                Executive Summary
-            </a>
-            <a href="{{ route('admin.intelligence.telemetry.device', $device->id) }}" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-slate-400">
-                Telemetry Detail
-            </a>
-        </div>
+        @if($endpointIntelligenceEnabled)
+            <div class="mt-4 flex flex-wrap gap-2">
+                <a href="{{ route('admin.intelligence.health.device', $device->id) }}" class="device-detail-subpanel rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-slate-400">
+                    Device Health
+                </a>
+                <a href="{{ route('admin.intelligence.executive', $device->id) }}" class="device-detail-subpanel rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-slate-400">
+                    Executive Summary
+                </a>
+                <a href="{{ route('admin.intelligence.telemetry.device', $device->id) }}" class="device-detail-subpanel rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-slate-400">
+                    Telemetry Detail
+                </a>
+            </div>
+        @endif
         <div class="mt-4 rounded-xl border border-red-200 bg-red-50/60 p-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -82,13 +229,13 @@
                 </div>
             </div>
             @error('device_reboot')
-                <p class="mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
+                <p class="device-detail-subpanel mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
             @enderror
             @error('agent_uninstall')
-                <p class="mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
+                <p class="device-detail-subpanel mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700">{{ $message }}</p>
             @enderror
         </div>
-        <br><hr><br>
+        <div class="my-6 border-t device-detail-divider"></div>
         <div class="flex items-center justify-between gap-2 mb-2">
             <h4 class="font-semibold flex items-center gap-2 win-section-title">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -104,12 +251,12 @@
         <div id="inventory-panel" class="space-y-3"></div>
         <details class="mt-3">
             <summary class="cursor-pointer text-xs text-slate-500">Raw inventory JSON</summary>
-            <pre id="inventory-json" class="mt-2 text-xs bg-slate-50 border border-slate-200 rounded p-3 overflow-auto max-h-72">{{ json_encode($inventory, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+            <pre id="inventory-json" class="device-detail-code mt-2 text-xs bg-slate-50 border border-slate-200 rounded p-3 overflow-auto max-h-72">{{ json_encode($inventory, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
         </details>
     </div>
 
     <div class="grid gap-4 lg:grid-cols-2">
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 win-panel">
+        <div class="device-detail-panel rounded-2xl bg-white border border-slate-200 p-4 win-panel">
             <h4 class="font-semibold mb-3 flex items-center gap-2 win-section-title">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                     <path d="M12 2l8 4v6c0 5-3.4 9.7-8 11-4.6-1.3-8-6-8-11V6l8-4zm-1 6v7l5-3.5L11 8z"/>
@@ -121,7 +268,7 @@
                     @php
                         $runStatus = strtolower((string) ($policy->last_run_status ?? 'assigned'));
                     @endphp
-                    <div class="rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
+                    <div class="device-detail-list-card rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
                         <div class="flex items-start justify-between gap-2">
                             <p class="font-medium">{{ $policy->policy_name }}</p>
                             @if(($policy->assignment_source ?? '') === 'device' && !empty($policy->assignment_id))
@@ -157,12 +304,12 @@
                         @endif
                     </div>
                 @empty
-                    <p class="text-sm text-slate-500">No effective policies found for this device.</p>
+                    <p class="device-detail-empty text-sm text-slate-500">No effective policies found for this device.</p>
                 @endforelse
             </div>
         </div>
 
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 win-panel">
+        <div class="device-detail-panel rounded-2xl bg-white border border-slate-200 p-4 win-panel">
             <h4 class="font-semibold mb-3 flex items-center gap-2 win-section-title">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                     <path d="M21 8.5l-9-5-9 5 9 5 9-5zM3 10.5l9 5 9-5V18l-9 5-9-5v-7.5z"/>
@@ -185,7 +332,7 @@
                         $packageInitial = strtoupper(substr($packageName, 0, 1));
                         $packageIconUrl = route('admin.packages.icon.windows-store', ['name' => $packageName, 'slug' => $packageSlug]);
                     @endphp
-                    <div class="rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs">
+                    <div class="device-detail-list-card rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs">
                         <div class="flex items-center justify-between gap-2">
                             <div class="flex items-start gap-2 min-w-0">
                                 <div class="h-10 w-10 rounded-lg border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center">
@@ -235,14 +382,14 @@
                         </div>
                     </div>
                 @empty
-                    <p class="text-sm text-slate-500">No package activity found for this device.</p>
+                    <p class="device-detail-empty text-sm text-slate-500">No package activity found for this device.</p>
                 @endforelse
             </div>
         </div>
     </div>
 
     <div class="grid gap-4 lg:grid-cols-2">
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 win-panel">
+        <div class="device-detail-panel rounded-2xl bg-white border border-slate-200 p-4 win-panel">
             <h4 class="font-semibold mb-3 flex items-center gap-2 win-section-title">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                     <path d="M4 4h16v2H4V4zm0 4h10v2H4V8zm0 4h16v2H4v-2zm0 4h10v2H4v-2z"/>
@@ -251,7 +398,7 @@
             </h4>
             <div id="job-runs-list" class="space-y-2 max-h-96 overflow-auto">
                 @forelse($job_runs as $run)
-                    <div class="rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
+                    <div class="device-detail-list-card rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
                         @php
                             $alreadyInstalled = is_array($run->result_payload ?? null)
                                 ? (bool) ($run->result_payload['already_installed'] ?? false)
@@ -285,12 +432,12 @@
                         @endif
                     </div>
                 @empty
-                    <p class="text-sm text-slate-500">No job runs.</p>
+                    <p class="device-detail-empty text-sm text-slate-500">No job runs.</p>
                 @endforelse
             </div>
         </div>
 
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 win-panel">
+        <div class="device-detail-panel rounded-2xl bg-white border border-slate-200 p-4 win-panel">
             <h4 class="font-semibold mb-3 flex items-center gap-2 win-section-title">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                     <path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.5-1.5z"/>
@@ -299,19 +446,19 @@
             </h4>
             <div class="space-y-2 max-h-96 overflow-auto">
                 @forelse($compliance as $row)
-                    <div class="rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
+                    <div class="device-detail-list-card rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
                         <p>Status: <span class="font-medium">{{ $row->status }}</span> | Checked: {{ $row->checked_at }}</p>
                         <p class="font-mono break-all">Check: {{ $row->compliance_check_id }}</p>
                     </div>
                 @empty
-                    <p class="text-sm text-slate-500">No compliance records.</p>
+                    <p class="device-detail-empty text-sm text-slate-500">No compliance records.</p>
                 @endforelse
             </div>
         </div>
     </div>
 
     <div class="grid gap-4 lg:grid-cols-2">
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 win-panel">
+        <div class="device-detail-panel rounded-2xl bg-white border border-slate-200 p-4 win-panel">
             <h4 class="font-semibold mb-3 flex items-center gap-2 win-section-title">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                     <path d="M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 3v2h10V7H7zm0 4v2h10v-2H7zm0 4v2h6v-2H7z"/>
@@ -320,18 +467,18 @@
             </h4>
             <div class="space-y-2 max-h-80 overflow-auto">
                 @forelse($assigned_policy_versions as $assignment)
-                    <div class="rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
+                    <div class="device-detail-list-card rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
                         <p class="font-mono">{{ $assignment->policy_version_id }}</p>
                         <p>Target: {{ $assignment->target_type }} / {{ $assignment->target_id }}</p>
                         <p>Updated: {{ $assignment->updated_at }}</p>
                     </div>
                 @empty
-                    <p class="text-sm text-slate-500">No assignments.</p>
+                    <p class="device-detail-empty text-sm text-slate-500">No assignments.</p>
                 @endforelse
             </div>
         </div>
 
-        <div class="rounded-2xl bg-white border border-slate-200 p-4 win-panel">
+        <div class="device-detail-panel rounded-2xl bg-white border border-slate-200 p-4 win-panel">
             <h4 class="font-semibold mb-3 flex items-center gap-2 win-section-title">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                     <path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 11h4v-2h-3V6h-2v7z"/>
@@ -340,12 +487,12 @@
             </h4>
             <div class="space-y-2 max-h-80 overflow-auto">
                 @forelse($audit as $log)
-                    <div class="rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
+                    <div class="device-detail-list-card rounded-xl border border-slate-200 p-3 text-xs bg-slate-50/60">
                         <p>{{ $log->action }} | {{ $log->created_at }}</p>
                         <p class="font-mono break-all">{{ $log->entity_type }} / {{ $log->entity_id }}</p>
                     </div>
                 @empty
-                    <p class="text-sm text-slate-500">No audit events.</p>
+                    <p class="device-detail-empty text-sm text-slate-500">No audit events.</p>
                 @endforelse
             </div>
         </div>
@@ -355,13 +502,13 @@
 
     <div id="device-action-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-[1px] px-4">
         <div class="flex min-h-full items-center justify-center">
-            <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div class="device-detail-modal-panel w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
                 <div class="border-b border-slate-200 px-5 py-4">
                     <h3 id="device-action-modal-title" class="text-base font-semibold text-slate-900">Confirm Action</h3>
                     <p class="mt-1 text-xs text-slate-600">This action requires admin password confirmation.</p>
                 </div>
                 <div class="space-y-3 px-5 py-4">
-                    <div id="device-action-modal-description" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"></div>
+                    <div id="device-action-modal-description" class="device-detail-modal-note device-detail-modal-neutral rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"></div>
                     <div>
                         <label for="device-action-password" class="mb-1 block text-xs font-medium text-slate-600">Enter your admin password:</label>
                         <input id="device-action-password" type="password" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autocomplete="current-password" />
@@ -369,7 +516,7 @@
                     <p id="device-action-modal-error" class="hidden rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">Password is required.</p>
                 </div>
                 <div class="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
-                    <button id="device-action-cancel" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">Cancel</button>
+                    <button id="device-action-cancel" type="button" class="device-detail-subpanel rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">Cancel</button>
                     <button id="device-action-confirm" type="button" class="rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-white hover:bg-slate-900">Confirm</button>
                 </div>
             </div>
@@ -443,7 +590,7 @@
 
             function renderRuns(runs) {
                 if (!Array.isArray(runs) || runs.length === 0) {
-                    jobRunsList.innerHTML = '<p class="text-sm text-slate-500">No job runs.</p>';
+                    jobRunsList.innerHTML = '<p class="device-detail-empty text-sm text-slate-500">No job runs.</p>';
                     return;
                 }
 
@@ -454,7 +601,7 @@
                         ? '<p><span class="inline-block rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5">Already Installed (Skipped)</span></p>'
                         : '';
                     return `
-                        <div class="rounded border border-slate-200 p-2 text-xs">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-2 text-xs">
                             <p class="font-mono">${escapeHtml(run.id)}</p>
                             <p>Status: ${escapeHtml(run.status)} | Attempt: ${escapeHtml(run.attempt_count ?? 0)} | Next Retry: ${escapeHtml(nextRetry)}</p>
                             ${skipBadge}
@@ -533,7 +680,7 @@
                     return;
                 }
                 if (!inv || typeof inv !== 'object') {
-                    inventoryPanelNode.innerHTML = '<p class="text-sm text-slate-500">No inventory data yet.</p>';
+                    inventoryPanelNode.innerHTML = '<p class="device-detail-empty text-sm text-slate-500">No inventory data yet.</p>';
                     return;
                 }
 
@@ -569,29 +716,29 @@
 
                 inventoryPanelNode.innerHTML = `
                     <div class="grid gap-3 md:grid-cols-4">
-                        <div class="rounded border border-slate-200 p-3">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-3">
                             <p class="text-[11px] text-slate-500 flex items-center gap-1"><span class="inline-flex text-sky-600"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M9 2h2v2h2V2h2v2h2a2 2 0 0 1 2 2v2h2v2h-2v2h2v2h-2v2h2v2h-2v2a2 2 0 0 1-2 2h-2v2h-2v-2h-2v2H9v-2H7a2 2 0 0 1-2-2v-2H3v-2h2v-2H3v-2h2v-2H3V8h2V6a2 2 0 0 1 2-2h2V2zm-2 4v12h10V6H7z"/></svg></span>CPU</p>
                             <p class="text-sm font-semibold">${escapeHtml(cpu.model || '-')}</p>
                             <p class="text-xs text-slate-600">${escapeHtml(cpu.logical_cores || '-')} cores | ${escapeHtml(cpu.architecture || '-')}</p>
                         </div>
-                        <div class="rounded border border-slate-200 p-3">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-3">
                             <p class="text-[11px] text-slate-500 flex items-center gap-1"><span class="inline-flex text-indigo-600"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M3 7h18v10H3V7zm2 2v6h14V9H5zm1 7h2v2H6v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg></span>Memory</p>
                             <p class="text-sm font-semibold">${fmtBytes(usedMem)} / ${fmtBytes(totalMem)}</p>
                             <p class="text-xs text-slate-600">Used: ${fmtPct(usedMem, totalMem)} <span class="ml-1 rounded border px-1.5 py-0.5 ${toneClass(memTone)}">${toneLabel(memTone)}</span></p>
                         </div>
-                        <div class="rounded border border-slate-200 p-3">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-3">
                             <p class="text-[11px] text-slate-500 flex items-center gap-1"><span class="inline-flex text-slate-700"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3H4V6zm0 5h16v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7zm3 2a1 1 0 1 0 0 2h.01a1 1 0 1 0 0-2H7z"/></svg></span>Disks</p>
                             <p class="text-sm font-semibold">${disks.length}</p>
                             <p class="text-xs text-slate-600">Fixed drives detected</p>
                         </div>
-                        <div class="rounded border border-slate-200 p-3">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-3">
                             <p class="text-[11px] text-slate-500 flex items-center gap-1"><span class="inline-flex text-emerald-600"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 0 0-9 9h2a7 7 0 0 1 14 0h2a9 9 0 0 0-9-9zm0 4a5 5 0 0 0-5 5h2a3 3 0 0 1 6 0h2a5 5 0 0 0-5-5zm-1 6v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg></span>Network</p>
                             <p class="text-sm font-semibold">${adapters.length} adapters</p>
                             <p class="text-xs text-slate-600">${escapeHtml((net.ip_addresses || []).slice(0, 2).join(', ') || '-')}</p>
                         </div>
                     </div>
                     <div class="grid gap-3 lg:grid-cols-2">
-                        <div class="rounded border border-slate-200 p-3">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-3">
                             <p class="text-sm font-semibold mb-2 flex items-center gap-1"><span class="inline-flex text-amber-600"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l8 4v6c0 5-3.4 9.7-8 11-4.6-1.3-8-6-8-11V6l8-4zm0 5a3 3 0 0 0-3 3v3h2v-3a1 1 0 1 1 2 0v4h-2v2h4v-6a3 3 0 0 0-3-3z"/></svg></span>Storage <span class="ml-1 rounded border px-1.5 py-0.5 ${toneClass(storageTone)}">${toneLabel(storageTone)}</span></p>
                             <div class="space-y-1 max-h-40 overflow-auto text-xs">
                                 ${disks.length ? disks.map((d) => {
@@ -599,45 +746,45 @@
                                     const free = Number(d.free_bytes || 0);
                                     const used = Math.max(0, total - free);
                                     return `<p><span class="font-mono">${escapeHtml(d.name || '-')}</span> ${fmtBytes(used)} / ${fmtBytes(total)} (${fmtPct(used, total)})</p>`;
-                                }).join('') : '<p class="text-slate-500">No disk data.</p>'}
+                                }).join('') : '<p class="device-detail-empty text-slate-500">No disk data.</p>'}
                             </div>
                         </div>
-                        <div class="rounded border border-slate-200 p-3">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-3">
                             <p class="text-sm font-semibold mb-2 flex items-center gap-1"><span class="inline-flex text-sky-600"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-4.33 0-8 2.17-8 5v1h16v-1c0-2.83-3.67-5-8-5z"/></svg></span>Logged-in Sessions</p>
                             <div class="space-y-1 max-h-40 overflow-auto text-xs">
-                                ${sessions.length ? sessions.map((s) => `<p>${escapeHtml(s.username || '-')} | ${escapeHtml(s.state || '-')} | ${escapeHtml(s.session_name || '-')}</p>`).join('') : '<p class="text-slate-500">No session data.</p>'}
+                                ${sessions.length ? sessions.map((s) => `<p>${escapeHtml(s.username || '-')} | ${escapeHtml(s.state || '-')} | ${escapeHtml(s.session_name || '-')}</p>`).join('') : '<p class="device-detail-empty text-slate-500">No session data.</p>'}
                             </div>
                         </div>
                     </div>
                     <div class="grid gap-3 lg:grid-cols-3">
-                        <div class="rounded border border-slate-200 p-3">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-3">
                             <p class="text-sm font-semibold mb-2">Installed Software (${software.length})</p>
                             <div class="space-y-1 max-h-44 overflow-auto text-xs">
-                                ${software.length ? software.slice(0, 40).map((s) => `<p>${escapeHtml(s.name || '-')} ${s.version ? `<span class="text-slate-500">v${escapeHtml(s.version)}</span>` : ''}</p>`).join('') : '<p class="text-slate-500">No software data.</p>'}
+                                ${software.length ? software.slice(0, 40).map((s) => `<p>${escapeHtml(s.name || '-')} ${s.version ? `<span class="text-slate-500">v${escapeHtml(s.version)}</span>` : ''}</p>`).join('') : '<p class="device-detail-empty text-slate-500">No software data.</p>'}
                             </div>
                         </div>
-                        <div class="rounded border border-slate-200 p-3">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-3">
                             <p class="text-sm font-semibold mb-2">Top Processes</p>
                             <div class="space-y-1 max-h-44 overflow-auto text-xs">
-                                ${processes.length ? processes.slice(0, 40).map((p) => `<p>${escapeHtml(p.name || '-')} <span class="text-slate-500">PID ${escapeHtml(p.pid || '-')} | ${fmtBytes(p.memory_bytes)}</span></p>`).join('') : '<p class="text-slate-500">No process data.</p>'}
+                                ${processes.length ? processes.slice(0, 40).map((p) => `<p>${escapeHtml(p.name || '-')} <span class="text-slate-500">PID ${escapeHtml(p.pid || '-')} | ${fmtBytes(p.memory_bytes)}</span></p>`).join('') : '<p class="device-detail-empty text-slate-500">No process data.</p>'}
                             </div>
                         </div>
-                        <div class="rounded border border-slate-200 p-3">
+                        <div class="device-detail-runtime-card rounded border border-slate-200 p-3">
                             <p class="text-sm font-semibold mb-2">Services (${services.length})</p>
                             <div class="space-y-1 max-h-44 overflow-auto text-xs">
                                 ${services.length ? services.slice(0, 50).map((s) => {
                                     const state = String(s.state || '').toUpperCase();
                                     const serviceStateTone = state.includes('RUNNING') ? 'healthy' : (state.includes('STOPPED') ? 'warning' : 'unknown');
                                     return `<div class="rounded border px-2 py-1 ${toneClass(serviceStateTone)}">${escapeHtml(s.name || '-')} <span>(${escapeHtml(s.state || '-')})</span></div>`;
-                                }).join('') : '<p class="text-slate-500">No service data.</p>'}
+                                }).join('') : '<p class="device-detail-empty text-slate-500">No service data.</p>'}
                             </div>
                         </div>
                     </div>
-                    <div class="rounded border border-slate-200 p-3 text-xs">
+                    <div class="device-detail-runtime-card rounded border border-slate-200 p-3 text-xs">
                         <p class="text-sm font-semibold mb-1">Geolocation</p>
                         ${geo && typeof geo === 'object'
                             ? '<p class="text-slate-600">Geolocation data collected.</p>'
-                            : '<p class="text-slate-500">No geolocation data.</p>'}
+                            : '<p class="device-detail-empty text-slate-500">No geolocation data.</p>'}
                     </div>
                 `;
             }
@@ -724,12 +871,12 @@
                 if (titleNode) titleNode.textContent = actionTitle;
                 if (descNode) descNode.textContent = actionDescription;
                 const descriptionClassByAction = {
-                    uninstall: 'rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700',
-                    reboot: 'rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-700',
+                    uninstall: 'device-detail-modal-note device-detail-modal-danger rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700',
+                    reboot: 'device-detail-modal-note device-detail-modal-info rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-700',
                 };
                 if (descNode) {
                     descNode.className = descriptionClassByAction[actionLabel]
-                        || 'rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700';
+                        || 'device-detail-modal-note device-detail-modal-neutral rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700';
                 }
                 const buttonClassByAction = {
                     uninstall: 'rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700',
@@ -785,4 +932,5 @@
             });
         })();
     </script>
+    </div>
 </x-admin-layout>

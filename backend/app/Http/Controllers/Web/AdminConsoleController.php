@@ -28,6 +28,7 @@ use App\Models\PolicyVersion;
 use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Support\LocaleManager;
 use App\Support\TenantContext;
 use App\Services\AgentBuildService;
 use App\Services\AuditLogger;
@@ -37,6 +38,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Artisan;
@@ -266,6 +268,7 @@ class AdminConsoleController extends Controller
                 'delete_cleanup_before_uninstall' => $this->settingBool('devices.delete_cleanup_before_uninstall', false),
                 'package_download_url_mode' => $this->settingString('packages.download_url_mode', 'public'),
             ],
+            'endpointIntelligenceEnabled' => $this->settingBool('endpoint_intelligence.enabled', true),
         ]);
     }
 
@@ -373,6 +376,7 @@ class AdminConsoleController extends Controller
                 'deployment_linked_assets' => (int) $deploymentLinkedAssets,
             ],
             'topSoftware' => $topSoftware,
+            'endpointIntelligenceEnabled' => $this->settingBool('endpoint_intelligence.enabled', true),
         ]);
     }
 
@@ -1122,20 +1126,6 @@ class AdminConsoleController extends Controller
         $group = DeviceGroup::query()->findOrFail($groupId);
         $defaultPublicBase = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
 
-        $policyVersionOptions = PolicyVersion::query()
-            ->join('policies', 'policies.id', '=', 'policy_versions.policy_id')
-            ->select([
-                'policy_versions.id',
-                'policy_versions.version_number',
-                'policy_versions.status',
-                'policy_versions.updated_at',
-                'policies.name as policy_name',
-                'policies.slug as policy_slug',
-            ])
-            ->orderBy('policies.name')
-            ->orderByDesc('policy_versions.version_number')
-            ->get();
-
         $members = \DB::table('device_group_memberships as m')
             ->join('devices as d', 'd.id', '=', 'm.device_id')
             ->where('m.device_group_id', $group->id)
@@ -1148,6 +1138,14 @@ class AdminConsoleController extends Controller
             ])
             ->orderBy('d.hostname')
             ->get();
+        $availableDevices = Device::query()
+            ->whereNotIn('id', function ($query) use ($group) {
+                $query->select('device_id')
+                    ->from('device_group_memberships')
+                    ->where('device_group_id', $group->id);
+            })
+            ->orderBy('hostname')
+            ->get(['id', 'hostname']);
 
         $policies = \DB::table('policy_assignments as a')
             ->join('policy_versions as pv', 'pv.id', '=', 'a.policy_version_id')
@@ -1165,6 +1163,27 @@ class AdminConsoleController extends Controller
                 'p.slug as policy_slug',
             ])
             ->orderByDesc('pv.updated_at')
+            ->get();
+        $assignedPolicyVersionIds = $policies
+            ->pluck('policy_version_id')
+            ->filter()
+            ->unique()
+            ->values();
+        $policyVersionOptions = PolicyVersion::query()
+            ->join('policies', 'policies.id', '=', 'policy_versions.policy_id')
+            ->when($assignedPolicyVersionIds->isNotEmpty(), function ($query) use ($assignedPolicyVersionIds) {
+                $query->whereNotIn('policy_versions.id', $assignedPolicyVersionIds->all());
+            })
+            ->select([
+                'policy_versions.id',
+                'policy_versions.version_number',
+                'policy_versions.status',
+                'policy_versions.updated_at',
+                'policies.name as policy_name',
+                'policies.slug as policy_slug',
+            ])
+            ->orderBy('policies.name')
+            ->orderByDesc('policy_versions.version_number')
             ->get();
 
         $groupPackageJobs = DmsJob::query()
@@ -1227,6 +1246,9 @@ class AdminConsoleController extends Controller
 
         $packageVersionOptions = PackageVersion::query()
             ->join('packages', 'packages.id', '=', 'package_versions.package_id')
+            ->when($packageVersionIds->isNotEmpty(), function ($query) use ($packageVersionIds) {
+                $query->whereNotIn('package_versions.id', $packageVersionIds->all());
+            })
             ->select([
                 'package_versions.id',
                 'package_versions.package_id',
@@ -1265,7 +1287,7 @@ class AdminConsoleController extends Controller
 
         return view('admin.group-detail', [
             'group' => $group,
-            'devices' => Device::query()->orderBy('hostname')->get(['id', 'hostname']),
+            'availableDevices' => $availableDevices,
             'members' => $members,
             'policies' => $policies,
             'packages' => $packages,
@@ -1710,6 +1732,18 @@ class AdminConsoleController extends Controller
 
         $group = DeviceGroup::query()->findOrFail($groupId);
         $version = PackageVersion::query()->findOrFail((string) $data['package_version_id']);
+        $existingAssignment = DmsJob::query()
+            ->where('target_type', 'group')
+            ->where('target_id', $group->id)
+            ->whereIn('job_type', ['install_package', 'install_msi', 'install_exe', 'install_custom', 'install_archive'])
+            ->get(['id', 'payload'])
+            ->first(function (DmsJob $job) use ($version) {
+                $payload = is_array($job->payload) ? $job->payload : [];
+                return (string) ($payload['package_version_id'] ?? '') === $version->id;
+            });
+        if ($existingAssignment) {
+            return back()->with('status', 'Package assignment already exists.');
+        }
         $package = PackageModel::query()->findOrFail($version->package_id);
         $installArgs = is_array($version->install_args) ? $version->install_args : [];
         $detection = $this->normalizeDetectionRule(is_array($version->detection_rules) ? $version->detection_rules : []);
@@ -2766,12 +2800,12 @@ class AdminConsoleController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100'],
-            'rule_type' => ['required', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'rule_type' => ['required', 'in:firewall,dns,network_adapter,time,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['required', 'json'],
             'description' => ['nullable', 'string', 'max:240'],
             'applies_to' => ['nullable', 'in:device,group,both'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,time,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
         ]);
@@ -2866,12 +2900,12 @@ class AdminConsoleController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100'],
-            'rule_type' => ['required', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'rule_type' => ['required', 'in:firewall,dns,network_adapter,time,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['required', 'json'],
             'description' => ['nullable', 'string', 'max:240'],
             'applies_to' => ['nullable', 'in:device,group,both'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,time,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
         ]);
@@ -3165,7 +3199,7 @@ class AdminConsoleController extends Controller
         $data = $request->validate([
             'version_number' => ['required', 'integer', 'min:1'],
             'apply_mode' => ['nullable', 'in:json,command'],
-            'rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'rule_type' => ['nullable', 'in:firewall,dns,network_adapter,time,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['nullable', 'json'],
             'apply_command' => ['nullable', 'string', 'max:15000'],
             'apply_run_as' => ['nullable', 'in:default,elevated,system'],
@@ -3188,7 +3222,7 @@ class AdminConsoleController extends Controller
             'apply_uwf_overlay_warning_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'apply_uwf_overlay_critical_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,time,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
             'target_type' => ['nullable', 'in:device,group'],
@@ -3264,7 +3298,7 @@ class AdminConsoleController extends Controller
             'version_number' => ['required', 'integer', 'min:1'],
             'status' => ['required', 'in:draft,active,retired'],
             'apply_mode' => ['nullable', 'in:json,command'],
-            'rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'rule_type' => ['nullable', 'in:firewall,dns,network_adapter,time,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'rule_json' => ['nullable', 'json'],
             'apply_command' => ['nullable', 'string', 'max:15000'],
             'apply_run_as' => ['nullable', 'in:default,elevated,system'],
@@ -3287,7 +3321,7 @@ class AdminConsoleController extends Controller
             'apply_uwf_overlay_warning_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'apply_uwf_overlay_critical_threshold_mb' => ['nullable', 'integer', 'min:64', 'max:1048576'],
             'remove_mode' => ['nullable', 'in:auto,json,command'],
-            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
+            'remove_rule_type' => ['nullable', 'in:firewall,dns,network_adapter,time,registry,bitlocker,local_group,windows_update,scheduled_task,command,baseline_profile,reboot_restore_mode,uwf'],
             'remove_rule_json' => ['nullable', 'json'],
             'remove_command' => ['nullable', 'string', 'max:15000'],
             'enforce' => ['nullable', 'boolean'],
@@ -3576,10 +3610,12 @@ class AdminConsoleController extends Controller
         $activeDnsSignatures = [];
         $activeNetworkAdapterSignatures = [];
         $activeUwfSignatures = [];
+        $activeTimeSignatures = [];
+        $activeWindowsUpdateSignatures = [];
         if ($activeVersionIds->isNotEmpty()) {
             $activeRules = PolicyRule::query()
                 ->whereIn('policy_version_id', $activeVersionIds)
-                ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'dns', 'network_adapter', 'uwf'])
+                ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'dns', 'network_adapter', 'time', 'uwf', 'windows_update'])
                 ->get(['rule_type', 'rule_config']);
 
             foreach ($activeRules as $rule) {
@@ -3638,6 +3674,22 @@ class AdminConsoleController extends Controller
                     if ($signature !== null && ! $this->isUwfMarkedAbsent($config)) {
                         $activeUwfSignatures[$signature] = true;
                     }
+                    continue;
+                }
+
+                if ($ruleType === 'time') {
+                    $signature = $this->timeRuleSignature($config);
+                    if ($signature !== null) {
+                        $activeTimeSignatures[$signature] = true;
+                    }
+                    continue;
+                }
+
+                if ($ruleType === 'windows_update') {
+                    $signature = $this->windowsUpdateRuleSignature($config);
+                    if ($signature !== null) {
+                        $activeWindowsUpdateSignatures[$signature] = true;
+                    }
                 }
             }
         }
@@ -3650,6 +3702,8 @@ class AdminConsoleController extends Controller
         $queuedDnsSignatures = [];
         $queuedNetworkAdapterSignatures = [];
         $queuedUwfSignatures = [];
+        $queuedTimeSignatures = [];
+        $queuedWindowsUpdateSignatures = [];
         foreach ($configuredRemoveRules as $rule) {
             if (! is_array($rule)) {
                 continue;
@@ -3729,6 +3783,38 @@ class AdminConsoleController extends Controller
                 continue;
             }
 
+            if ($type === 'time') {
+                $signature = $this->timeRuleSignature($config);
+                if ($signature !== null) {
+                    if (isset($activeTimeSignatures[$signature]) || isset($queuedTimeSignatures[$signature])) {
+                        continue;
+                    }
+                    $queuedTimeSignatures[$signature] = true;
+                }
+                $cleanupRules[] = [
+                    'type' => 'time',
+                    'config' => $config,
+                    'enforce' => true,
+                ];
+                continue;
+            }
+
+            if ($type === 'windows_update') {
+                $signature = $this->windowsUpdateRuleSignature($config);
+                if ($signature !== null) {
+                    if (isset($activeWindowsUpdateSignatures[$signature]) || isset($queuedWindowsUpdateSignatures[$signature])) {
+                        continue;
+                    }
+                    $queuedWindowsUpdateSignatures[$signature] = true;
+                }
+                $cleanupRules[] = [
+                    'type' => 'windows_update',
+                    'config' => $config,
+                    'enforce' => true,
+                ];
+                continue;
+            }
+
             if ($type === 'registry') {
                 $signature = $this->registryRuleSignature($config);
                 if ($signature === null) {
@@ -3788,7 +3874,7 @@ class AdminConsoleController extends Controller
     {
         $rules = PolicyRule::query()
             ->where('policy_version_id', $policyVersionId)
-            ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'dns', 'network_adapter', 'uwf'])
+            ->whereIn('rule_type', ['registry', 'scheduled_task', 'command', 'local_group', 'dns', 'network_adapter', 'time', 'uwf', 'windows_update'])
             ->get(['rule_type', 'rule_config']);
 
         $removeRules = [];
@@ -3820,6 +3906,36 @@ class AdminConsoleController extends Controller
         }
 
         return $taskName;
+    }
+
+    private function timeRuleSignature(array $config): ?string
+    {
+        $timezone = strtoupper(trim((string) ($config['timezone'] ?? '')));
+        $syncMode = strtoupper(trim((string) ($config['sync_mode'] ?? '')));
+        $servers = $config['ntp_servers'] ?? [];
+        $serverList = '';
+        if (is_array($servers)) {
+            $serverList = implode(',', array_map(
+                fn ($value) => strtoupper(trim((string) $value)),
+                $servers
+            ));
+        }
+
+        $signature = trim($timezone.'|'.$syncMode.'|'.$serverList, '|');
+        return $signature === '' ? null : $signature;
+    }
+
+    private function windowsUpdateRuleSignature(array $config): ?string
+    {
+        return array_key_exists('active_hours_start', $config)
+            || array_key_exists('active_hours_end', $config)
+            || array_key_exists('update_source', $config)
+            || array_key_exists('wsus_server', $config)
+            || array_key_exists('wsus_status_server', $config)
+            || array_key_exists('target_group', $config)
+            || array_key_exists('block_internet_updates', $config)
+            ? 'WINDOWS_UPDATE'
+            : null;
     }
 
     private function isScheduledTaskMarkedAbsent(array $config): bool
@@ -5545,9 +5661,10 @@ POWERSHELL;
     {
         $data = $request->validate([
             'release_id' => ['required', 'uuid'],
-            'expires_hours' => ['nullable', 'integer', 'min:1', 'max:168'],
+            'expires_hours' => ['nullable', 'integer', 'min:1', 'max:87600'],
             'api_base_url' => ['nullable', 'url'],
             'public_base_url' => ['nullable', 'url'],
+            'install_mode' => ['nullable', Rule::in(['silent', 'gui'])],
         ]);
 
         try {
@@ -5563,9 +5680,10 @@ POWERSHELL;
     {
         $data = $request->validate([
             'release_id' => ['required', 'uuid'],
-            'expires_hours' => ['nullable', 'integer', 'min:1', 'max:168'],
+            'expires_hours' => ['nullable', 'integer', 'min:1', 'max:87600'],
             'api_base_url' => ['nullable', 'url'],
             'public_base_url' => ['nullable', 'url'],
+            'install_mode' => ['nullable', Rule::in(['silent', 'gui'])],
         ]);
 
         try {
@@ -5784,12 +5902,25 @@ POWERSHELL;
         $release = AgentRelease::query()->findOrFail($releaseId);
         $this->assertSignedReleaseTenantScope($request, $release);
         $publicBaseUrl = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
-        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', now()->addMinutes(30), [
+        $expiresAt = null;
+        $expiresRaw = (string) $request->query('expires_at', '');
+        if ($expiresRaw !== '') {
+            try {
+                $expiresAt = \Carbon\Carbon::parse($expiresRaw);
+            } catch (\Throwable) {
+                $expiresAt = null;
+            }
+        }
+        $downloadUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.download', $expiresAt ?? now()->addMinutes(30), [
             'releaseId' => $release->id,
             'tenant' => $this->releaseTenantRouteValue($release),
         ]);
         $token = (string) $request->query('token');
         $apiBaseUrl = (string) $request->query('api_base_url', rtrim(config('app.url'), '/').'/api/v1');
+        $installMode = strtolower((string) $request->query('install_mode', 'silent'));
+        if (! in_array($installMode, ['silent', 'gui'], true)) {
+            $installMode = 'silent';
+        }
 
         $script = <<<'PS1'
 $ErrorActionPreference = "Stop"
@@ -5798,6 +5929,7 @@ $ProgressPreference = "SilentlyContinue"
 $DownloadUrl = "__DOWNLOAD_URL__"
 $EnrollmentToken = "__ENROLLMENT_TOKEN__"
 $ApiBaseUrl = "__API_BASE_URL__"
+$InstallMode = "__INSTALL_MODE__"
 $WorkDir = "$env:ProgramData\DMS"
 $InstallerPath = Join-Path $WorkDir "__FILE_NAME__"
 $ExtractPath = Join-Path $WorkDir "agent"
@@ -5831,12 +5963,27 @@ Set-Content -Path $ApiFile -Value $ApiBaseUrl -Encoding UTF8
 
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $InstallerPath
 
+$InstallMode = $InstallMode.Trim().ToLowerInvariant()
+if ($InstallMode -ne "gui" -and $InstallMode -ne "silent") {
+    $InstallMode = "silent"
+}
+
 $ext = [System.IO.Path]::GetExtension($InstallerPath).ToLowerInvariant()
 if ($ext -eq ".msi") {
-    Start-Process -FilePath "msiexec.exe" -Wait -ArgumentList "/i `"$InstallerPath`" /qn /norestart"
+    if ($InstallMode -eq "gui") {
+        Start-Process -FilePath "msiexec.exe" -Wait -ArgumentList "/i `"$InstallerPath`" /norestart"
+    }
+    else {
+        Start-Process -FilePath "msiexec.exe" -Wait -ArgumentList "/i `"$InstallerPath`" /qn /norestart"
+    }
 }
 elseif ($ext -eq ".exe") {
-    Start-Process -FilePath $InstallerPath -Wait -ArgumentList "/quiet /norestart"
+    if ($InstallMode -eq "gui") {
+        Start-Process -FilePath $InstallerPath -Wait
+    }
+    else {
+        Start-Process -FilePath $InstallerPath -Wait -ArgumentList "/quiet /norestart"
+    }
 }
 elseif ($ext -eq ".zip") {
     New-Item -ItemType Directory -Force -Path $ExtractPath | Out-Null
@@ -5857,8 +6004,8 @@ Write-Host "DMS agent installer completed."
 PS1;
 
         $script = str_replace(
-            ['__DOWNLOAD_URL__', '__ENROLLMENT_TOKEN__', '__API_BASE_URL__', '__FILE_NAME__'],
-            [$downloadUrl, $token, $apiBaseUrl, $release->file_name],
+            ['__DOWNLOAD_URL__', '__ENROLLMENT_TOKEN__', '__API_BASE_URL__', '__INSTALL_MODE__', '__FILE_NAME__'],
+            [$downloadUrl, $token, $apiBaseUrl, $installMode, $release->file_name],
             $script
         );
 
@@ -5873,10 +6020,15 @@ PS1;
         $release = AgentRelease::query()->findOrFail($releaseId);
         $this->assertSignedReleaseTenantScope($request, $release);
         $publicBaseUrl = rtrim($request->getSchemeAndHttpHost().$request->getBaseUrl(), '/');
+        $installMode = strtolower((string) $request->query('install_mode', 'silent'));
+        if (! in_array($installMode, ['silent', 'gui'], true)) {
+            $installMode = 'silent';
+        }
         $scriptUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.script', now()->addMinutes(30), [
             'releaseId' => $release->id,
             'token' => (string) $request->query('token'),
             'api_base_url' => (string) $request->query('api_base_url', rtrim(config('app.url'), '/').'/api/v1'),
+            'install_mode' => $installMode,
             'tenant' => $this->releaseTenantRouteValue($release),
         ]);
         $launcher = $this->buildAgentInstallLauncherScript($scriptUrl);
@@ -5982,6 +6134,11 @@ CMD);
             throw new \InvalidArgumentException('Install link cannot use localhost/127.0.0.1. Use a LAN IP or DNS host reachable from client PCs.');
         }
 
+        $installMode = strtolower((string) ($data['install_mode'] ?? 'silent'));
+        if (! in_array($installMode, ['silent', 'gui'], true)) {
+            $installMode = 'silent';
+        }
+
         $rawToken = Str::random(64);
         $token = EnrollmentToken::query()->create([
             'id' => (string) Str::uuid(),
@@ -5998,15 +6155,16 @@ CMD);
             'releaseId' => $release->id,
             'token' => $rawToken,
             'api_base_url' => $apiBaseUrl,
+            'install_mode' => $installMode,
             'tenant' => $this->releaseTenantRouteValue($release),
         ]);
         $launcherUrl = $this->buildSignedUrl($publicBaseUrl, 'agent.release.launcher', $expiresAt, [
             'releaseId' => $release->id,
             'token' => $rawToken,
             'api_base_url' => $apiBaseUrl,
+            'install_mode' => $installMode,
             'tenant' => $this->releaseTenantRouteValue($release),
         ]);
-
         $auditLogger->log('agent.release.generate_installer.web', 'agent_release', $release->id, null, [
             'expires_at' => $expiresAt->toIso8601String(),
             'token_id' => $token->id,
@@ -6022,6 +6180,7 @@ CMD);
             'launcher_url' => $launcherUrl,
             'copy_command' => $copyCommand,
             'cmd_script' => $cmdScript,
+            'install_mode' => $installMode,
             'token' => $rawToken,
             'api_base_url' => $apiBaseUrl,
             'public_base_url' => $publicBaseUrl,
@@ -6505,15 +6664,39 @@ CMD);
         ]);
     }
 
-    public function access(): View
+    public function access(): RedirectResponse
     {
         $this->ensureSuperAdminAccess();
 
-        return view('admin.access', [
-            'roles' => Role::query()->with('permissions')->orderBy('name')->get(),
-            'permissions' => Permission::query()->orderBy('slug')->get(['id', 'slug', 'name']),
-            'users' => User::query()->with('roles')->orderBy('name')->get(['id', 'name', 'email', 'is_active']),
-        ]);
+        return redirect()->route('admin.access.users');
+    }
+
+    public function accessUsers(): View
+    {
+        $this->ensureSuperAdminAccess();
+
+        return view('admin.access.users', $this->accessViewData());
+    }
+
+    public function accessCreateUser(): RedirectResponse
+    {
+        $this->ensureSuperAdminAccess();
+
+        return redirect()->route('admin.access.users');
+    }
+
+    public function accessRoles(): View
+    {
+        $this->ensureSuperAdminAccess();
+
+        return view('admin.access.roles', $this->accessViewData());
+    }
+
+    public function accessPermissions(): RedirectResponse
+    {
+        $this->ensureSuperAdminAccess();
+
+        return redirect()->route('admin.access.roles');
     }
 
     public function saasDashboard(Request $request): View
@@ -6814,6 +6997,7 @@ CMD);
                 'security.signature_bypass_enabled',
                 filter_var((string) env('DMS_SIGNATURE_BYPASS', 'false'), FILTER_VALIDATE_BOOL)
             ),
+            'endpointIntelligenceEnabled' => $this->settingBool('endpoint_intelligence.enabled', true),
             'authPolicy' => [
                 'require_mfa' => $this->settingBool('auth.require_mfa', false),
                 'max_login_attempts' => max(1, $this->settingInt('auth.max_login_attempts', 5)),
@@ -7041,14 +7225,17 @@ CMD);
             }
         }
 
+        $profilePref = array_merge([
+            'timezone' => config('app.timezone', 'UTC'),
+            'locale' => 'en',
+            'bio' => '',
+            'avatar_url' => null,
+        ], is_array($pref) ? $pref : []);
+        $profilePref['locale'] = LocaleManager::normalize((string) ($profilePref['locale'] ?? 'en'));
+
         return view('admin.profile', [
             'user' => $user,
-            'profilePref' => array_merge([
-                'timezone' => config('app.timezone', 'UTC'),
-                'locale' => 'en_US',
-                'bio' => '',
-                'avatar_url' => null,
-            ], is_array($pref) ? $pref : []),
+            'profilePref' => $profilePref,
             'mfaSecretPlain' => $mfaSecretPlain,
             'mfaProvisioningUri' => $mfaProvisioningUri,
             'mfaPolicyRequired' => $mfaPolicyRequired,
@@ -7065,7 +7252,7 @@ CMD);
             'email' => ['required', 'email', 'max:255', 'unique:users,email,'.$user->id],
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
             'timezone' => ['nullable', 'string', 'max:64'],
-            'locale' => ['nullable', 'string', 'max:16'],
+            'locale' => ['nullable', 'string', 'max:16', Rule::in(array_keys(LocaleManager::supported()))],
             'bio' => ['nullable', 'string', 'max:600'],
             'avatar' => ['nullable', 'image', 'max:2048'],
             'remove_avatar' => ['nullable', 'boolean'],
@@ -7086,14 +7273,14 @@ CMD);
         $prefKey = 'users.profile.'.$user->id;
         $pref = array_merge([
             'timezone' => config('app.timezone', 'UTC'),
-            'locale' => 'en_US',
+            'locale' => 'en',
             'bio' => '',
             'avatar_url' => null,
         ], $this->settingArray($prefKey, []));
         $pref['avatar_url'] = $this->normalizeAvatarPath($pref['avatar_url'] ?? null);
 
         $pref['timezone'] = trim((string) ($data['timezone'] ?? $pref['timezone']));
-        $pref['locale'] = trim((string) ($data['locale'] ?? $pref['locale']));
+        $pref['locale'] = LocaleManager::normalize((string) ($data['locale'] ?? $pref['locale']));
         $pref['bio'] = trim((string) ($data['bio'] ?? $pref['bio']));
 
         if ($request->boolean('remove_avatar')) {
@@ -7117,6 +7304,7 @@ CMD);
             ['key' => $prefKey],
             ['value' => ['value' => $pref], 'updated_by' => $user->id]
         );
+        $request->session()->put('locale', $pref['locale']);
 
         $auditLogger->log('profile.update.web', 'user', (string) $user->id, $before, [
             'name' => $user->name,
@@ -7124,7 +7312,41 @@ CMD);
             'pref' => $pref,
         ], $user->id);
 
-        return back()->with('status', 'Profile updated successfully.');
+        return back()->with('status', __('ui.profile.updated'));
+    }
+
+    public function updateLocale(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'locale' => ['required', 'string', 'max:16', Rule::in(array_keys(LocaleManager::supported()))],
+        ]);
+
+        $locale = LocaleManager::normalize((string) $data['locale']);
+        $prefKey = 'users.profile.'.$user->id;
+        $pref = array_merge([
+            'timezone' => config('app.timezone', 'UTC'),
+            'locale' => 'en',
+            'bio' => '',
+            'avatar_url' => null,
+        ], $this->settingArray($prefKey, []));
+        $before = [
+            'locale' => LocaleManager::normalize((string) ($pref['locale'] ?? 'en')),
+        ];
+        $pref['locale'] = $locale;
+
+        ControlPlaneSetting::query()->updateOrCreate(
+            ['key' => $prefKey],
+            ['value' => ['value' => $pref], 'updated_by' => $user->id]
+        );
+
+        $request->session()->put('locale', $locale);
+
+        $auditLogger->log('profile.locale.update.web', 'user', (string) $user->id, $before, [
+            'locale' => $locale,
+        ], $user->id);
+
+        return back()->with('status', __('ui.locale.updated'));
     }
 
     private function normalizeAvatarPath(mixed $value): ?string
@@ -7377,6 +7599,29 @@ CMD);
         );
     }
 
+    public function updateEndpointIntelligence(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->ensureSuperAdminAccess();
+
+        $enabled = (bool) $request->boolean('endpoint_intelligence_enabled');
+
+        ControlPlaneSetting::query()->updateOrCreate(
+            ['key' => 'endpoint_intelligence.enabled'],
+            ['value' => ['value' => $enabled], 'updated_by' => $request->user()?->id]
+        );
+
+        $auditLogger->log(
+            'settings.endpoint_intelligence.update.web',
+            'control_plane_settings',
+            'endpoint_intelligence.enabled',
+            null,
+            ['enabled' => $enabled],
+            $request->user()?->id
+        );
+
+        return back()->with('status', 'Endpoint Intelligence '.($enabled ? 'enabled' : 'disabled').'.');
+    }
+
     public function updateAuthPolicy(Request $request, AuditLogger $auditLogger): RedirectResponse
     {
         $this->ensureSuperAdminAccess();
@@ -7523,8 +7768,9 @@ CMD);
             'permission_ids' => ['nullable', 'array'],
             'permission_ids.*' => ['uuid', 'exists:permissions,id'],
         ]);
+        $slug = Str::lower(trim((string) $data['slug']));
 
-        $existsQuery = Role::query()->where('slug', $data['slug']);
+        $existsQuery = Role::query()->where('slug', $slug);
         if ($tenantId === null) {
             $existsQuery->whereNull('tenant_id');
         } else {
@@ -7538,9 +7784,9 @@ CMD);
         $role = Role::query()->create([
             'id' => (string) Str::uuid(),
             'tenant_id' => $tenantId,
-            'name' => $data['name'],
-            'slug' => $data['slug'],
-            'description' => $data['description'] ?? null,
+            'name' => trim((string) $data['name']),
+            'slug' => $slug,
+            'description' => trim((string) ($data['description'] ?? '')) ?: null,
         ]);
 
         $role->permissions()->sync($data['permission_ids'] ?? []);
@@ -7551,7 +7797,7 @@ CMD);
             'permission_count' => count($data['permission_ids'] ?? []),
         ], $request->user()?->id);
 
-        return back()->with('status', 'Role created.');
+        return redirect()->route('admin.access.roles')->with('status', 'Role created.');
     }
 
     public function updateRolePermissions(Request $request, string $roleId, AuditLogger $auditLogger): RedirectResponse
@@ -7564,6 +7810,10 @@ CMD);
         ]);
 
         $role = Role::query()->findOrFail($roleId);
+        if ($role->slug === 'super-admin') {
+            return back()->withErrors(['access' => 'super-admin permissions are fixed and cannot be edited here.']);
+        }
+
         $before = $role->permissions()->pluck('permissions.id')->toArray();
         $role->permissions()->sync($data['permission_ids'] ?? []);
         $after = $role->permissions()->pluck('permissions.id')->toArray();
@@ -7574,7 +7824,83 @@ CMD);
             'permission_ids' => $after,
         ], $request->user()?->id);
 
-        return back()->with('status', 'Role permissions updated.');
+        return redirect()->route('admin.access.roles')->with('status', 'Role permissions updated.');
+    }
+
+    public function updateUser(Request $request, int $userId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->ensureSuperAdminAccess();
+
+        $user = User::query()->findOrFail($userId);
+        $data = $request->validate([
+            'display_name' => ['required', 'string', 'max:255'],
+            'login_email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'new_password' => ['nullable', 'string', 'min:8', 'confirmed'],
+            'role_ids' => ['nullable', 'array'],
+            'role_ids.*' => ['uuid', 'exists:roles,id'],
+            'is_active' => ['nullable', 'boolean'],
+            'edited_user_id' => ['nullable', 'integer'],
+        ]);
+
+        $requestedRoleIds = collect($data['role_ids'] ?? [])->values();
+        $roleQuery = Role::query()->whereIn('id', $requestedRoleIds);
+        if ($user->tenant_id === null) {
+            $roleQuery->whereNull('tenant_id');
+        } else {
+            $roleQuery->where('tenant_id', $user->tenant_id);
+        }
+        $roleIds = $roleQuery->pluck('id')->values();
+        if ($requestedRoleIds->count() !== $roleIds->count()) {
+            return back()->withErrors(['role_ids' => 'One or more selected roles are outside the user scope.'])->withInput();
+        }
+
+        $updatedIsActive = (bool) ($data['is_active'] ?? false);
+        if ((int) ($request->user()?->id ?? 0) === (int) $user->id && ! $updatedIsActive) {
+            return back()->withErrors(['display_name' => 'You cannot deactivate your own account.'])->withInput();
+        }
+
+        $requestedRoleSlugs = Role::query()
+            ->whereIn('id', $roleIds)
+            ->pluck('slug')
+            ->map(fn ($slug) => (string) $slug)
+            ->all();
+        $removingPlatformSuperAdmin = $user->tenant_id === null
+            && $user->roles()->where('slug', 'super-admin')->exists()
+            && (! in_array('super-admin', $requestedRoleSlugs, true) || ! $updatedIsActive);
+        if ($removingPlatformSuperAdmin && ! $this->hasOtherPlatformSuperAdmin($user->id)) {
+            return back()->withErrors(['role_ids' => 'At least one active platform super-admin must remain assigned.'])->withInput();
+        }
+
+        $before = [
+            'name' => $user->name,
+            'email' => $user->email,
+            'is_active' => (bool) $user->is_active,
+            'role_ids' => $user->roles()->pluck('roles.id')->toArray(),
+        ];
+
+        $updates = [
+            'name' => trim((string) $data['display_name']),
+            'email' => strtolower((string) $data['login_email']),
+            'is_active' => $updatedIsActive,
+        ];
+        if (filled($data['new_password'] ?? null)) {
+            $updates['password'] = $data['new_password'];
+        }
+
+        $user->update($updates);
+        $user->roles()->sync($roleIds->all());
+        $user->refresh();
+
+        $after = [
+            'name' => $user->name,
+            'email' => $user->email,
+            'is_active' => (bool) $user->is_active,
+            'role_ids' => $user->roles()->pluck('roles.id')->toArray(),
+        ];
+
+        $auditLogger->log('user.update.web', 'user', (string) $user->id, $before, $after, $request->user()?->id);
+
+        return redirect()->route('admin.access.users')->with('status', 'User updated.');
     }
 
     public function assignUserRoles(Request $request, int $userId, AuditLogger $auditLogger): RedirectResponse
@@ -7587,8 +7913,32 @@ CMD);
         ]);
 
         $user = User::query()->findOrFail($userId);
+        $requestedRoleIds = collect($data['role_ids'] ?? [])->values();
+        $roleQuery = Role::query()->whereIn('id', $requestedRoleIds);
+        if ($user->tenant_id === null) {
+            $roleQuery->whereNull('tenant_id');
+        } else {
+            $roleQuery->where('tenant_id', $user->tenant_id);
+        }
+        $roleIds = $roleQuery->pluck('id')->values();
+        if ($requestedRoleIds->count() !== $roleIds->count()) {
+            return back()->withErrors(['role_ids' => 'One or more selected roles are outside the user scope.'])->withInput();
+        }
+
+        $requestedRoleSlugs = Role::query()
+            ->whereIn('id', $roleIds)
+            ->pluck('slug')
+            ->map(fn ($slug) => (string) $slug)
+            ->all();
+        $removingPlatformSuperAdmin = $user->tenant_id === null
+            && ! in_array('super-admin', $requestedRoleSlugs, true)
+            && $user->roles()->where('slug', 'super-admin')->exists();
+        if ($removingPlatformSuperAdmin && ! $this->hasOtherPlatformSuperAdmin($user->id)) {
+            return back()->withErrors(['role_ids' => 'At least one platform super-admin must remain assigned.'])->withInput();
+        }
+
         $before = $user->roles()->pluck('roles.id')->toArray();
-        $user->roles()->sync($data['role_ids'] ?? []);
+        $user->roles()->sync($roleIds->all());
         $after = $user->roles()->pluck('roles.id')->toArray();
 
         $auditLogger->log('user.roles.assign.web', 'user', (string) $user->id, [
@@ -7597,7 +7947,33 @@ CMD);
             'role_ids' => $after,
         ], $request->user()?->id);
 
-        return back()->with('status', 'User roles updated.');
+        return redirect()->route('admin.access.users')->with('status', 'User roles updated.');
+    }
+
+    public function deleteUser(Request $request, int $userId, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->ensureSuperAdminAccess();
+
+        $user = User::query()->with('roles')->findOrFail($userId);
+        if ((int) ($request->user()?->id ?? 0) === (int) $user->id) {
+            return back()->withErrors(['display_name' => 'You cannot delete your own account.']);
+        }
+
+        $isPlatformSuperAdmin = $user->tenant_id === null
+            && $user->roles->contains(fn ($role) => (string) $role->slug === 'super-admin');
+        if ($isPlatformSuperAdmin && ! $this->hasOtherPlatformSuperAdmin($user->id)) {
+            return back()->withErrors(['role_ids' => 'At least one active platform super-admin must remain assigned.']);
+        }
+
+        $before = $user->toArray();
+        $before['role_ids'] = $user->roles->pluck('id')->toArray();
+
+        DB::table('role_user')->where('user_id', $user->id)->delete();
+        $user->delete();
+
+        $auditLogger->log('user.delete.web', 'user', (string) $userId, $before, null, $request->user()?->id);
+
+        return redirect()->route('admin.access.users')->with('status', 'User deleted.');
     }
 
     public function deleteRole(Request $request, string $roleId, AuditLogger $auditLogger): RedirectResponse
@@ -7616,7 +7992,7 @@ CMD);
 
         $auditLogger->log('role.delete.web', 'role', $roleId, $before, null, $request->user()?->id);
 
-        return back()->with('status', 'Role deleted.');
+        return redirect()->route('admin.access.roles')->with('status', 'Role deleted.');
     }
 
     public function createStaffUser(Request $request, AuditLogger $auditLogger): RedirectResponse
@@ -7661,7 +8037,50 @@ CMD);
             'role_ids' => $roleIds->all(),
         ], $request->user()?->id);
 
-        return back()->with('status', 'Staff account created and roles assigned.');
+        return redirect()->route('admin.access.users')->with('status', 'Staff account created and roles assigned.');
+    }
+
+    private function accessViewData(): array
+    {
+        $tenantId = app(TenantContext::class)->tenantId();
+        $tenantScopedMode = ! (bool) config('dms.standalone_mode', true);
+
+        $roles = Role::query()
+            ->with('permissions')
+            ->withCount('users')
+            ->orderByRaw("CASE WHEN slug = 'super-admin' THEN 0 ELSE 1 END")
+            ->orderBy('name')
+            ->get();
+        $permissions = Permission::query()->orderBy('slug')->get(['id', 'slug', 'name', 'description']);
+        $users = User::query()
+            ->with(['roles.permissions'])
+            ->orderBy('name')
+            ->get(['id', 'tenant_id', 'name', 'email', 'is_active']);
+
+        $staffAssignableRoles = $roles
+            ->filter(function (Role $role) use ($tenantId) {
+                if ($tenantId === null) {
+                    return $role->tenant_id === null;
+                }
+
+                return (string) $role->tenant_id === (string) $tenantId;
+            })
+            ->values();
+
+        return [
+            'roles' => $roles,
+            'permissions' => $permissions,
+            'users' => $users,
+            'staffAssignableRoles' => $staffAssignableRoles,
+            'accessTenantId' => $tenantId,
+            'tenantScopedMode' => $tenantScopedMode,
+            'accessSummary' => [
+                'roles_total' => (int) $roles->count(),
+                'permissions_total' => (int) $permissions->count(),
+                'users_total' => (int) $users->count(),
+                'users_active' => (int) $users->where('is_active', true)->count(),
+            ],
+        ];
     }
 
     public function docs(): View
@@ -8091,6 +8510,30 @@ CMD);
             ]];
         }
 
+        if ($type === 'time') {
+            return [[
+                'type' => 'time',
+                'config' => [
+                    'sync_mode' => 'domhier',
+                ],
+                'enforce' => true,
+            ]];
+        }
+
+        if ($type === 'windows_update') {
+            return [[
+                'type' => 'windows_update',
+                'config' => [
+                    'active_hours_start' => 8,
+                    'active_hours_end' => 17,
+                    'update_source' => 'microsoft',
+                    'enable_target_group' => false,
+                    'block_internet_updates' => false,
+                ],
+                'enforce' => true,
+            ]];
+        }
+
         if ($type === 'scheduled_task') {
             $taskName = trim((string) ($ruleConfig['task_name'] ?? ''));
             if ($taskName === '') {
@@ -8415,6 +8858,7 @@ CMD);
             'firewall' => $this->validateFirewallRuleConfig($config),
             'dns' => $this->validateDnsRuleConfig($config),
             'network_adapter' => $this->validateNetworkAdapterRuleConfig($config),
+            'time' => $this->validateTimeRuleConfig($config),
             'bitlocker' => $this->validateBitlockerRuleConfig($config),
             'local_group' => $this->validateLocalGroupRuleConfig($config),
             'windows_update' => $this->validateWindowsUpdateRuleConfig($config),
@@ -8962,6 +9406,58 @@ CMD);
         return null;
     }
 
+    private function validateTimeRuleConfig(array $config): ?string
+    {
+        $timezone = trim((string) ($config['timezone'] ?? ''));
+        $hasTimezone = array_key_exists('timezone', $config);
+        if ($hasTimezone && $timezone === '') {
+            return 'Time rule "timezone" cannot be empty when provided.';
+        }
+
+        $syncMode = strtolower(trim((string) ($config['sync_mode'] ?? '')));
+        $allowedModes = ['manual', 'domhier', 'nt5ds', 'all', 'auto', 'automatic'];
+        if ($syncMode !== '' && ! in_array($syncMode, $allowedModes, true)) {
+            return 'Time rule "sync_mode" must be manual, domhier, nt5ds, all, auto, or automatic.';
+        }
+
+        $ntpServers = $config['ntp_servers'] ?? null;
+        if ($ntpServers !== null && ! is_array($ntpServers)) {
+            return 'Time rule "ntp_servers" must be an array.';
+        }
+
+        $normalizedServers = [];
+        if (is_array($ntpServers)) {
+            foreach ($ntpServers as $idx => $server) {
+                $value = trim((string) $server);
+                if ($value === '') {
+                    return sprintf('Time rule ntp_servers[%d] cannot be empty.', $idx);
+                }
+                $normalizedServers[] = $value;
+            }
+        }
+
+        $hasServers = $normalizedServers !== [];
+        if ($syncMode === 'manual' && ! $hasServers) {
+            return 'Time rule "ntp_servers" is required when sync_mode is manual.';
+        }
+        if ($syncMode !== '' && $syncMode !== 'manual' && $hasServers) {
+            return 'Time rule "ntp_servers" is only allowed with sync_mode=manual.';
+        }
+
+        if (! $hasTimezone && $syncMode === '' && ! $hasServers) {
+            return 'Time rule requires timezone and/or ntp settings.';
+        }
+
+        if (array_key_exists('resync', $config) && ! is_bool($config['resync'])) {
+            return 'Time rule "resync" must be true/false.';
+        }
+        if (array_key_exists('dry_run', $config) && ! is_bool($config['dry_run'])) {
+            return 'Time rule "dry_run" must be true/false.';
+        }
+
+        return null;
+    }
+
     private function validateNetworkSelectorConfig(array $config): ?string
     {
         $selectorCount = 0;
@@ -9065,7 +9561,63 @@ CMD);
         if (array_key_exists('no_auto_reboot_with_logged_on_users', $config) && ! is_bool($config['no_auto_reboot_with_logged_on_users'])) {
             return 'Windows Update "no_auto_reboot_with_logged_on_users" must be true/false.';
         }
+        if (array_key_exists('update_source', $config)) {
+            $source = strtolower(trim((string) $config['update_source']));
+            if (! in_array($source, ['microsoft', 'wsus'], true)) {
+                return 'Windows Update "update_source" must be microsoft or wsus.';
+            }
+
+            $wsusServer = trim((string) ($config['wsus_server'] ?? ''));
+            $wsusStatus = trim((string) ($config['wsus_status_server'] ?? ''));
+            $targetGroup = trim((string) ($config['target_group'] ?? ''));
+
+            if ($source === 'wsus') {
+                if ($wsusServer === '') {
+                    return 'Windows Update requires "wsus_server" when update_source=wsus.';
+                }
+                if (! $this->isValidHttpUrl($wsusServer)) {
+                    return 'Windows Update "wsus_server" must be a valid http(s) URL.';
+                }
+                if ($wsusStatus !== '' && ! $this->isValidHttpUrl($wsusStatus)) {
+                    return 'Windows Update "wsus_status_server" must be a valid http(s) URL.';
+                }
+                if ($targetGroup !== '' && ! preg_match('/^[^\\x00-\\x1f]{1,128}$/', $targetGroup)) {
+                    return 'Windows Update "target_group" must be 1-128 characters.';
+                }
+            } else {
+                if ($wsusServer !== '' || $wsusStatus !== '' || $targetGroup !== '') {
+                    return 'Windows Update WSUS fields must be empty when update_source=microsoft.';
+                }
+            }
+        } else {
+            if (array_key_exists('wsus_server', $config) || array_key_exists('wsus_status_server', $config) || array_key_exists('target_group', $config)) {
+                return 'Windows Update requires "update_source" when WSUS fields are provided.';
+            }
+        }
+        if (array_key_exists('enable_target_group', $config) && ! is_bool($config['enable_target_group'])) {
+            return 'Windows Update "enable_target_group" must be true/false.';
+        }
+        if (array_key_exists('block_internet_updates', $config) && ! is_bool($config['block_internet_updates'])) {
+            return 'Windows Update "block_internet_updates" must be true/false.';
+        }
         return null;
+    }
+
+    private function isValidHttpUrl(string $value): bool
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return false;
+        }
+        $parts = parse_url($value);
+        if (! is_array($parts)) {
+            return false;
+        }
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        if (! in_array($scheme, ['http', 'https'], true)) {
+            return false;
+        }
+        return isset($parts['host']) && $parts['host'] !== '';
     }
 
     private function validateScheduledTaskRuleConfig(array $config): ?string
@@ -9218,6 +9770,7 @@ CMD);
             ['key' => 'require_bitlocker', 'label' => 'Require BitLocker', 'name' => 'Require BitLocker', 'slug' => 'security-bitlocker-required', 'category' => 'security/encryption', 'rule_type' => 'bitlocker', 'rule_json' => ['drive' => 'C:', 'required' => true], 'remove_mode' => 'command', 'remove_rules' => [['type' => 'command', 'config' => ['command' => 'powershell.exe -NoProfile -Command "Write-Output BitLocker baseline removed from DMS policy profile"'], 'enforce' => true]], 'source' => 'default'],
             ['key' => 'local_admins_baseline', 'label' => 'Local Admin Baseline', 'name' => 'Local Admin Group Baseline', 'slug' => 'security-local-admins-baseline', 'category' => 'security/local_accounts', 'rule_type' => 'local_group', 'rule_json' => ['group' => 'Administrators', 'allowed_members' => ['DOMAIN\\IT-Admins', 'Administrator']], 'remove_mode' => 'command', 'remove_rules' => [['type' => 'command', 'config' => ['command' => 'powershell.exe -NoProfile -Command "Write-Output Local admin baseline removed from DMS policy profile"'], 'enforce' => true]], 'source' => 'default'],
             ['key' => 'windows_update_business', 'label' => 'Windows Update Hours', 'name' => 'Windows Update Active Hours', 'slug' => 'update-active-hours', 'category' => 'update/windows_update', 'rule_type' => 'windows_update', 'rule_json' => ['active_hours_start' => 8, 'active_hours_end' => 17, 'force_install_window' => '22:00-02:00'], 'remove_mode' => 'json', 'remove_rules' => [['type' => 'windows_update', 'config' => ['active_hours_start' => 8, 'active_hours_end' => 17], 'enforce' => true]], 'source' => 'default'],
+            ['key' => 'time_sync_baseline', 'label' => 'Time Sync: NTP + Timezone', 'name' => 'Time Sync Baseline', 'slug' => 'ops-time-sync-baseline', 'category' => 'operations/time', 'rule_type' => 'time', 'rule_json' => ['timezone' => 'UTC', 'sync_mode' => 'manual', 'ntp_servers' => ['time.windows.com', 'pool.ntp.org'], 'resync' => true], 'source' => 'default'],
             ['key' => 'baseline_lab_core', 'label' => 'Baseline: Lab Core Integrity', 'name' => 'Lab Core Integrity Baseline', 'slug' => 'baseline-lab-core-integrity', 'category' => 'operations/baseline', 'rule_type' => 'baseline_profile', 'rule_json' => ['critical_files' => [['path' => 'C:\\Windows\\System32\\notepad.exe', 'exists' => true]], 'registry_values' => [['path' => 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR', 'name' => 'Start', 'type' => 'DWORD', 'value' => 4]], 'services' => [['name' => 'wuauserv', 'status' => 'running', 'ensure' => 'present']], 'installed_packages' => [['name' => 'Microsoft Edge', 'ensure' => 'present', 'match' => 'contains']], 'auto_remediate' => false, 'remediation_rules' => [['type' => 'registry', 'config' => ['path' => 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR', 'name' => 'Start', 'type' => 'DWORD', 'value' => 4], 'enforce' => true]]], 'source' => 'default'],
             [
                 'key' => 'fast_reboot_restore_mode',
@@ -9331,6 +9884,7 @@ CMD);
             'dns_static_servers' => ['description' => 'Sets explicit IPv4 DNS resolvers on a selected network interface.', 'applies_to' => 'device'],
             'ipv4_static_address' => ['description' => 'Pins a selected interface to a static IPv4 address and optional default gateway.', 'applies_to' => 'device'],
             'require_bitlocker' => ['description' => 'Requires BitLocker protection for system drive C:.', 'applies_to' => 'device'],
+            'time_sync_baseline' => ['description' => 'Sets Windows time zone and NTP sync source for accurate system time.', 'applies_to' => 'device'],
             'fast_reboot_restore_mode' => ['description' => 'Applies a persistent startup restore manifest at every boot for non-persistent classroom behavior.', 'applies_to' => 'both'],
             'kiosk_applocker_service_enforced' => ['description' => 'Enforces AppLocker identity service startup as a prerequisite for allowlist-based controls.', 'applies_to' => 'both'],
             'kiosk_shell_explorer_only' => ['description' => 'Pins Winlogon shell to explorer.exe to prevent alternate shell persistence.', 'applies_to' => 'both'],
@@ -9585,6 +10139,17 @@ CMD);
             ->exists();
 
         abort_if($hasPlatformSuperAdmin, 403, 'Only platform super-admin can manage SaaS tenants.');
+    }
+
+    private function hasOtherPlatformSuperAdmin(int $excludedUserId): bool
+    {
+        return DB::table('users')
+            ->join('role_user', 'role_user.user_id', '=', 'users.id')
+            ->join('roles', 'roles.id', '=', 'role_user.role_id')
+            ->whereNull('users.tenant_id')
+            ->where('roles.slug', 'super-admin')
+            ->where('users.id', '!=', $excludedUserId)
+            ->exists();
     }
 
     private function ensureSuperAdminAccess(): void

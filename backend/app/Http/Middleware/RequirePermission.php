@@ -12,7 +12,7 @@ class RequirePermission
     {
         $user = $request->user();
 
-        if (! $user || ! $user->hasPermission($permission)) {
+        if (! $user || ! (bool) $user->is_active || ! $user->hasPermission($permission)) {
             abort(403, 'Forbidden');
         }
 

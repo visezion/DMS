@@ -1,6 +1,7 @@
 <x-admin-layout title="Settings" heading="Configuration">
     @php
         $signatureBypassEnabled = (bool) ($signatureBypassEnabled ?? false);
+        $endpointIntelligenceEnabled = (bool) ($endpointIntelligenceEnabled ?? true);
         $currentEnv = strtolower((string) old('app_env', (string) ($environmentPolicy['app_env'] ?? 'local')));
         $debugDisabled = old('disable_debug_mode', !((bool) ($environmentPolicy['app_debug'] ?? false)));
         $secureCookies = old('secure_session_cookies', (bool) ($environmentPolicy['session_secure_cookie'] ?? false));
@@ -27,10 +28,14 @@
             <a href="{{ route('admin.settings.branding') }}" class="rounded-lg bg-skyline px-4 py-2 text-sm text-white">Open Branding</a>
         </div>
 
-        <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <div class="rounded-xl border {{ $signatureBypassEnabled ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50' }} p-3">
                 <p class="text-xs uppercase tracking-wide {{ $signatureBypassEnabled ? 'text-amber-700' : 'text-emerald-700' }}">Signature Bypass</p>
                 <p class="mt-1 text-sm font-semibold {{ $signatureBypassEnabled ? 'text-amber-700' : 'text-emerald-700' }}">{{ $signatureBypassEnabled ? 'Enabled' : 'Disabled' }}</p>
+            </div>
+            <div class="rounded-xl border {{ $endpointIntelligenceEnabled ? 'border-emerald-200 bg-emerald-50' : 'border-slate-300 bg-slate-100' }} p-3">
+                <p class="text-xs uppercase tracking-wide {{ $endpointIntelligenceEnabled ? 'text-emerald-700' : 'text-slate-600' }}">Endpoint Intelligence</p>
+                <p class="mt-1 text-sm font-semibold {{ $endpointIntelligenceEnabled ? 'text-emerald-700' : 'text-slate-700' }}">{{ $endpointIntelligenceEnabled ? 'Enabled' : 'Disabled' }}</p>
             </div>
             <div class="rounded-xl border {{ $httpsEnabled ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50' }} p-3">
                 <p class="text-xs uppercase tracking-wide {{ $httpsEnabled ? 'text-emerald-700' : 'text-amber-700' }}">APP URL TLS</p>
@@ -68,6 +73,25 @@
                     </div>
                     <div class="mt-3 flex justify-end">
                         <button class="rounded bg-ink px-3 py-2 text-xs text-white">Save</button>
+                    </div>
+                </form>
+
+                <form method="POST" action="{{ route('admin.settings.endpoint-intelligence') }}" class="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
+                    @csrf
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="text-sm font-medium text-slate-900">Endpoint Intelligence</p>
+                            <p class="mt-1 text-xs text-slate-600">Master switch for Fleet Health, Risk Dashboard, Incidents, Assistant, Remediation, Approvals, Action History, Autonomy, and Tuning.</p>
+                        </div>
+                        <label class="inline-flex items-center gap-2 text-sm">
+                            <input type="hidden" name="endpoint_intelligence_enabled" value="0">
+                            <input type="checkbox" name="endpoint_intelligence_enabled" value="1" {{ $endpointIntelligenceEnabled ? 'checked' : '' }} class="rounded border-slate-300">
+                            Enable
+                        </label>
+                    </div>
+                    <p class="mt-3 text-xs text-slate-500">When disabled, Endpoint Intelligence navigation is hidden and direct intelligence routes redirect back to the admin overview.</p>
+                    <div class="mt-3 flex justify-end">
+                        <button class="rounded bg-ink px-3 py-2 text-xs text-white">Save Endpoint Intelligence</button>
                     </div>
                 </form>
 

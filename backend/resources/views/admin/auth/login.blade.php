@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 @php
     $brandingSetting = \App\Models\ControlPlaneSetting::query()->find('ui.branding');
     $branding = is_array($brandingSetting?->value ?? null) ? (($brandingSetting->value['value'] ?? []) ?: []) : [];
@@ -16,6 +16,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ $brandName }} Login</title>
+    @include('partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,6 +29,7 @@
         --brand-primary-soft-24: {{ $brandPrimary }}24;
         --brand-primary-soft-12: {{ $brandPrimary }}12;
         --brand-background: {{ $brandBackground }};
+        --brand-background-light: {{ $brandBackground }};
     "
 >
     <div class="min-h-screen grid lg:grid-cols-2">
@@ -143,15 +145,18 @@
 
         <section class="flex items-center justify-center p-6 sm:p-10">
             <div class="auth-card w-full max-w-md rounded-2xl p-7">
-                <div class="flex items-center justify-between">
+                <div class="flex items-start justify-between gap-4">
                     <div>
                         <p class="text-xs uppercase tracking-[0.22em] text-slate-500">Admin Login</p>
                         <h2 class="mt-2 text-3xl font-bold">{{ $brandName }}</h2>
                         <p class="mt-1 text-sm text-slate-600">{{ $brandTagline }}</p>
                     </div>
-                    <div class="h-10 w-10 rounded-lg border border-slate-200 bg-white flex items-center justify-center">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-5 h-5 text-slate-700"><path d="M12 3 5 6v6c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
-                    </div>
+                    <x-theme-select
+                        id="login-theme-select"
+                        wrapper-class="items-end gap-1.5 text-right"
+                        label-class="text-[10px] uppercase tracking-[0.18em] text-slate-500"
+                        select-class="min-w-[7rem] text-xs"
+                    />
                 </div>
 
                 @if($errors->any())

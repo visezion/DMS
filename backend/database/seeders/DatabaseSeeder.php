@@ -11,6 +11,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RolePermissionSeeder::class,
             EndpointIntelligenceSeeder::class,
+            AutonomousResponseSeeder::class,
         ]);
     }
 }

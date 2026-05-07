@@ -326,8 +326,14 @@ class RemediationPlannerService
             }
         }
 
-        $approvalRequired = (bool) ($guardrail['approval_required'] ?? true)
-            || $recommendationConfidence < $thresholds['approval_below'];
+        $approvedAutonomousOverride = (bool) data_get($plan->summary, 'approval_override', false)
+            && $plan->approved_at !== null;
+
+        $approvalRequired = ! $approvedAutonomousOverride
+            && (
+                (bool) ($guardrail['approval_required'] ?? true)
+                || $recommendationConfidence < $thresholds['approval_below']
+            );
 
         return [
             'allowed' => true,
@@ -352,6 +358,21 @@ class RemediationPlannerService
             'run_approved_command' => $this->blueprintRunCommand($args),
             'apply_policy' => $this->blueprintApplyPolicy($args),
             'isolate_device' => $this->blueprintRunCommand($args),
+            'run_diagnostic_script' => $this->blueprintRunCommand($args),
+            'collect_forensic_snapshot' => $this->blueprintRunCommand($args),
+            'disable_user_session' => $this->blueprintRunCommand($args),
+            'restart_agent' => [
+                'job_type' => 'run_command',
+                'payload' => [
+                    'script' => 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Restart-Service -Name DMSAgent -Force"',
+                ],
+            ],
+            'reapply_policy' => $this->blueprintApplyPolicy($args),
+            'uninstall_package' => $this->blueprintUninstallSoftware($args),
+            'block_hash' => $this->blueprintRunCommand($args),
+            'quarantine_file' => $this->blueprintQuarantineFile($args),
+            'restrict_network' => $this->blueprintRunCommand($args),
+            'reboot_device' => $this->blueprintScheduleReboot($args),
             'uninstall_software' => $this->blueprintUninstallSoftware($args),
             'cleanup_temp_files' => [
                 'job_type' => 'run_command',
@@ -379,6 +400,7 @@ class RemediationPlannerService
                 ],
             ],
             'schedule_reboot' => $this->blueprintScheduleReboot($args),
+            'force_password_reset', 'notify_admin', 'create_ticket', 'require_manual_investigation' => null,
             default => $this->blueprintRunCommand($args),
         };
     }
@@ -529,6 +551,27 @@ class RemediationPlannerService
             'job_type' => 'run_command',
             'payload' => [
                 'script' => 'shutdown.exe /r /t '.$delay.' /f /c "DMS remediation scheduled reboot"',
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed>  $args
+     * @return array{job_type:string,payload:array<string,mixed>}|null
+     */
+    private function blueprintQuarantineFile(array $args): ?array
+    {
+        $path = trim((string) ($args['file_path'] ?? ''));
+        if ($path === '') {
+            return null;
+        }
+
+        $escapedPath = str_replace("'", "''", $path);
+
+        return [
+            'job_type' => 'run_command',
+            'payload' => [
+                'script' => 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$src = \''.$escapedPath.'\'; $dstRoot = \'C:\\DMS-Quarantine\'; if(!(Test-Path $dstRoot)){ New-Item -ItemType Directory -Path $dstRoot | Out-Null }; if(Test-Path $src){ Move-Item -LiteralPath $src -Destination $dstRoot -Force }"',
             ],
         ];
     }

@@ -7,6 +7,7 @@
         $enrollmentTrend = collect($charts['enrollment_trend'] ?? []);
         $auditTrend = collect($charts['audit_trend'] ?? []);
         $anomalyTrend = collect($charts['anomaly_trend'] ?? []);
+        $endpointIntelligenceEnabled = (bool) ($endpointIntelligenceEnabled ?? true);
 
         $deviceOnlineCount = (int) ($deviceStatus['online'] ?? 0);
         $deviceOfflineCount = (int) ($deviceStatus['offline'] ?? 0);
@@ -97,8 +98,6 @@
         $overviewCards = [
             ['label' => 'Policies / 100 devices', 'value' => $policyDensity],
             ['label' => 'Packages / 100 devices', 'value' => $packageDensity],
-            ['label' => 'Replay Rejects', 'value' => (int) ($metrics['replay_rejects'] ?? 0)],
-            ['label' => 'Failed / Device', 'value' => $failureRate.'%'],
         ];
 
         $intelligenceTrend = $jobTrend->values()->map(function (array $point, int $index) use ($anomalyTrend) {
@@ -131,8 +130,10 @@
         $recentPanels = [
             ['type' => 'devices', 'eyebrow' => 'Recent Devices', 'title' => 'Last touched endpoints', 'route' => route('admin.devices'), 'cta' => 'Open Devices'],
             ['type' => 'jobs', 'eyebrow' => 'Recent Job Runs', 'title' => 'Latest execution traffic', 'route' => route('admin.jobs'), 'cta' => 'Open Jobs'],
-            ['type' => 'risk', 'eyebrow' => 'Behavior Oversight', 'title' => 'Recent anomaly review feed', 'route' => route('admin.intelligence.risk'), 'cta' => 'Open Risk'],
         ];
+        if ($endpointIntelligenceEnabled) {
+            $recentPanels[] = ['type' => 'risk', 'eyebrow' => 'Behavior Oversight', 'title' => 'Recent anomaly review feed', 'route' => route('admin.intelligence.risk'), 'cta' => 'Open Risk'];
+        }
         $freshnessThreshold = (int) data_get($intelligenceFreshness ?? [], 'stale_after_minutes', 120);
         $healthFreshnessAge = (string) data_get($intelligenceFreshness ?? [], 'health_latest.age_human', 'No data yet');
         $riskFreshnessAge = (string) data_get($intelligenceFreshness ?? [], 'risk_latest.age_human', 'No data yet');
@@ -142,8 +143,8 @@
         $missingHealthDevices = (int) data_get($intelligenceFreshness ?? [], 'health_missing_devices', 0);
         $missingRiskDevices = (int) data_get($intelligenceFreshness ?? [], 'risk_missing_devices', 0);
     @endphp
-<div id="admin-dashboard-root" class="space-y-4">
-        <section class="hero-surface rounded-[1.5rem] p-4 lg:p-5">
+<div id="admin-dashboard-root" class="dashboard-shell space-y-4">
+        <section class="hero-surface p-4 lg:p-5">
             <div class="relative z-10">
                 <div class="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.22em] text-slate-500">
                     <span class="rounded-full border border-slate-200 bg-white px-3 py-1">Fleet Runtime</span>
@@ -152,19 +153,19 @@
                 </div>
 
                 <div class="mt-3 grid gap-3 sm:grid-cols-3">
-                    <div class="hero-card rounded-[1.2rem] p-4">
+                    <div class="hero-card p-4">
                         <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Fleet Risk</p>
                         <div class="mt-2 flex items-end justify-between gap-3">
                             <p class="text-3xl font-semibold text-slate-900">{{ number_format($riskScore, 1) }}</p>
                             <span class="rounded-full border px-3 py-1 text-xs font-medium {{ $riskTone }}">{{ $riskLabel }}</span>
                         </div>
                     </div>
-                    <div class="hero-card rounded-[1.2rem] p-4">
+                    <div class="hero-card p-4">
                         <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Dispatch Pressure</p>
                         <p class="mt-2 text-3xl font-semibold {{ $opsTone }}">{{ $opsPressure }}%</p>
                         <p class="mt-1 text-xs text-slate-500">Pending {{ $metrics['jobs_pending'] }} | retrying {{ $metrics['retrying_runs'] }}</p>
                     </div>
-                    <div class="hero-card rounded-[1.2rem] p-4">
+                    <div class="hero-card p-4">
                         <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Fleet Coverage</p>
                         <p class="mt-2 text-3xl font-semibold text-slate-900">{{ $coverageRate }}%</p>
                         <p class="mt-1 text-xs text-slate-500">Enrolled {{ $metrics['devices_enrolled'] }} of {{ $metrics['devices_total'] }}</p>
@@ -174,7 +175,7 @@
         </section>
 
         <section class="grid gap-4 xl:grid-cols-12">
-            <div class="board-surface self-start rounded-[1.4rem] p-4 xl:col-span-8">
+            <div class="board-surface self-start p-4 xl:col-span-8">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <div>
                         <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Executive Signals</p>
@@ -184,7 +185,7 @@
                 </div>
 
                 <div class="mt-4 grid gap-3 md:grid-cols-3">
-                    <article class="signal-card rounded-[1.2rem] p-4">
+                    <article class="signal-card p-4">
                         <div class="flex items-center gap-4">
                             <div class="ring-shell" style="{{ $deviceRing }}"></div>
                             <div>
@@ -195,7 +196,7 @@
                         </div>
                     </article>
 
-                    <article class="signal-card rounded-[1.2rem] p-4">
+                    <article class="signal-card p-4">
                         <div class="flex items-center gap-4">
                             <div class="ring-shell" style="{{ $complianceRing }}"></div>
                             <div>
@@ -206,7 +207,7 @@
                         </div>
                     </article>
 
-                    <article class="signal-card rounded-[1.2rem] p-4">
+                    <article class="signal-card p-4">
                         <div class="flex items-center gap-4">
                             <div class="ring-shell" style="{{ $jobRing }}"></div>
                             <div>
@@ -219,11 +220,11 @@
                 </div>
             </div>
 
-            <aside class="board-surface self-start rounded-[1.4rem] p-4 xl:col-span-4">
+            <aside class="board-surface self-start p-4 xl:col-span-4">
                 <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Quick Overview</p>
                 <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                     @foreach($overviewCards as $overviewCard)
-                        <div class="metric-card rounded-[1rem] p-3.5">
+                        <div class="metric-card p-3.5">
                             <p class="text-[11px] uppercase tracking-wide text-slate-500">{{ $overviewCard['label'] }}</p>
                             <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $overviewCard['value'] }}</p>
                         </div>
@@ -232,118 +233,120 @@
             </aside>
         </section>
 
-        <section class="grid gap-4 xl:grid-cols-12">
-            <div class="board-surface self-start rounded-[1.4rem] p-4 xl:col-span-8">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Live Endpoint Intelligence</p>
-                        <h3 class="mt-1 text-xl font-semibold text-slate-900">Projection, risk, incidents</h3>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span class="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-600">
-                            Freshness threshold {{ $freshnessThreshold }} min
-                        </span>
-                        <a href="{{ route('admin.intelligence.health') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Health</a>
-                        <a href="{{ route('admin.intelligence.assistant') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Assistant</a>
-                    </div>
-                </div>
-
-                <div class="mt-4 grid gap-3 sm:grid-cols-3">
-                    <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Projection (24h)</p>
-                        <div class="mt-1 flex items-center gap-2">
-                            <p class="text-2xl font-semibold text-slate-900">{{ $projectionNext24h }}%</p>
-                            <span class="rounded-full border px-2.5 py-1 text-[11px] font-medium {{ $projectionTone }}">Forecast</span>
+        @if($endpointIntelligenceEnabled)
+            <section class="grid gap-4 xl:grid-cols-12">
+                <div class="board-surface self-start p-4 xl:col-span-8">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Live Endpoint Intelligence</p>
+                            <h3 class="mt-1 text-xl font-semibold text-slate-900">Projection, risk, incidents</h3>
                         </div>
-                    </div>
-                    <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Fleet Average Risk</p>
-                        <div class="mt-1 flex items-center gap-2">
-                            <p class="text-2xl font-semibold text-slate-900">{{ $fleetAverageRisk }}%</p>
-                            <span class="rounded-full border px-2.5 py-1 text-[11px] font-medium {{ $fleetRiskTone }}">Current</span>
-                        </div>
-                    </div>
-                    <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Incident Load</p>
-                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $incidentDailyAverage }} / day</p>
-                        <p class="text-xs text-slate-500">Based on last 7 days anomaly feed</p>
-                    </div>
-                </div>
-
-                <div class="mt-3 grid gap-3 sm:grid-cols-3">
-                    <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Health Freshness</p>
-                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $healthFreshnessAge }}</p>
-                        <p class="text-xs text-slate-500">Stale {{ $staleHealthDevices }} | missing {{ $missingHealthDevices }}</p>
-                    </div>
-                    <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Risk Freshness</p>
-                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $riskFreshnessAge }}</p>
-                        <p class="text-xs text-slate-500">Stale {{ $staleRiskDevices }} | missing {{ $missingRiskDevices }}</p>
-                    </div>
-                    <div class="metric-card rounded-[1rem] p-3.5">
-                        <p class="text-[11px] uppercase tracking-wide text-slate-500">Findings Freshness</p>
-                        <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $findingFreshnessAge }}</p>
-                        <p class="text-xs text-slate-500">Older findings can remain visible until new telemetry/check-ins arrive.</p>
-                    </div>
-                </div>
-
-                <div class="mt-4 grid gap-3 xl:grid-cols-[0.78fr,1.22fr]">
-                    <div class="rounded-[1.1rem] border border-slate-200 bg-slate-50 p-3.5">
-                        <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Risk Model</p>
-                        <div class="mt-2 space-y-2 text-sm text-slate-600">
-                            <p class="flex items-center justify-between gap-2"><span>Execution risk</span><span class="font-semibold text-slate-900">62%</span></p>
-                            <p class="flex items-center justify-between gap-2"><span>Incident pressure</span><span class="font-semibold text-slate-900">38%</span></p>
-                            <p class="flex items-center justify-between gap-2"><span>Daily anomalies</span><span class="font-semibold text-slate-900">{{ $incidentDailyAverage }}</span></p>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-600">
+                                Freshness threshold {{ $freshnessThreshold }} min
+                            </span>
+                            <a href="{{ route('admin.intelligence.health') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Health</a>
+                            <a href="{{ route('admin.intelligence.assistant') }}" class="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700">Open Assistant</a>
                         </div>
                     </div>
 
-                    <div class="overflow-x-auto pb-2">
-                        <div class="chart-scroll intelligence-chart-scroll">
-                            @foreach($intelligenceTrend as $trendPoint)
-                                @php
-                                    $projectionHeight = max(8, min(100, (float) $trendPoint['projection']));
-                                    $incidentHeight = max(8, min(100, ((int) $trendPoint['incidents'] / $incidentChartMax) * 100));
-                                @endphp
-                                <div class="chart-col">
-                                    <div class="chart-well">
-                                        <div class="flex h-full items-end gap-1.5">
-                                            <div class="w-2 rounded-full bg-sky-500" style="height: {{ $projectionHeight }}%"></div>
-                                            <div class="w-2 rounded-full bg-rose-400" style="height: {{ $incidentHeight }}%"></div>
+                    <div class="mt-4 grid gap-3 sm:grid-cols-3">
+                        <div class="metric-card p-3.5">
+                            <p class="text-[11px] uppercase tracking-wide text-slate-500">Projection (24h)</p>
+                            <div class="mt-1 flex items-center gap-2">
+                                <p class="text-2xl font-semibold text-slate-900">{{ $projectionNext24h }}%</p>
+                                <span class="rounded-full border px-2.5 py-1 text-[11px] font-medium {{ $projectionTone }}">Forecast</span>
+                            </div>
+                        </div>
+                        <div class="metric-card p-3.5">
+                            <p class="text-[11px] uppercase tracking-wide text-slate-500">Fleet Average Risk</p>
+                            <div class="mt-1 flex items-center gap-2">
+                                <p class="text-2xl font-semibold text-slate-900">{{ $fleetAverageRisk }}%</p>
+                                <span class="rounded-full border px-2.5 py-1 text-[11px] font-medium {{ $fleetRiskTone }}">Current</span>
+                            </div>
+                        </div>
+                        <div class="metric-card p-3.5">
+                            <p class="text-[11px] uppercase tracking-wide text-slate-500">Incident Load</p>
+                            <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $incidentDailyAverage }} / day</p>
+                            <p class="text-xs text-slate-500">Based on last 7 days anomaly feed</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 grid gap-3 sm:grid-cols-3">
+                        <div class="metric-card p-3.5">
+                            <p class="text-[11px] uppercase tracking-wide text-slate-500">Health Freshness</p>
+                            <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $healthFreshnessAge }}</p>
+                            <p class="text-xs text-slate-500">Stale {{ $staleHealthDevices }} | missing {{ $missingHealthDevices }}</p>
+                        </div>
+                        <div class="metric-card p-3.5">
+                            <p class="text-[11px] uppercase tracking-wide text-slate-500">Risk Freshness</p>
+                            <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $riskFreshnessAge }}</p>
+                            <p class="text-xs text-slate-500">Stale {{ $staleRiskDevices }} | missing {{ $missingRiskDevices }}</p>
+                        </div>
+                        <div class="metric-card p-3.5">
+                            <p class="text-[11px] uppercase tracking-wide text-slate-500">Findings Freshness</p>
+                            <p class="mt-1 text-2xl font-semibold text-slate-900">{{ $findingFreshnessAge }}</p>
+                            <p class="text-xs text-slate-500">Older findings can remain visible until new telemetry/check-ins arrive.</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 grid gap-3 xl:grid-cols-[0.78fr,1.22fr]">
+                        <div class="dashboard-subpanel border border-slate-200 bg-slate-50 p-3.5">
+                            <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Risk Model</p>
+                            <div class="mt-2 space-y-2 text-sm text-slate-600">
+                                <p class="flex items-center justify-between gap-2"><span>Execution risk</span><span class="font-semibold text-slate-900">62%</span></p>
+                                <p class="flex items-center justify-between gap-2"><span>Incident pressure</span><span class="font-semibold text-slate-900">38%</span></p>
+                                <p class="flex items-center justify-between gap-2"><span>Daily anomalies</span><span class="font-semibold text-slate-900">{{ $incidentDailyAverage }}</span></p>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto pb-2">
+                            <div class="chart-scroll intelligence-chart-scroll">
+                                @foreach($intelligenceTrend as $trendPoint)
+                                    @php
+                                        $projectionHeight = max(8, min(100, (float) $trendPoint['projection']));
+                                        $incidentHeight = max(8, min(100, ((int) $trendPoint['incidents'] / $incidentChartMax) * 100));
+                                    @endphp
+                                    <div class="chart-col">
+                                        <div class="chart-well">
+                                            <div class="flex h-full items-end gap-1.5">
+                                                <div class="w-2 rounded-full bg-sky-500" style="height: {{ $projectionHeight }}%"></div>
+                                                <div class="w-2 rounded-full bg-rose-400" style="height: {{ $incidentHeight }}%"></div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 text-center">
+                                            <p class="text-base font-semibold text-slate-900">{{ $trendPoint['projection'] }}%</p>
+                                            <p class="text-[11px] uppercase tracking-wide text-slate-500">{{ $trendPoint['label'] }}</p>
+                                            <p class="text-[11px] text-slate-500">{{ $trendPoint['incidents'] }} incidents</p>
                                         </div>
                                     </div>
-                                    <div class="mt-3 text-center">
-                                        <p class="text-base font-semibold text-slate-900">{{ $trendPoint['projection'] }}%</p>
-                                        <p class="text-[11px] uppercase tracking-wide text-slate-500">{{ $trendPoint['label'] }}</p>
-                                        <p class="text-[11px] text-slate-500">{{ $trendPoint['incidents'] }} incidents</p>
-                                    </div>
-                                </div>
-                            @endforeach
+                                @endforeach
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <aside class="board-surface self-start rounded-[1.4rem] p-4 xl:col-span-4">
-                <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Fleet Averages</p>
-                <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                    @foreach($fleetAverageCards as $fleetAverageCard)
-                        <div class="metric-card rounded-[1rem] p-3.5">
-                            <div class="flex items-center justify-between gap-2">
-                                <p class="text-[11px] uppercase tracking-wide text-slate-500">{{ $fleetAverageCard['label'] }}</p>
-                                <p class="text-sm font-semibold text-slate-900">{{ $fleetAverageCard['value'] }}</p>
+                <aside class="board-surface self-start p-4 xl:col-span-4">
+                    <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Fleet Averages</p>
+                    <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                        @foreach($fleetAverageCards as $fleetAverageCard)
+                            <div class="metric-card p-3.5">
+                                <div class="flex items-center justify-between gap-2">
+                                    <p class="text-[11px] uppercase tracking-wide text-slate-500">{{ $fleetAverageCard['label'] }}</p>
+                                    <p class="text-sm font-semibold text-slate-900">{{ $fleetAverageCard['value'] }}</p>
+                                </div>
+                                <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                    <div class="h-full {{ $fleetAverageCard['barClass'] }}" style="width: {{ max(4, min(100, (float) $fleetAverageCard['barValue'])) }}%"></div>
+                                </div>
                             </div>
-                            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                                <div class="h-full {{ $fleetAverageCard['barClass'] }}" style="width: {{ max(4, min(100, (float) $fleetAverageCard['barValue'])) }}%"></div>
-                            </div>
-                        </div>
-                    @endforeach
-                </div>
-            </aside>
-        </section>
+                        @endforeach
+                    </div>
+                </aside>
+            </section>
+        @endif
 
         <section class="grid gap-5 xl:grid-cols-2">
-            <div class="board-surface rounded-[1.4rem] p-4">
+            <div class="board-surface p-4">
                 <div class="chart-layout">
                     <div>
                         <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">7-Day Chart</p>
@@ -383,7 +386,7 @@
                 </div>
             </div>
 
-            <div class="board-surface rounded-[1.4rem] p-4">
+            <div class="board-surface p-4">
                 <div class="chart-layout">
                     <div>
                         <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">Oversight Chart</p>
@@ -417,7 +420,7 @@
 
         <section class="grid gap-4 xl:grid-cols-3">
             @foreach($recentPanels as $panel)
-                <div class="board-surface rounded-[1.4rem] p-4">
+                <div class="board-surface p-4">
                     <div class="mb-4 flex items-center justify-between gap-2">
                         <div>
                             <p class="text-[11px] uppercase tracking-[0.2em] text-slate-500">{{ $panel['eyebrow'] }}</p>
@@ -428,7 +431,7 @@
                     <div class="space-y-3">
                         @if($panel['type'] === 'devices')
                             @forelse($recent_devices as $device)
-                                <a href="{{ route('admin.devices.show', $device->id) }}" class="block rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-slate-300 hover:bg-white">
+                                <a href="{{ route('admin.devices.show', $device->id) }}" class="dashboard-feed-item block border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-slate-300 hover:bg-white">
                                     <div class="flex items-center justify-between gap-3">
                                         <div>
                                             <p class="text-base font-semibold text-slate-900">{{ $device->hostname }}</p>
@@ -441,11 +444,11 @@
                                     <p class="mt-2 text-xs text-slate-500">Last seen {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'never' }}</p>
                                 </a>
                             @empty
-                                <div class="rounded-[1.3rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No devices yet.</div>
+                                <div class="dashboard-empty-state border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No devices yet.</div>
                             @endforelse
                         @elseif($panel['type'] === 'jobs')
                             @forelse($recent_jobs as $job)
-                                <div class="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                                <div class="dashboard-feed-item border border-slate-200 bg-slate-50 px-4 py-4">
                                     <div class="flex items-center justify-between gap-3">
                                         <p class="font-mono text-xs text-slate-700 break-all">{{ $job->id }}</p>
                                         <span class="rounded-full px-3 py-1 text-xs font-medium {{ $job->status === 'success' ? 'bg-indigo-100 text-indigo-700' : ($job->status === 'failed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700') }}">
@@ -455,11 +458,11 @@
                                     <p class="mt-2 text-xs text-slate-500">Updated {{ $job->updated_at ? $job->updated_at->diffForHumans() : 'recently' }}</p>
                                 </div>
                             @empty
-                                <div class="rounded-[1.3rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No job runs yet.</div>
+                                <div class="dashboard-empty-state border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No job runs yet.</div>
                             @endforelse
                         @else
                             @forelse($recent_anomaly_cases as $case)
-                                <div class="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                                <div class="dashboard-feed-item border border-slate-200 bg-slate-50 px-4 py-4">
                                     <div class="flex items-center justify-between gap-3">
                                         <div>
                                             <p class="text-base font-semibold text-slate-900">{{ $case->summary }}</p>
@@ -475,7 +478,7 @@
                                     </div>
                                 </div>
                             @empty
-                                <div class="rounded-[1.3rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No anomaly cases awaiting review.</div>
+                                <div class="dashboard-empty-state border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">No anomaly cases awaiting review.</div>
                             @endforelse
                         @endif
                     </div>
