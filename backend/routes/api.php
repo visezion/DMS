@@ -26,14 +26,14 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login']);
 
     Route::post('/device/enroll', [EnrollmentController::class, 'enroll']);
-    Route::post('/device/heartbeat', [DeviceCheckinController::class, 'heartbeat']);
-    Route::post('/device/checkin', [DeviceCheckinController::class, 'checkin']);
-    Route::post('/device/behavior-log', [DeviceBehaviorLogController::class, 'store'])->middleware('throttle:300,1');
+    Route::post('/device/heartbeat', [DeviceCheckinController::class, 'heartbeat'])->middleware('device.auth');
+    Route::post('/device/checkin', [DeviceCheckinController::class, 'checkin'])->middleware('device.auth');
+    Route::post('/device/behavior-log', [DeviceBehaviorLogController::class, 'store'])->middleware(['device.auth', 'throttle:300,1']);
     Route::get('/device/keyset', [KeysetController::class, 'index']);
-    Route::get('/device/policies', [DeviceCheckinController::class, 'policies']);
-    Route::post('/device/job-ack', [DeviceCheckinController::class, 'jobAck']);
-    Route::post('/device/job-result', [DeviceCheckinController::class, 'jobResult']);
-    Route::post('/device/compliance-report', [DeviceCheckinController::class, 'complianceReport']);
+    Route::get('/device/policies', [DeviceCheckinController::class, 'policies'])->middleware('device.auth');
+    Route::post('/device/job-ack', [DeviceCheckinController::class, 'jobAck'])->middleware('device.auth');
+    Route::post('/device/job-result', [DeviceCheckinController::class, 'jobResult'])->middleware('device.auth');
+    Route::post('/device/compliance-report', [DeviceCheckinController::class, 'complianceReport'])->middleware('device.auth');
     Route::get('/device/packages/{packageVersionId}/download-meta', [PackageController::class, 'downloadMeta']);
 
     Route::middleware('auth:sanctum')->group(function () {

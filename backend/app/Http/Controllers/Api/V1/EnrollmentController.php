@@ -24,6 +24,7 @@ class EnrollmentController extends Controller
         $payload = $request->validate([
             'enrollment_token' => ['required', 'string'],
             'csr_pem' => ['nullable', 'string'],
+            'request_signing_public_key' => ['nullable', 'string'],
             'device_facts' => ['required', 'array'],
             'device_facts.hostname' => ['required', 'string'],
             'device_facts.os_name' => ['required', 'string'],
@@ -42,6 +43,14 @@ class EnrollmentController extends Controller
 
         if (! $token) {
             return response()->json(['message' => 'Enrollment token invalid or expired'], 422);
+        }
+
+        $requestSigningPublicKey = trim((string) ($payload['request_signing_public_key'] ?? ''));
+        if ($requestSigningPublicKey !== '') {
+            $decoded = base64_decode($requestSigningPublicKey, true);
+            if (! is_string($decoded) || strlen($decoded) !== SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES) {
+                return response()->json(['message' => 'request_signing_public_key is invalid'], 422);
+            }
         }
 
         $effectiveTenantId = (bool) config('dms.standalone_mode', true)
@@ -65,15 +74,30 @@ class EnrollmentController extends Controller
             ], fn ($value) => $value !== ''),
         ]);
 
-        DeviceIdentity::query()->create([
-            'id' => (string) Str::uuid(),
-            'device_id' => $device->id,
-            'identity_type' => 'mtls_cert',
-            'public_key_pem' => $payload['csr_pem'] ?? null,
-            'valid_from' => now(),
-            'valid_to' => now()->addYear(),
-            'revoked' => false,
-        ]);
+        if (! empty($payload['csr_pem'])) {
+            DeviceIdentity::query()->create([
+                'id' => (string) Str::uuid(),
+                'device_id' => $device->id,
+                'identity_type' => 'mtls_cert',
+                'public_key_pem' => $payload['csr_pem'] ?? null,
+                'valid_from' => now(),
+                'valid_to' => now()->addYear(),
+                'revoked' => false,
+            ]);
+        }
+
+        if ($requestSigningPublicKey !== '') {
+            DeviceIdentity::query()->create([
+                'id' => (string) Str::uuid(),
+                'device_id' => $device->id,
+                'identity_type' => 'request_signing_ed25519',
+                'public_key_pem' => $requestSigningPublicKey,
+                'cert_thumbprint_sha256' => hash('sha256', (string) base64_decode($requestSigningPublicKey, true)),
+                'valid_from' => now(),
+                'valid_to' => now()->addYear(),
+                'revoked' => false,
+            ]);
+        }
 
         $token->update([
             'used_at' => now(),

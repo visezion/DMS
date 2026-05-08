@@ -49,7 +49,7 @@ class DeviceCheckinController extends Controller
             'uwf_status' => ['nullable', 'array'],
         ]);
 
-        $device = Device::query()->find($payload['device_id']);
+        $device = $this->resolvedDeviceFromRequest($request, $payload['device_id']);
         if (! $device) {
             $device = $this->recoverDeletedDeviceRecord($payload);
         }
@@ -107,7 +107,7 @@ class DeviceCheckinController extends Controller
             'uwf_status' => ['nullable', 'array'],
         ]);
 
-        $device = Device::query()->find($payload['device_id']);
+        $device = $this->resolvedDeviceFromRequest($request, $payload['device_id']);
         if (! $device) {
             $device = $this->recoverDeletedDeviceRecord($payload);
         }
@@ -242,7 +242,7 @@ class DeviceCheckinController extends Controller
             'device_id' => ['required', 'uuid'],
         ]);
 
-        $device = Device::query()->findOrFail($payload['device_id']);
+        $device = $this->resolvedDeviceFromRequest($request, $payload['device_id']) ?? Device::query()->findOrFail($payload['device_id']);
         $device->update(['last_seen_at' => now(), 'status' => 'online']);
 
         $groupIds = DB::table('device_group_memberships')
@@ -508,7 +508,7 @@ class DeviceCheckinController extends Controller
             'results.*.checked_at' => ['nullable', 'date'],
         ]);
 
-        Device::query()->findOrFail($payload['device_id']);
+        $device = $this->resolvedDeviceFromRequest($request, $payload['device_id']) ?? Device::query()->findOrFail($payload['device_id']);
 
         foreach ($payload['results'] as $result) {
             $policyVersionId = (string) ($result['policy_version_id'] ?? '');
@@ -520,14 +520,14 @@ class DeviceCheckinController extends Controller
             ComplianceResult::query()->create([
                 'id' => (string) Str::uuid(),
                 'compliance_check_id' => $checkId,
-                'device_id' => $payload['device_id'],
+                'device_id' => $device->id,
                 'status' => $result['status'],
                 'details' => $result['details'] ?? null,
                 'checked_at' => isset($result['checked_at']) ? $result['checked_at'] : now(),
             ]);
         }
 
-        $this->dispatchIntelligenceBuild($payload['device_id']);
+        $this->dispatchIntelligenceBuild($device->id);
 
         return response()->json(['ok' => true]);
     }
@@ -1281,7 +1281,7 @@ class DeviceCheckinController extends Controller
 
     private function recoverDeletedDeviceRecord(array $payload): Device
     {
-        $enabled = $this->settingBool('devices.allow_orphan_auto_claim', true);
+        $enabled = $this->settingBool('devices.allow_orphan_auto_claim', false);
         if (! $enabled) {
             abort(404);
         }
@@ -1388,6 +1388,16 @@ class DeviceCheckinController extends Controller
             $tags['device_identity_updated_at'] = now()->toIso8601String();
             $updateData['tags'] = $tags;
         }
+    }
+
+    private function resolvedDeviceFromRequest(Request $request, string $deviceId): ?Device
+    {
+        $device = $request->attributes->get('authenticated_device');
+        if ($device instanceof Device && hash_equals((string) $device->id, $deviceId)) {
+            return $device;
+        }
+
+        return Device::query()->find($deviceId);
     }
 
     private function extractDeviceIdentityHints(array $payload): array

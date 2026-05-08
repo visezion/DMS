@@ -3,6 +3,8 @@
 namespace Tests\Feature\Web;
 
 use App\Models\AgentRelease;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -120,12 +122,31 @@ class AgentDeliveryTenantIsolationTest extends TestCase
 
     private function createTenantUser(Tenant $tenant, string $email): User
     {
-        return User::query()->create([
+        $user = User::query()->create([
             'name' => 'Tenant Agent Admin',
             'email' => $email,
             'password' => 'password',
             'tenant_id' => $tenant->id,
+            'is_active' => true,
         ]);
+
+        $role = Role::query()->create([
+            'id' => (string) Str::uuid(),
+            'tenant_id' => $tenant->id,
+            'name' => 'Tenant Agent Operator',
+            'slug' => 'tenant-agent-operator-'.Str::lower(Str::random(6)),
+        ]);
+        $permission = Permission::query()->firstOrCreate([
+            'slug' => 'jobs.write',
+        ], [
+            'id' => (string) Str::uuid(),
+            'name' => 'jobs.write',
+        ]);
+
+        $role->permissions()->sync([$permission->id]);
+        $user->roles()->sync([$role->id]);
+
+        return $user;
     }
 
     private function createTenantRelease(?string $tenantId, string $version, string $storagePath = 'agent-releases/release.zip', string $fileName = 'release.zip'): AgentRelease

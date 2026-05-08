@@ -5,11 +5,14 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using Dms.Agent.Core.Protocol;
 using Dms.Agent.Core.Runtime;
 using Dms.Agent.Core.Telemetry;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto.Signers;
 
 namespace Dms.Agent.Core.Transport;
 
@@ -20,8 +23,11 @@ public sealed class ApiClient
     private readonly string _deviceIdPath;
     private readonly string _enrollmentTokenPath;
     private readonly string _behaviorIngestTokenPath;
+    private readonly string _requestSigningPrivateKeyPath;
+    private readonly string _requestSigningPublicKeyPath;
     private string? _behaviorIngestToken;
     private string? _lastCheckinId;
+    private string? _requestSigningPublicKeyBase64;
     private const string EmptyDeviceId = "00000000-0000-0000-0000-000000000000";
     private static readonly HttpStatusCode[] RetryableStatusCodes =
     [
@@ -31,6 +37,7 @@ public sealed class ApiClient
         HttpStatusCode.ServiceUnavailable,
         HttpStatusCode.GatewayTimeout,
     ];
+    private static readonly JsonSerializerOptions RequestJsonOptions = new(JsonSerializerDefaults.Web);
 
     public ApiClient()
     {
@@ -40,7 +47,10 @@ public sealed class ApiClient
         _deviceIdPath = _bootstrapConfiguration.DeviceIdPath;
         _enrollmentTokenPath = _bootstrapConfiguration.EnrollmentTokenPath;
         _behaviorIngestTokenPath = Path.Combine(_bootstrapConfiguration.DmsDirectory, "behavior-ingest-token.txt");
+        _requestSigningPrivateKeyPath = Path.Combine(_bootstrapConfiguration.DmsDirectory, "device-request-signing.sk.b64");
+        _requestSigningPublicKeyPath = Path.Combine(_bootstrapConfiguration.DmsDirectory, "device-request-signing.pk.b64");
         _behaviorIngestToken = ResolveBehaviorIngestToken();
+        _requestSigningPublicKeyBase64 = ResolveRequestSigningPublicKeyBase64();
 
         _httpClient = CreateHttpClient(_bootstrapConfiguration.ResolvedApiBaseUrl);
         _bootstrapConfiguration.WriteBootstrapState();
@@ -56,7 +66,7 @@ public sealed class ApiClient
         var inventory = await DeviceInventoryCollector.CollectAsync(cancellationToken);
         string? serialNumber = ResolveSerialNumber(inventory);
         var runtimeDiagnostics = CollectRuntimeDiagnostics();
-        HttpResponseMessage response = await SendWithRetryAsync(ct => _httpClient.PostAsJsonAsync("device/checkin", new
+        var requestPayload = new
         {
             device_id = deviceId,
             agent_version = agentVersion,
@@ -69,7 +79,8 @@ public sealed class ApiClient
             inventory,
             runtime_diagnostics = runtimeDiagnostics,
             uwf_status = BuildUwfStatus(runtimeDiagnostics),
-        }, ct), cancellationToken);
+        };
+        HttpResponseMessage response = await SendDeviceJsonAsync(HttpMethod.Post, "device/checkin", deviceId, requestPayload, cancellationToken);
 
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound && !string.IsNullOrWhiteSpace(ResolveEnrollmentToken()))
         {
@@ -77,7 +88,7 @@ public sealed class ApiClient
             ClearPersistedDeviceId();
             deviceId = await EnsureEnrolledAsync(cancellationToken);
             runtimeDiagnostics = CollectRuntimeDiagnostics();
-            response = await SendWithRetryAsync(ct => _httpClient.PostAsJsonAsync("device/checkin", new
+            requestPayload = new
             {
                 device_id = deviceId,
                 agent_version = agentVersion,
@@ -90,15 +101,16 @@ public sealed class ApiClient
                 inventory,
                 runtime_diagnostics = runtimeDiagnostics,
                 uwf_status = BuildUwfStatus(runtimeDiagnostics),
-            }, ct), cancellationToken);
+            };
+            response = await SendDeviceJsonAsync(HttpMethod.Post, "device/checkin", deviceId, requestPayload, cancellationToken);
         }
 
         response.EnsureSuccessStatusCode();
 
-        CheckinResponseDto? payload = await response.Content.ReadFromJsonAsync<CheckinResponseDto>(cancellationToken: cancellationToken);
-        _bootstrapConfiguration.PersistCheckinInterval(payload?.Bootstrap?.CheckinIntervalSeconds);
-        PersistBehaviorIngestToken(payload?.Bootstrap?.BehaviorIngestToken);
-        return payload ?? new CheckinResponseDto();
+        CheckinResponseDto? responsePayload = await response.Content.ReadFromJsonAsync<CheckinResponseDto>(cancellationToken: cancellationToken);
+        _bootstrapConfiguration.PersistCheckinInterval(responsePayload?.Bootstrap?.CheckinIntervalSeconds);
+        PersistBehaviorIngestToken(responsePayload?.Bootstrap?.BehaviorIngestToken);
+        return responsePayload ?? new CheckinResponseDto();
     }
 
     public async Task<List<KeysetKeyDto>> GetKeysetAsync(CancellationToken cancellationToken)
@@ -113,8 +125,11 @@ public sealed class ApiClient
     public async Task AckAsync(string jobRunId, CancellationToken cancellationToken)
     {
         string deviceId = ResolveDeviceId();
-        using HttpResponseMessage response = await SendWithRetryAsync(
-            ct => _httpClient.PostAsJsonAsync("device/job-ack", new { job_run_id = jobRunId, device_id = deviceId }, ct),
+        using HttpResponseMessage response = await SendDeviceJsonAsync(
+            HttpMethod.Post,
+            "device/job-ack",
+            deviceId,
+            new { job_run_id = jobRunId, device_id = deviceId },
             cancellationToken);
         response.EnsureSuccessStatusCode();
     }
@@ -128,7 +143,7 @@ public sealed class ApiClient
         CancellationToken cancellationToken)
     {
         string deviceId = ResolveDeviceId();
-        using HttpResponseMessage response = await SendWithRetryAsync(ct => _httpClient.PostAsJsonAsync("device/job-result", new
+        using HttpResponseMessage response = await SendDeviceJsonAsync(HttpMethod.Post, "device/job-result", deviceId, new
         {
             job_run_id = jobRunId,
             device_id = deviceId,
@@ -143,7 +158,7 @@ public sealed class ApiClient
             action_token = resultMeta?.GetValueOrDefault("action_token"),
             idempotency_key = resultMeta?.GetValueOrDefault("idempotency_key"),
             checkin_id = _lastCheckinId,
-        }, ct), cancellationToken);
+        }, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 
@@ -177,19 +192,19 @@ public sealed class ApiClient
         };
 
         string token = ResolveBehaviorIngestToken();
-        HttpResponseMessage response = await SendWithRetryAsync(ct =>
-        {
-            HttpRequestMessage request = new(HttpMethod.Post, "device/behavior-log")
+        HttpResponseMessage response = await SendDeviceJsonAsync(
+            HttpMethod.Post,
+            "device/behavior-log",
+            deviceId,
+            payload,
+            cancellationToken,
+            request =>
             {
-                Content = JsonContent.Create(payload),
-            };
-            if (!string.IsNullOrWhiteSpace(token))
-            {
-                request.Headers.TryAddWithoutValidation("X-DMS-Behavior-Token", token);
-            }
-
-            return _httpClient.SendAsync(request, ct);
-        }, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    request.Headers.TryAddWithoutValidation("X-DMS-Behavior-Token", token);
+                }
+            });
 
         response.EnsureSuccessStatusCode();
     }
@@ -215,6 +230,7 @@ public sealed class ApiClient
         {
             enrollment_token = token,
             csr_pem = (string?)null,
+            request_signing_public_key = ResolveOrCreateRequestSigningPublicKeyBase64(),
             device_facts = new
             {
                 hostname = Environment.MachineName,
@@ -230,7 +246,11 @@ public sealed class ApiClient
         };
 
         HttpResponseMessage enrollResponse = await SendWithRetryAsync(
-            ct => _httpClient.PostAsJsonAsync("device/enroll", enrollPayload, ct),
+            ct =>
+            {
+                string json = JsonSerializer.Serialize(enrollPayload, RequestJsonOptions);
+                return _httpClient.PostAsync("device/enroll", new StringContent(json, Encoding.UTF8, "application/json"), ct);
+            },
             cancellationToken);
         if (!enrollResponse.IsSuccessStatusCode)
         {
@@ -425,6 +445,127 @@ public sealed class ApiClient
         _behaviorIngestToken = normalized;
         Directory.CreateDirectory(_bootstrapConfiguration.DmsDirectory);
         File.WriteAllText(_behaviorIngestTokenPath, normalized);
+    }
+
+    private async Task<HttpResponseMessage> SendDeviceJsonAsync(
+        HttpMethod method,
+        string relativePath,
+        string deviceId,
+        object payload,
+        CancellationToken cancellationToken,
+        Action<HttpRequestMessage>? customize = null)
+    {
+        string json = JsonSerializer.Serialize(payload, RequestJsonOptions);
+        return await SendWithRetryAsync(ct =>
+        {
+            HttpRequestMessage request = BuildSignedDeviceRequest(method, relativePath, deviceId, json);
+            customize?.Invoke(request);
+            return _httpClient.SendAsync(request, ct);
+        }, cancellationToken);
+    }
+
+    private HttpRequestMessage BuildSignedDeviceRequest(HttpMethod method, string relativePath, string deviceId, string json)
+    {
+        Uri requestUri = _httpClient.BaseAddress is null
+            ? new Uri($"/{relativePath.TrimStart('/')}", UriKind.Relative)
+            : new Uri(_httpClient.BaseAddress, relativePath);
+        HttpRequestMessage request = new(method, requestUri)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+        string timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        string nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
+        string bodyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+        string message = string.Join("\n", [
+            method.Method.ToUpperInvariant(),
+            request.RequestUri?.PathAndQuery ?? $"/{relativePath.TrimStart('/')}",
+            timestamp,
+            nonce,
+            deviceId,
+            bodyHash,
+        ]);
+        string signature = Convert.ToBase64String(SignDeviceRequest(Encoding.UTF8.GetBytes(message)));
+
+        request.Headers.TryAddWithoutValidation("X-DMS-Device-Id", deviceId);
+        request.Headers.TryAddWithoutValidation("X-DMS-Timestamp", timestamp);
+        request.Headers.TryAddWithoutValidation("X-DMS-Nonce", nonce);
+        request.Headers.TryAddWithoutValidation("X-DMS-Signature", signature);
+
+        return request;
+    }
+
+    private byte[] SignDeviceRequest(byte[] message)
+    {
+        byte[] privateKeyBytes = ResolveOrCreateRequestSigningPrivateKeyBytes();
+        var signer = new Ed25519Signer();
+        signer.Init(true, new Ed25519PrivateKeyParameters(privateKeyBytes, 0));
+        signer.BlockUpdate(message, 0, message.Length);
+        return signer.GenerateSignature();
+    }
+
+    private string ResolveOrCreateRequestSigningPublicKeyBase64()
+    {
+        if (!string.IsNullOrWhiteSpace(_requestSigningPublicKeyBase64))
+        {
+            return _requestSigningPublicKeyBase64!;
+        }
+
+        byte[] privateKeyBytes = ResolveOrCreateRequestSigningPrivateKeyBytes();
+        var publicKey = new Ed25519PrivateKeyParameters(privateKeyBytes, 0).GeneratePublicKey().GetEncoded();
+        _requestSigningPublicKeyBase64 = Convert.ToBase64String(publicKey);
+        Directory.CreateDirectory(_bootstrapConfiguration.DmsDirectory);
+        File.WriteAllText(_requestSigningPublicKeyPath, _requestSigningPublicKeyBase64);
+        return _requestSigningPublicKeyBase64;
+    }
+
+    private string ResolveRequestSigningPublicKeyBase64()
+    {
+        if (File.Exists(_requestSigningPublicKeyPath))
+        {
+            string fileValue = File.ReadAllText(_requestSigningPublicKeyPath).Trim();
+            if (!string.IsNullOrWhiteSpace(fileValue))
+            {
+                return fileValue;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private byte[] ResolveOrCreateRequestSigningPrivateKeyBytes()
+    {
+        if (File.Exists(_requestSigningPrivateKeyPath))
+        {
+            string encoded = File.ReadAllText(_requestSigningPrivateKeyPath).Trim();
+            byte[]? existing = DecodeBase64OrNull(encoded);
+            if (existing is { Length: 32 })
+            {
+                return existing;
+            }
+        }
+
+        byte[] privateKeyBytes = RandomNumberGenerator.GetBytes(32);
+        Directory.CreateDirectory(_bootstrapConfiguration.DmsDirectory);
+        File.WriteAllText(_requestSigningPrivateKeyPath, Convert.ToBase64String(privateKeyBytes));
+
+        return privateKeyBytes;
+    }
+
+    private static byte[]? DecodeBase64OrNull(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Convert.FromBase64String(value.Trim());
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static HttpClient CreateHttpClient(string baseAddress)

@@ -266,7 +266,7 @@ class AdminConsoleController extends Controller
                 'allowed_script_hashes' => $this->settingArray('scripts.allowed_sha256', []),
                 'auto_allow_run_command_hashes' => $this->settingBool('scripts.auto_allow_run_command_hashes', false),
                 'delete_cleanup_before_uninstall' => $this->settingBool('devices.delete_cleanup_before_uninstall', false),
-                'package_download_url_mode' => $this->settingString('packages.download_url_mode', 'public'),
+                'package_download_url_mode' => $this->settingString('packages.download_url_mode', 'signed'),
             ],
             'endpointIntelligenceEnabled' => $this->settingBool('endpoint_intelligence.enabled', true),
         ]);
@@ -2706,6 +2706,11 @@ class AdminConsoleController extends Controller
 
     public function downloadPackageFilePublic(string $packageFileId)
     {
+        abort_unless(
+            strtolower($this->settingString('packages.download_url_mode', 'signed')) === 'public',
+            404
+        );
+
         $packageFile = PackageFile::query()->findOrFail($packageFileId);
         $storedPath = $this->resolvePackageArtifactStoragePath($packageFile) ?? '';
         if ($storedPath === '' || ! is_file(storage_path('app'.DIRECTORY_SEPARATOR.$storedPath))) {
@@ -4922,7 +4927,7 @@ POWERSHELL;
                 'allowed_script_hashes' => $this->settingArray('scripts.allowed_sha256', []),
                 'auto_allow_run_command_hashes' => $this->settingBool('scripts.auto_allow_run_command_hashes', false),
                 'delete_cleanup_before_uninstall' => $this->settingBool('devices.delete_cleanup_before_uninstall', false),
-                'package_download_url_mode' => $this->settingString('packages.download_url_mode', 'public'),
+                'package_download_url_mode' => $this->settingString('packages.download_url_mode', 'signed'),
             ],
         ]);
     }
@@ -5330,7 +5335,7 @@ POWERSHELL;
                 ->all(),
             'scripts.auto_allow_run_command_hashes' => (bool) ($data['auto_allow_run_command_hashes'] ?? false),
             'devices.delete_cleanup_before_uninstall' => (bool) ($data['delete_cleanup_before_uninstall'] ?? false),
-            'packages.download_url_mode' => (string) ($data['package_download_url_mode'] ?? 'public'),
+            'packages.download_url_mode' => (string) ($data['package_download_url_mode'] ?? 'signed'),
         ];
         if (array_key_exists('kill_switch', $data)) {
             $settings['jobs.kill_switch'] = (bool) $data['kill_switch'];
@@ -5847,11 +5852,23 @@ POWERSHELL;
             'enroll' => $baseUrl.'/device/enroll',
         ];
 
+        try {
+            foreach ($targets as $url) {
+                $this->assertRemoteArtifactUrlIsAllowed($url);
+            }
+        } catch (\RuntimeException $e) {
+            return back()
+                ->withErrors(['agent_connectivity' => $e->getMessage()])
+                ->withInput();
+        }
+
         $results = [];
         foreach ($targets as $name => $url) {
             $start = microtime(true);
             try {
-                $response = Http::timeout(6)->acceptJson()->get($url);
+                $response = Http::withOptions([
+                    'allow_redirects' => false,
+                ])->timeout(6)->acceptJson()->get($url);
                 $elapsed = (int) round((microtime(true) - $start) * 1000);
                 $results[$name] = [
                     'url' => $url,
@@ -6205,7 +6222,7 @@ CMD);
 
         $storagePath = $this->resolvePackageArtifactStoragePath($file);
         if (is_string($storagePath) && $storagePath !== '') {
-            $mode = strtolower($this->settingString('packages.download_url_mode', 'public'));
+            $mode = strtolower($this->settingString('packages.download_url_mode', 'signed'));
             if ($mode === 'signed') {
                 $expiresAt = now()->addHours(max(1, $expiresHours));
                 $signedPath = URL::temporarySignedRoute(
@@ -7032,7 +7049,7 @@ CMD);
         $maxRetries = $this->settingInt('jobs.max_retries', 3);
         $baseBackoff = $this->settingInt('jobs.base_backoff_seconds', 30);
         $deleteCleanup = $this->settingBool('devices.delete_cleanup_before_uninstall', false);
-        $downloadUrlMode = $this->settingString('packages.download_url_mode', 'public');
+        $downloadUrlMode = $this->settingString('packages.download_url_mode', 'signed');
         $killSwitch = $this->settingBool('jobs.kill_switch', false);
 
         $appUrl = (string) config('app.url', '');
@@ -8261,6 +8278,8 @@ CMD);
 
     private function computeRemoteArtifactSha256(string $url): array
     {
+        $this->assertRemoteArtifactUrlIsAllowed($url);
+
         $response = Http::withOptions([
             'stream' => true,
             'allow_redirects' => ['max' => 5, 'strict' => false, 'referer' => true],
@@ -8289,6 +8308,43 @@ CMD);
             'content_type' => (string) ($response->header('Content-Type') ?? ''),
             'source_uri' => $url,
         ];
+    }
+
+    private function assertRemoteArtifactUrlIsAllowed(string $url): void
+    {
+        $parts = parse_url($url);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = strtolower((string) ($parts['host'] ?? ''));
+
+        if (! in_array($scheme, ['http', 'https'], true) || $host === '') {
+            throw new \RuntimeException('Only http/https URLs with a valid host are allowed.');
+        }
+
+        if ((bool) config('dms.package_hash_allow_private_hosts', false)) {
+            return;
+        }
+
+        if (in_array($host, ['localhost', '127.0.0.1', '::1'], true) || str_ends_with($host, '.local')) {
+            throw new \RuntimeException('Private or local hosts are not allowed.');
+        }
+
+        $ips = [];
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $ips[] = $host;
+        } else {
+            $resolved = gethostbynamel($host) ?: [];
+            $ips = array_values(array_unique(array_filter($resolved, fn ($ip) => is_string($ip) && $ip !== '')));
+        }
+
+        if ($ips === []) {
+            throw new \RuntimeException('Unable to resolve source host.');
+        }
+
+        foreach ($ips as $ip) {
+            if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                throw new \RuntimeException('Private or reserved source hosts are not allowed.');
+            }
+        }
     }
 
     private function brandingDefaults(): array

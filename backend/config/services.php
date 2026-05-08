@@ -54,10 +54,12 @@ return [
         'dispatch_debounce_seconds' => (int) env('DMS_INTELLIGENCE_DISPATCH_DEBOUNCE_SECONDS', 45),
         'finding_stale_minutes' => (int) env('DMS_FINDING_STALE_MINUTES', 30),
         'freshness_stale_minutes' => (int) env('DMS_INTELLIGENCE_FRESHNESS_STALE_MINUTES', 120),
-        'allow_behavior_checkin_fallback' => (bool) env('DMS_BEHAVIOR_LOG_ALLOW_CHECKIN_FALLBACK', true),
+        'allow_behavior_checkin_fallback' => (bool) env('DMS_BEHAVIOR_LOG_ALLOW_CHECKIN_FALLBACK', false),
         'behavior_checkin_fallback_window_minutes' => (int) env('DMS_BEHAVIOR_LOG_CHECKIN_FALLBACK_WINDOW_MINUTES', 15),
         'checkin_interval_seconds' => (int) env('DMS_CHECKIN_INTERVAL_SECONDS', 60),
         'nonce_window_seconds' => (int) env('DMS_NONCE_WINDOW_SECONDS', 300),
+        'device_request_auth_mode' => env('DMS_DEVICE_REQUEST_AUTH_MODE', 'required_for_signed_devices'),
+        'legacy_request_log_interval_seconds' => (int) env('DMS_LEGACY_DEVICE_REQUEST_LOG_INTERVAL_SECONDS', 900),
     ],
 
 ];

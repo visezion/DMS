@@ -4,6 +4,7 @@ use App\Http\Middleware\RequirePermission;
 use App\Http\Middleware\ApplyLocalizedUiStrings;
 use App\Http\Middleware\ResolveTenantContext;
 use App\Http\Middleware\SetPreferredLocale;
+use App\Http\Middleware\VerifyDeviceRequest;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -31,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: $webMiddleware);
         $middleware->alias([
             'permission' => RequirePermission::class,
+            'device.auth' => VerifyDeviceRequest::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

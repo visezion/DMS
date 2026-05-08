@@ -11,6 +11,7 @@ class DeviceIngestionAuthService
 {
     public function ensureBehaviorIngestToken(Device $device): string
     {
+        $device->refresh();
         $tags = is_array($device->tags) ? $device->tags : [];
         $existing = trim((string) data_get($tags, 'security.behavior_ingest_token', ''));
         if ($existing !== '') {
@@ -85,4 +86,3 @@ class DeviceIngestionAuthService
         return '';
     }
 }
-

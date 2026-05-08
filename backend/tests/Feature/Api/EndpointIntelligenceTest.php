@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Domain\Common\DeviceIngestionAuthService;
 use App\Jobs\BuildDeviceIntelligenceJob;
 use App\Models\RemediationAction;
 use App\Models\RemediationActionResult;
@@ -578,7 +579,9 @@ class EndpointIntelligenceTest extends TestCase
             ],
         ])->assertOk();
 
-        $this->postJson('/api/v1/device/behavior-log', [
+        $token = app(DeviceIngestionAuthService::class)->ensureBehaviorIngestToken($device);
+
+        $this->withHeader('X-DMS-Behavior-Token', $token)->postJson('/api/v1/device/behavior-log', [
             'device_id' => $device->id,
             'events' => [
                 [
@@ -629,7 +632,7 @@ class EndpointIntelligenceTest extends TestCase
         $this->assertTrue((bool) data_get($snapshot?->raw_payload, 'telemetry_coverage.windows_telemetry_present'));
     }
 
-    public function test_behavior_log_requires_authentication_and_accepts_recent_checkin_fallback(): void
+    public function test_behavior_log_requires_authentication_and_prefers_token_auth(): void
     {
         $device = Device::query()->create([
             'id' => (string) Str::uuid(),
@@ -653,6 +656,20 @@ class EndpointIntelligenceTest extends TestCase
             ],
         ])->assertStatus(401);
 
+        $token = app(DeviceIngestionAuthService::class)->ensureBehaviorIngestToken($device);
+
+        $this->withHeader('X-DMS-Behavior-Token', $token)->postJson('/api/v1/device/behavior-log', [
+            'device_id' => $device->id,
+            'events' => [
+                [
+                    'event_type' => 'app_launch',
+                    'occurred_at' => now()->toIso8601String(),
+                    'process_name' => 'cmd.exe',
+                ],
+            ],
+        ])->assertOk()->assertJsonPath('auth_mode', 'token');
+
+        config()->set('services.endpoint_intelligence.allow_behavior_checkin_fallback', true);
         $device->update([
             'tags' => ['last_checkin_id' => 'checkin-auth-1'],
             'last_seen_at' => now(),

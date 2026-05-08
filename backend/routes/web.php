@@ -102,17 +102,19 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () us
     Route::post('/ops/kill-switch', [AdminConsoleController::class, 'toggleKillSwitch'])->middleware('permission:jobs.write')->name('ops.kill-switch');
     Route::post('/ops/rotate-signing-key', [AdminConsoleController::class, 'rotateSigningKey'])->middleware('permission:jobs.write')->name('ops.rotate-key');
 
-    Route::get('/agent', [AdminConsoleController::class, 'agent'])->name('agent');
-    Route::post('/agent/releases', [AdminConsoleController::class, 'uploadAgentRelease'])->name('agent.releases.upload');
-    Route::post('/agent/releases/autobuild', [AdminConsoleController::class, 'autoBuildAgentRelease'])->name('agent.releases.autobuild');
-    Route::post('/agent/releases/{releaseId}/activate', [AdminConsoleController::class, 'activateAgentRelease'])->name('agent.releases.activate');
-    Route::delete('/agent/releases/{releaseId}', [AdminConsoleController::class, 'deleteAgentRelease'])->name('agent.releases.delete');
-    Route::post('/agent/releases/generate', [AdminConsoleController::class, 'generateAgentInstaller'])->name('agent.releases.generate');
-    Route::post('/agent/releases/generate-json', [AdminConsoleController::class, 'generateAgentInstallerJson'])->name('agent.releases.generate-json');
-    Route::post('/agent/push-update', [AdminConsoleController::class, 'pushAgentUpdate'])->name('agent.push-update');
-    Route::post('/agent/test-connectivity', [AdminConsoleController::class, 'testAgentApiConnectivity'])->name('agent.test-connectivity');
-    Route::post('/agent/backend/start', [AdminConsoleController::class, 'startAgentBackendServer'])->name('agent.backend.start');
-    Route::get('/agent/backend/status', [AdminConsoleController::class, 'agentBackendServerStatus'])->name('agent.backend.status');
+    Route::middleware('permission:jobs.write')->group(function () {
+        Route::get('/agent', [AdminConsoleController::class, 'agent'])->name('agent');
+        Route::post('/agent/releases', [AdminConsoleController::class, 'uploadAgentRelease'])->name('agent.releases.upload');
+        Route::post('/agent/releases/autobuild', [AdminConsoleController::class, 'autoBuildAgentRelease'])->name('agent.releases.autobuild');
+        Route::post('/agent/releases/{releaseId}/activate', [AdminConsoleController::class, 'activateAgentRelease'])->name('agent.releases.activate');
+        Route::delete('/agent/releases/{releaseId}', [AdminConsoleController::class, 'deleteAgentRelease'])->name('agent.releases.delete');
+        Route::post('/agent/releases/generate', [AdminConsoleController::class, 'generateAgentInstaller'])->name('agent.releases.generate');
+        Route::post('/agent/releases/generate-json', [AdminConsoleController::class, 'generateAgentInstallerJson'])->name('agent.releases.generate-json');
+        Route::post('/agent/push-update', [AdminConsoleController::class, 'pushAgentUpdate'])->name('agent.push-update');
+        Route::post('/agent/test-connectivity', [AdminConsoleController::class, 'testAgentApiConnectivity'])->name('agent.test-connectivity');
+        Route::post('/agent/backend/start', [AdminConsoleController::class, 'startAgentBackendServer'])->name('agent.backend.start');
+        Route::get('/agent/backend/status', [AdminConsoleController::class, 'agentBackendServerStatus'])->name('agent.backend.status');
+    });
     Route::get('/getting-started', [AdminConsoleController::class, 'gettingStarted'])->name('getting-started');
     Route::get('/docs', [AdminConsoleController::class, 'docs'])->name('docs');
     Route::get('/notes', [AdminConsoleController::class, 'notes'])->name('notes');

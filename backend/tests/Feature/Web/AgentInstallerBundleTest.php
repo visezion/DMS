@@ -3,6 +3,8 @@
 namespace Tests\Feature\Web;
 
 use App\Models\AgentRelease;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -17,7 +19,7 @@ class AgentInstallerBundleTest extends TestCase
 
     public function test_generated_installer_bundle_routes_are_accessible(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUserWithPermission('jobs.write');
         $release = $this->createAgentRelease();
         $publicBaseUrl = 'http://dms.test';
         $apiBaseUrl = $publicBaseUrl.'/api/v1';
@@ -60,7 +62,7 @@ class AgentInstallerBundleTest extends TestCase
 
     public function test_generated_installer_bundle_signatures_are_valid_for_subdirectory_public_base_url(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUserWithPermission('jobs.write');
         $release = $this->createAgentRelease();
         $publicBaseUrl = 'http://example.test/DMS/backend/public';
         $apiBaseUrl = $publicBaseUrl.'/api/v1';
@@ -79,6 +81,31 @@ class AgentInstallerBundleTest extends TestCase
         $this->assertTrue(URL::hasValidSignature(Request::create($bundle['launcher_url'], 'GET')));
         $this->assertTrue(URL::hasValidSignature(Request::create($bundle['download_url'], 'GET')));
         $this->assertStringContainsString('/DMS/backend/public/agent/releases/', $bundle['script_url']);
+    }
+
+    public function test_agent_installer_generation_requires_jobs_write_permission(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $release = $this->createAgentRelease();
+
+        $this->actingAs($user)
+            ->postJson('/admin/agent/releases/generate-json', [
+                'release_id' => $release->id,
+            ])
+            ->assertForbidden();
+    }
+
+    public function test_agent_connectivity_rejects_localhost_targets(): void
+    {
+        $user = $this->createUserWithPermission('jobs.write');
+
+        $this->from('/admin/agent')
+            ->actingAs($user)
+            ->post('/admin/agent/test-connectivity', [
+                'api_base_url' => 'http://127.0.0.1/api/v1',
+            ])
+            ->assertRedirect('/admin/agent')
+            ->assertSessionHasErrors('agent_connectivity');
     }
 
     private function createAgentRelease(): AgentRelease
@@ -101,5 +128,26 @@ class AgentInstallerBundleTest extends TestCase
             'is_active' => true,
             'uploaded_by' => null,
         ]);
+    }
+
+    private function createUserWithPermission(string $permissionSlug): User
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $role = Role::query()->create([
+            'id' => (string) Str::uuid(),
+            'name' => 'Agent Operator',
+            'slug' => 'agent-operator-'.Str::lower(Str::random(6)),
+        ]);
+        $permission = Permission::query()->firstOrCreate([
+            'slug' => $permissionSlug,
+        ], [
+            'id' => (string) Str::uuid(),
+            'name' => $permissionSlug,
+        ]);
+
+        $role->permissions()->sync([$permission->id]);
+        $user->roles()->sync([$role->id]);
+
+        return $user;
     }
 }
